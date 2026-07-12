@@ -1,0 +1,17 @@
+# GrokYtalkY
+> Grok terminal companion: walkie, Strudel live coding, hex video, MIDI, xAI prompts.
+
+Module: github.com/fornevercollective/grokytalky
+Org: fornevercollective
+Stack: Go, Bubble Tea v2, Lip Gloss v2, ffmpeg, WebSocket mesh
+
+## Docs
+- README.md
+- AGENTS.md
+- LLMS.md
+- docs/
+
+## Entry
+- go build -o bin/grokytalky .
+- ./bin/grokytalky
+- ./bin/grokytalky serve

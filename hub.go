@@ -1,0 +1,257 @@
+package main
+
+import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"log"
+	"net"
+	"net/http"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+
+	"github.com/coder/websocket"
+)
+
+// Hub is the mesh WebSocket relay (hexcast-compatible frames + walkie msgs).
+type Hub struct {
+	mu     sync.Mutex
+	peers  map[*websocket.Conn]*peerMeta
+	server *http.Server
+	addr   string
+	quiet  bool
+}
+
+type peerMeta struct {
+	ID      string
+	Nick    string
+	Role    string
+	Talking bool
+}
+
+func NewHub(addr string, quiet bool, staticDir string) *Hub {
+	h := &Hub{
+		peers: make(map[*websocket.Conn]*peerMeta),
+		addr:  addr,
+		quiet: quiet,
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Upgrade") == "websocket" {
+			h.handleWS(w, r)
+			return
+		}
+		// static optional (browser walkie still served if present)
+		if staticDir != "" {
+			p := filepath.Join(staticDir, filepath.Clean("/"+r.URL.Path))
+			if r.URL.Path == "/" {
+				p = filepath.Join(staticDir, "walkie.html")
+			}
+			if st, err := os.Stat(p); err == nil && !st.IsDir() {
+				http.ServeFile(w, r, p)
+				return
+			}
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte("GrokYtalkY hub — connect with: grokytalky\n"))
+	})
+	mux.HandleFunc("/api/peers", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"peers": h.peerList()})
+	})
+	h.server = &http.Server{Addr: addr, Handler: mux}
+	return h
+}
+
+func (h *Hub) ListenAndServe() error {
+	ln, err := net.Listen("tcp", h.addr)
+	if err != nil {
+		return err
+	}
+	if !h.quiet {
+		log.Printf("GrokYtalkY hub on %s", ln.Addr())
+	}
+	return h.server.Serve(ln)
+}
+
+func (h *Hub) Close() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	return h.server.Shutdown(ctx)
+}
+
+func (h *Hub) peerList() []map[string]any {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	out := make([]map[string]any, 0, len(h.peers))
+	for _, m := range h.peers {
+		out = append(out, map[string]any{
+			"id": m.ID, "nick": m.Nick, "role": m.Role, "talking": m.Talking,
+		})
+	}
+	return out
+}
+
+func (h *Hub) handleWS(w http.ResponseWriter, r *http.Request) {
+	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		InsecureSkipVerify: true,
+		OriginPatterns:     []string{"*"},
+	})
+	if err != nil {
+		return
+	}
+	q := r.URL.Query()
+	meta := &peerMeta{
+		ID:   randID(3),
+		Nick: q.Get("nick"),
+		Role: q.Get("role"),
+	}
+	if meta.Nick == "" {
+		meta.Nick = "peer"
+	}
+	if meta.Role == "" {
+		meta.Role = "peer"
+	}
+	h.mu.Lock()
+	h.peers[c] = meta
+	n := len(h.peers)
+	h.mu.Unlock()
+	if !h.quiet {
+		log.Printf("+ %s (%s) n=%d", meta.Nick, meta.ID, n)
+	}
+
+	ctx := r.Context()
+	_ = writeJSON(ctx, c, map[string]any{"type": "hello", "id": meta.ID, "nick": meta.Nick, "version": version})
+	_ = writeJSON(ctx, c, map[string]any{"type": "roster", "peers": h.peerList()})
+	h.broadcast(c, mustJSON(map[string]any{"type": "join", "id": meta.ID, "nick": meta.Nick, "role": meta.Role}))
+
+	defer func() {
+		h.mu.Lock()
+		delete(h.peers, c)
+		h.mu.Unlock()
+		h.broadcast(c, mustJSON(map[string]any{"type": "leave", "id": meta.ID, "nick": meta.Nick}))
+		_ = c.Close(websocket.StatusNormalClosure, "")
+		if !h.quiet {
+			log.Printf("- %s", meta.Nick)
+		}
+	}()
+
+	for {
+		_, data, err := c.Read(ctx)
+		if err != nil {
+			return
+		}
+		h.route(c, meta, data)
+	}
+}
+
+func (h *Hub) route(from *websocket.Conn, meta *peerMeta, data []byte) {
+	// hexcast frame: JSON\nbase64
+	if i := indexByte(data, '\n'); i > 0 && data[0] == '{' {
+		var hdr map[string]any
+		if json.Unmarshal(data[:i], &hdr) == nil {
+			if t, _ := hdr["type"].(string); t == "frame" {
+				h.broadcast(from, data)
+				return
+			}
+		}
+	}
+	var msg map[string]any
+	if err := json.Unmarshal(data, &msg); err != nil {
+		h.broadcast(from, data)
+		return
+	}
+	typ, _ := msg["type"].(string)
+	switch typ {
+	case "join", "hello":
+		if n, ok := msg["nick"].(string); ok && n != "" {
+			meta.Nick = n
+		}
+		h.broadcast(from, mustJSON(map[string]any{"type": "roster", "peers": h.peerList()}))
+		_ = writeJSON(context.Background(), from, map[string]any{"type": "roster", "peers": h.peerList()})
+	case "chat":
+		out := map[string]any{
+			"type": "chat",
+			"text": msg["text"],
+			"from": coalesce(msg["from"], meta.Nick),
+			"id":   meta.ID,
+			"t":    time.Now().UnixMilli(),
+		}
+		h.broadcast(from, mustJSON(out))
+	case "ptt":
+		st, _ := msg["state"].(string)
+		meta.Talking = st == "down"
+		h.broadcast(from, mustJSON(map[string]any{
+			"type": "ptt", "state": st,
+			"from": coalesce(msg["from"], meta.Nick), "id": meta.ID,
+		}))
+	case "audio":
+		h.broadcast(from, data)
+	default:
+		if _, ok := msg["from"]; !ok {
+			msg["from"] = meta.Nick
+		}
+		h.broadcast(from, mustJSON(msg))
+	}
+}
+
+func (h *Hub) broadcast(except *websocket.Conn, data []byte) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	for c := range h.peers {
+		if c == except {
+			continue
+		}
+		_ = c.Write(ctx, websocket.MessageText, data)
+	}
+}
+
+func writeJSON(ctx context.Context, c *websocket.Conn, v any) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	return c.Write(ctx, websocket.MessageText, b)
+}
+
+func mustJSON(v any) []byte {
+	b, _ := json.Marshal(v)
+	return b
+}
+
+func coalesce(v any, def string) string {
+	if s, ok := v.(string); ok && s != "" {
+		return s
+	}
+	return def
+}
+
+func indexByte(b []byte, c byte) int {
+	for i, x := range b {
+		if x == c {
+			return i
+		}
+	}
+	return -1
+}
+
+func randID(n int) string {
+	const hex = "0123456789abcdef"
+	b := make([]byte, n*2)
+	// cheap: time-based
+	t := time.Now().UnixNano()
+	for i := range b {
+		b[i] = hex[(int(t)+i*17)%16]
+		t >>= 3
+	}
+	return string(b)
+}
+
+// DecodeFrameB64 helper for clients.
+func DecodeFrameB64(b64 string) ([]byte, error) {
+	return base64.StdEncoding.DecodeString(b64)
+}

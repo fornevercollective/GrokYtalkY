@@ -1,0 +1,16 @@
+# GrokYtalkY defaults (reference — env vars take precedence)
+
+[server]
+port = 9876
+bind = "0.0.0.0"
+
+[ui]
+compact = true
+fps = 12
+
+[grok]
+model = "grok-3-mini"
+backend = "http://127.0.0.1:3000"
+
+[midi]
+virtual_port = "GrokYtalkY"

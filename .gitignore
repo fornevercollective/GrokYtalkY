@@ -1,0 +1,34 @@
+# Build
+bin/grokytalky
+bin/*
+!bin/.gitkeep
+dist/
+*.exe
+*.test
+*.out
+
+# Go
+vendor/
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Logs & temp
+*.log
+.tmp/
+tmp/
+/tmp/
+
+# Local sfx / clips
+hexwalkie-sfx/
+grokytalky-sfx/
+*.wav
+!examples/**/*.wav

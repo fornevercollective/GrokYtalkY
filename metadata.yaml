@@ -1,0 +1,31 @@
+name: GrokYtalkY
+slug: grokytalky
+org: fornevercollective
+module: github.com/fornevercollective/grokytalky
+version: 1.7.0-dock
+license: Apache-2.0
+description: >
+  Charm Bubble Tea companion dock for Grok terminal — walkie mesh,
+  Strudel-lite patterns, ffmpeg terminal video, MIDI, xAI prompts.
+tags:
+  - grok
+  - bubbletea
+  - walkie
+  - strudel
+  - midi
+  - companion
+  - terminal
+runtime:
+  go: "1.26+"
+  optional:
+    - ffmpeg
+    - ffplay
+    - whisper-cli
+related:
+  - fornevercollective/grok-repo-template
+  - bjarneo/cliamp
+  - emprcl/signls
+  - emprcl/sektron
+entrypoints:
+  - main.go
+  - scripts/install.sh
