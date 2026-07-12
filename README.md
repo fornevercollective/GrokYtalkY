@@ -9,6 +9,9 @@ Mesh audio + MIDI handling patterns from [signls](https://github.com/emprcl/sign
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go)](https://go.dev/)
+[![Pages](https://img.shields.io/badge/Pages-live-00ff66)](https://fornevercollective.github.io/GrokYtalkY/)
+
+**Site:** [fornevercollective.github.io/GrokYtalkY](https://fornevercollective.github.io/GrokYtalkY/) · inspired by [charm.land](https://charm.land)
 
 ---
 
@@ -105,17 +108,16 @@ Keys also load from `~/.grok/env` if present.
 
 ```
 GrokYtalkY/
+├── site/                  # GitHub Pages (charm.land-style landing)
+│   ├── index.html
+│   └── styles.css
 ├── main.go model.go …     # companion TUI + hub
 ├── midi/                  # signls/sektron-style MIDI + clock
 ├── strudel/               # mini-notation engine + audio/MIDI sinks
 ├── scripts/install.sh
-├── configs/
-├── docs/
-├── examples/
-├── bin/                   # build output (gitignored binary)
-├── AGENTS.md
-├── LLMS.md
-└── metadata.yaml
+├── configs/ docs/ examples/
+├── .github/workflows/     # ci.yml + pages.yml
+└── AGENTS.md LLMS.md
 ```
 
 ---
