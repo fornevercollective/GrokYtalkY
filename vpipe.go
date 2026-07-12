@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 // VideoPipe decodes mp4/mkv/mov (or URL/RTSP/HTTP) via ffmpeg into RGB frames
@@ -33,7 +34,7 @@ type VideoPipe struct {
 }
 
 // OpenVideoPipe starts ffmpeg → raw RGB24 pipe (+ optional ffplay audio).
-// src: local path or URL (http/https/rtsp/rtmp/…).
+// src: local path, raw stream URL, or site link (auto yt-dlp resolve).
 func OpenVideoPipe(src string, w, h int, withAudio bool) (*VideoPipe, error) {
 	if w < 8 {
 		w = 80
@@ -45,24 +46,57 @@ func OpenVideoPipe(src string, w, h int, withAudio bool) (*VideoPipe, error) {
 		h++
 	}
 
-	src = expandPath(src)
-	if !isURL(src) {
-		if _, err := os.Stat(src); err != nil {
-			return nil, fmt.Errorf("video: %w", err)
-		}
+	resolved, err := ResolveMediaTimeout(src, 90*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	return openVideoPipeResolved(resolved, w, h, withAudio)
+}
+
+// OpenVideoPipeResolved skips re-resolve (caller already ran ResolveMedia).
+func OpenVideoPipeResolved(r *ResolvedStream, w, h int, withAudio bool) (*VideoPipe, error) {
+	if w < 8 {
+		w = 80
+	}
+	if h < 4 {
+		h = 40
+	}
+	if h%2 != 0 {
+		h++
+	}
+	return openVideoPipeResolved(r, w, h, withAudio)
+}
+
+func openVideoPipeResolved(r *ResolvedStream, w, h int, withAudio bool) (*VideoPipe, error) {
+	if r == nil || r.Video == "" {
+		return nil, fmt.Errorf("video: empty resolved stream")
 	}
 
-	// -re = realtime pace for files; for live URLs ffmpeg paces on arrival
-	args := []string{
-		"-hide_banner", "-loglevel", "error",
-		"-re",
-		"-i", src,
-		"-an", // video-only on this pipe
+	// -re for files; live/network streams pace on arrival
+	args := []string{"-hide_banner", "-loglevel", "error"}
+	if r.Via == "file" {
+		args = append(args, "-re")
+	}
+	// reconnect-ish for network
+	if r.Via != "file" {
+		args = append(args,
+			"-reconnect", "1",
+			"-reconnect_streamed", "1",
+			"-reconnect_delay_max", "5",
+		)
+	}
+	args = append(args, "-i", r.Video)
+	// separate audio input when yt-dlp splits streams (video still -an on pixel pipe)
+	if r.Audio != "" {
+		// video pipe stays video-only; audio handled by startAudio
+	}
+	args = append(args,
+		"-an",
 		"-vf", fmt.Sprintf("scale=%d:%d:flags=bicubic,format=rgb24", w, h),
 		"-f", "rawvideo",
 		"-pix_fmt", "rgb24",
 		"pipe:1",
-	}
+	)
 	cmd := exec.Command("ffmpeg", args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -73,6 +107,10 @@ func OpenVideoPipe(src string, w, h int, withAudio bool) (*VideoPipe, error) {
 		return nil, fmt.Errorf("ffmpeg: %w (need ffmpeg on PATH)", err)
 	}
 
+	label := r.Title
+	if label == "" {
+		label = r.Input
+	}
 	vp := &VideoPipe{
 		cmd:     cmd,
 		stdout:  stdout,
@@ -80,13 +118,18 @@ func OpenVideoPipe(src string, w, h int, withAudio bool) (*VideoPipe, error) {
 		running: true,
 		W:       w,
 		H:       h,
-		Src:     src,
+		Src:     label,
 		FPS:     15,
 		frame:   make([]byte, w*h*3),
 	}
 
 	if withAudio {
-		vp.startAudio(src)
+		audioSrc := r.Video
+		if r.Audio != "" {
+			audioSrc = r.Audio
+		}
+		vp.startAudio(audioSrc)
+		vp.HasAudio = true
 	}
 
 	go vp.readLoop()

@@ -18,23 +18,69 @@ Mesh audio + MIDI handling patterns from [signls](https://github.com/emprcl/sign
 ## Quick Start
 
 ```bash
-git clone https://github.com/fornevercollective/grokytalky.git
-cd grokytalky
-go build -o bin/grokytalky .
-./bin/grokytalky            # compact companion dock
-./bin/grokytalky serve      # headless mesh hub (server)
-./bin/grokytalky watch clip.mp4
+# terminal-wide short command (recommended)
+git clone https://github.com/fornevercollective/GrokYtalkY.git
+cd GrokYtalkY && make install    # → ~/.local/bin/gy
+
+gy                 # companion dock
+gy burst           # Siri-sized video walkie
+gy serve           # mesh hub
+gy watch clip.mp4
 ```
 
-**Install:**
+### Install (pick one)
+
+| Method | Command | Binary on PATH |
+|--------|---------|----------------|
+| **Make** (user) | `make install` | `gy` → `~/.local/bin` |
+| **System-wide** | `make install-system` | `/usr/local/bin/gy` + checks ffmpeg/yt-dlp |
+| **Launch** | `make launch` | new Terminal window running `gy` |
+| **Go** | `go install github.com/fornevercollective/grokytalky@latest` | `grokytalky` only |
+| **Homebrew** (checkout) | `brew install --build-from-source ./Formula/grokytalky.rb` | `gy` + `grokytalky` |
+
+**Streams:** `/watch` and `gy watch <url>` auto-resolve with **yt-dlp** (YouTube/Twitch/X/…) or pass raw `m3u8`/`rtsp`/files to ffmpeg.
+
+**Depth / gsplat:** live mono depth (`d` cycles) — zip-lite offline, [ZipDepth](https://zipdepth.github.io) sidecar (`:8766` from aito-mac), or gsplat-style stack (aito / overview). See `docs/depth-gsplat.md`.
+
+**Video lab:** multi-feed wall next to chat with listed **FPS / scale / style / layout** controls:
 
 ```bash
-go install github.com/fornevercollective/grokytalky@latest
-# or
-./scripts/install.sh
+gy lab                 # or V inside companion
+# [ ] scale · , . fps · m style · L layout
+# a +sim · c +cam · tab next feed · o toggle lists
+# styles: half hex braille ascii blocks points halftone depth gsplat
+# layouts: side | stack | grid | focus
 ```
 
-**Grok prompt:** *"Clone fornevercollective/grokytalky and run as a companion dock next to my terminal."*
+```bash
+gy watch 'https://www.youtube.com/watch?v=…'
+gy watch 'https://cdn.example.com/live.m3u8'
+# in TUI: paste URL + Enter (watch mode) or /watch URL
+gy doctor   # ffmpeg · ffplay · yt-dlp
+```
+
+```bash
+# ensure user bins are on PATH (zsh)
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
+
+# Go install path (if you used go install)
+echo 'export PATH="$(go env GOPATH)/bin:$PATH"' >> ~/.zshrc
+```
+
+**Not uv** — this is a Go binary (uv is for Python). Use `go install` / `make install` / Homebrew instead.
+
+### Version & updates
+
+```bash
+gy --version          # one line
+gy version            # commit, build date, install channel, binary path
+gy update --check     # compare to GitHub latest (exit 2 if outdated)
+gy update             # install latest via same channel (go / brew / local)
+```
+
+Builds embed version via ldflags (`make install` uses `git describe`).
+
+**Grok prompt:** *"Clone fornevercollective/GrokYtalkY, run make install, then gy as a companion dock."*
 
 ---
 
@@ -51,10 +97,13 @@ Default UI is a **small Charm dock** (alt-screen, width-clamped) meant to sit be
 
 ```bash
 ./bin/grokytalky              # companion dock
+./bin/grokytalky burst        # Siri-sized video walkie orb (Glyph Matrix)
 ./bin/grokytalky --full       # larger layout
 ./bin/grokytalky serve        # Colossus/server: hub only, no TUI
 ./bin/grokytalky join host:9876
 ```
+
+**Video burst:** hold **space** in burst mode for short face+voice PTT. Frames ship as JPEG + 25×25 glyph grid for [Nothing Glyph Matrix](https://github.com/Nothing-Developer-Programme/GlyphMatrix-Developer-Kit). Web orb: `site/burst.html`. Android toy scaffold: `glyph/`.
 
 ---
 

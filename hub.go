@@ -123,7 +123,7 @@ func (h *Hub) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	_ = writeJSON(ctx, c, map[string]any{"type": "hello", "id": meta.ID, "nick": meta.Nick, "version": version})
+	_ = writeJSON(ctx, c, map[string]any{"type": "hello", "id": meta.ID, "nick": meta.Nick, "version": Version})
 	_ = writeJSON(ctx, c, map[string]any{"type": "roster", "peers": h.peerList()})
 	h.broadcast(c, mustJSON(map[string]any{"type": "join", "id": meta.ID, "nick": meta.Nick, "role": meta.Role}))
 
@@ -187,6 +187,18 @@ func (h *Hub) route(from *websocket.Conn, meta *peerMeta, data []byte) {
 			"type": "ptt", "state": st,
 			"from": coalesce(msg["from"], meta.Nick), "id": meta.ID,
 		}))
+	case "vburst-start", "vburst-end", "vburst-frame", "vburst-audio":
+		// Siri-sized video burst walkie — relay as-is (glyph grid + jpeg)
+		if _, ok := msg["from"]; !ok {
+			msg["from"] = meta.Nick
+		}
+		if typ == "vburst-start" {
+			meta.Talking = true
+		}
+		if typ == "vburst-end" {
+			meta.Talking = false
+		}
+		h.broadcast(from, mustJSON(msg))
 	case "audio":
 		h.broadcast(from, data)
 	default:

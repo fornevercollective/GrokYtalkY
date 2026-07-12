@@ -173,3 +173,46 @@ func (c *MeshClient) SendFrame(src string, w, h int, jpeg []byte) {
 	pkt = append(pkt, []byte(b64)...)
 	_ = c.SendRaw(pkt)
 }
+
+// ── Video burst (Siri-sized walkie face) ─────────────────────
+
+func (c *MeshClient) SendBurstStart() {
+	_ = c.SendJSON(map[string]any{
+		"type": string(BurstStart), "from": c.Nick, "t": time.Now().UnixMilli(),
+	})
+}
+
+func (c *MeshClient) SendBurstEnd() {
+	_ = c.SendJSON(map[string]any{
+		"type": string(BurstEnd), "from": c.Nick, "t": time.Now().UnixMilli(),
+	})
+}
+
+// SendBurstFrame ships a small JPEG + optional glyph matrix brightness for Nothing Phone.
+func (c *MeshClient) SendBurstFrame(jpeg []byte, w, h int, glyph []int) {
+	msg := map[string]any{
+		"type": string(BurstFrame),
+		"from": c.Nick,
+		"fmt":  "jpeg",
+		"b64":  base64.StdEncoding.EncodeToString(jpeg),
+		"w":    w,
+		"h":    h,
+		"t":    time.Now().UnixMilli(),
+	}
+	if len(glyph) > 0 {
+		msg["glyph"] = glyph
+		// N×N: 25→625, 13→169
+		n := 25
+		if len(glyph) <= 169 {
+			n = 13
+		} else if len(glyph) < 625 {
+			// nearest square root (integer)
+			for i := 1; i*i <= len(glyph); i++ {
+				n = i
+			}
+		}
+		msg["glyphN"] = n
+	}
+	_ = c.SendJSON(msg)
+}
+

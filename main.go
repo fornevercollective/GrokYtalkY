@@ -49,15 +49,62 @@ func run(args []string) error {
 	live := fs.Bool("live", false, "start in Strudel live-coding mode")
 	full := fs.Bool("full", false, "full dashboard (default is compact companion dock)")
 	cam := fs.Bool("cam", false, "enable camera on start")
+	burst := fs.Bool("burst", false, "Siri-sized video burst orb (Glyph Matrix walkie)")
+	lab := fs.Bool("lab", false, "multi-feed video lab (FPS/scale/style + chat)")
+	glyphN := fs.Int("glyph", 25, "Glyph Matrix side length (25 Phone3 / 13 Phone4a)")
 	noAudio := fs.Bool("no-audio", false, "disable local pattern synth")
 	_ = noAudio
 	fs.SetOutput(os.Stderr)
+	fs.Usage = func() { printHelp() }
 
 	cmd := "term"
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		cmd = args[0]
 		args = args[1:]
 	}
+
+	// early commands / flags — before flag.Parse (unknown sub-flags like --check)
+	switch cmd {
+	case "help", "-h", "--help":
+		printHelp()
+		return nil
+	case "version", "ver", "-v", "-V", "--version":
+		if cmd == "version" || cmd == "ver" {
+			fmt.Print(versionDetail())
+		} else {
+			fmt.Println(versionLine())
+		}
+		return nil
+	case "update", "upgrade":
+		checkOnly := false
+		for _, a := range args {
+			switch a {
+			case "--check", "-c":
+				checkOnly = true
+			case "-h", "--help":
+				fmt.Println(`gy update [--check]
+  --check, -c   report only; exit 2 if a newer release exists
+  (default)     install latest via go install / brew / make channel`)
+				return nil
+			}
+		}
+		err := runUpdate(checkOnly)
+		if err == errUpdateAvailable {
+			os.Exit(2)
+		}
+		return err
+	}
+	for _, a := range args {
+		switch a {
+		case "-h", "--help":
+			printHelp()
+			return nil
+		case "-v", "-V", "--version":
+			fmt.Println(versionLine())
+			return nil
+		}
+	}
+
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -74,12 +121,39 @@ func run(args []string) error {
 	xl8.ToEN = !*noTr
 
 	switch cmd {
-	case "help", "-h", "--help":
-		printHelp()
+	case "doctor":
+		fmt.Print(StreamDoctor())
+		fmt.Println(DepthDoctorLine())
+		fmt.Println(DepthModesList())
+		fmt.Printf("gy binary: %s\n", versionLine())
+		if p, err := os.Executable(); err == nil {
+			fmt.Printf("path: %s\n", p)
+		}
 		return nil
 	case "hub", "receive", "serve":
 		// server-level: headless mesh only — no TUI takeover
 		return runHubOnly(*bind, *port)
+	case "burst", "glyph", "orb":
+		// Siri-sized popup: hold space = short video+audio walkie burst
+		h := *host
+		if h == "" {
+			h = fmt.Sprintf("127.0.0.1:%d", *port)
+		}
+		return runTUI(Options{
+			Nick: *nick, Host: h, MIDI: *midi, MIDIDev: *midiDev,
+			Translate: *translate, XL8: xl8,
+			Burst: true, Cam: true, GlyphN: *glyphN,
+		}, true, *bind, *port)
+	case "lab", "vwall", "feeds":
+		h := *host
+		if h == "" {
+			h = fmt.Sprintf("127.0.0.1:%d", *port)
+		}
+		return runTUI(Options{
+			Nick: *nick, Host: h, MIDI: *midi, MIDIDev: *midiDev,
+			Translate: *translate, XL8: xl8,
+			Lab: true, Full: true, GlyphN: *glyphN,
+		}, true, *bind, *port)
 	case "join", "talk":
 		h := *host
 		if h == "" && fs.NArg() > 0 {
@@ -94,6 +168,7 @@ func run(args []string) error {
 		return runTUI(Options{
 			Nick: *nick, Host: h, MIDI: *midi, MIDIDev: *midiDev,
 			Translate: *translate, XL8: xl8, Live: *live, Full: *full, Cam: *cam,
+			Burst: *burst, Lab: *lab, GlyphN: *glyphN,
 		}, false, *bind, *port)
 	case "term", "start", "live", "companion", "":
 		h := *host
@@ -103,7 +178,8 @@ func run(args []string) error {
 		return runTUI(Options{
 			Nick: *nick, Host: h, MIDI: *midi, MIDIDev: *midiDev,
 			Translate: *translate, XL8: xl8,
-			Live: *live || cmd == "live", Full: *full, Cam: *cam,
+			Live: *live || cmd == "live", Full: *full || *lab, Cam: *cam,
+			Burst: *burst, Lab: *lab, GlyphN: *glyphN,
 		}, true, *bind, *port)
 	case "watch", "vplay":
 		// grokytalky watch movie.mp4
@@ -153,33 +229,49 @@ func runWatchTUI(src, nick string, port int, bind string) error {
 }
 
 func printHelp() {
-	fmt.Printf(`GrokYtalkY %s — Grok companion dock (Charm) + mesh server
+	// argv0 so `gy --help` and `grokytalky --help` both read naturally
+	cmd := "gy"
+	if len(os.Args) > 0 {
+		base := filepath.Base(os.Args[0])
+		if base != "" && base != "." {
+			cmd = base
+		}
+	}
+	fmt.Printf(`GrokYtalkY %s — lean Charm companion + video burst
 
-  grokytalky serve              headless hub only (server / Colossus-side)
-  grokytalky                    compact companion TUI (default)
-  grokytalky --full             larger dashboard
-  grokytalky watch file.mp4     ffmpeg → clamped half-block video
-  grokytalky join HOST:PORT     companion to remote hub
+  %s                 companion dock (default)
+  %s burst           Siri-sized video walkie orb
+  %s lab             multi-feed lab (feeds | chat)
+  %s serve           headless hub
+  %s version         version + build info
+  %s update          check & install latest
+  %s update --check  check only (exit 2 if outdated)
+  %s --full          larger layout
+  %s watch URL|file  ffmpeg pixels (auto yt-dlp)
+  %s doctor          check ffmpeg / yt-dlp / ffplay
+  %s join HOST:PORT  remote hub
 
-Companion (default): small dock, cam off, no wrap-spool, alt-screen stable.
-Does not try to replace Grok terminal — sits beside it.
+  tab   chat · live · grok · watch  (lab: next feed)
+  V     video lab on/off     [ ] scale   , . fps
+  L     layout side|stack|grid|focus
+  m     style half·hex·…·depth·gsplat
+  a     +sim feed            c  cam / +cam feed
+  b     burst orb            F  full/companion
+  ?     help                 q  quit
 
-  tab     chat|live|grok|watch
-  g       grok prompt   ·  /grok …
-  /watch  mp4|mkv|mov|url
-  c       cam (small strip)
-  F       toggle full/companion
-  p       pattern play/stop
-
-env: XAI_API_KEY · GROK_MODEL · GROK_CLI_URL · HEXCAST_PORT
-`, version)
+  install:  make install     →  ~/.local/bin/gy
+            brew install --build-from-source ./Formula/grokytalky.rb
+  burst = short video+audio walkie, face → Glyph Matrix 25×25
+  flags: --burst --glyph 25|13 --midi --cam --live --port --nick
+  env:   XAI_API_KEY · GROK_MODEL · GROK_CLI_URL
+`, Version, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd)
 }
 
 func runHubOnly(bind string, port int) error {
 	static := findStatic()
 	addr := fmt.Sprintf("%s:%d", bind, port)
 	h := NewHub(addr, false, static)
-	fmt.Printf("GrokYtalkY hub %s\n  join: grokytalky join 127.0.0.1:%d\n", version, port)
+	fmt.Printf("GrokYtalkY hub %s\n  join: gy join 127.0.0.1:%d\n", Version, port)
 	return h.ListenAndServe()
 }
 

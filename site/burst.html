@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Burst · GrokYtalkY</title>
+  <meta name="description" content="Siri-sized video walkie burst — hold to send face+voice, Glyph Matrix ready." />
+  <meta name="theme-color" content="#0c0c0f" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    .burst-page { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2rem 1rem 4rem; }
+    .burst-page h1 { font-size: 1.35rem; letter-spacing: -0.03em; margin: 0 0 0.35rem; text-align: center; }
+    .burst-lede { color: var(--muted); font-size: 0.9rem; text-align: center; max-width: 28rem; margin-bottom: 1.5rem; }
+    .burst-stage { position: relative; width: min(280px, 72vw); height: min(280px, 72vw); }
+    /* Siri-sized orb */
+    .burst-orb {
+      position: absolute; inset: 0;
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at 40% 35%, rgba(125,211,252,.18), transparent 45%),
+        radial-gradient(circle at 50% 50%, #12121a 0%, #08080c 70%);
+      border: 1px solid rgba(125,211,252,.25);
+      box-shadow:
+        0 0 0 1px rgba(0,0,0,.4),
+        0 24px 60px rgba(0,0,0,.55),
+        0 0 40px rgba(125,211,252,.08);
+      overflow: hidden;
+      cursor: pointer;
+      touch-action: none;
+      user-select: none;
+      transition: border-color .15s, box-shadow .15s, transform .12s;
+    }
+    .burst-orb:active, .burst-orb.tx {
+      border-color: rgba(248,113,113,.7);
+      box-shadow: 0 0 48px rgba(248,113,113,.25), 0 24px 60px rgba(0,0,0,.55);
+      transform: scale(1.03);
+    }
+    .burst-orb.rx {
+      border-color: rgba(74,222,128,.55);
+      box-shadow: 0 0 40px rgba(74,222,128,.18), 0 24px 60px rgba(0,0,0,.55);
+    }
+    .burst-orb canvas.face {
+      position: absolute; inset: 18%;
+      width: 64%; height: 64%;
+      border-radius: 50%;
+      image-rendering: pixelated;
+      background: #050508;
+    }
+    .burst-orb canvas.ring {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+    }
+    .burst-orb .orb-label {
+      position: absolute; left: 0; right: 0; bottom: 14%;
+      text-align: center;
+      font-family: var(--mono);
+      font-size: 0.62rem;
+      color: var(--faint);
+      pointer-events: none;
+    }
+    .burst-orb.tx .orb-label { color: #f87171; }
+    .burst-orb.rx .orb-label { color: #4ade80; }
+    .burst-meta {
+      margin-top: 1.25rem;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--muted);
+      text-align: center;
+    }
+    .burst-meta em { color: var(--accent); font-style: normal; }
+    .burst-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; margin-top: 1rem; }
+    .burst-hint { margin-top: 1.5rem; font-size: 0.8rem; color: var(--faint); text-align: center; max-width: 22rem; line-height: 1.45; }
+    .glyph-preview {
+      margin-top: 1.75rem;
+      padding: 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #08080c;
+    }
+    .glyph-preview p {
+      font-family: var(--mono);
+      font-size: 0.62rem;
+      color: var(--faint);
+      margin: 0 0 0.5rem;
+      text-align: center;
+    }
+    .glyph-preview canvas {
+      display: block;
+      margin: 0 auto;
+      image-rendering: pixelated;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="noise" aria-hidden="true"></div>
+  <header class="nav">
+    <a class="brand" href="./">
+      <span class="brand-mark">◈</span>
+      <span class="brand-name">GrokYtalkY</span>
+    </a>
+    <nav>
+      <a href="./">Home</a>
+      <a href="burst.html" class="nav-active">Burst</a>
+      <a href="docs.html">Docs</a>
+      <a href="https://github.com/fornevercollective/GrokYtalkY">GitHub</a>
+    </nav>
+  </header>
+
+  <main class="burst-page">
+    <p class="eyebrow">walkie · siri-size · glyph matrix</p>
+    <h1>Hold to burst video</h1>
+    <p class="burst-lede">
+      Short face+voice walkie — same idea as PTT audio, with a Siri-sized orb.
+      Frames downsample to 25×25 for
+      <a href="https://github.com/Nothing-Developer-Programme/GlyphMatrix-Developer-Kit">Nothing Glyph Matrix</a>.
+    </p>
+
+    <div class="burst-stage">
+      <div class="burst-orb" id="burst-orb" role="button" aria-label="Hold to send video burst" tabindex="0">
+        <canvas class="ring" id="ring-canvas" width="280" height="280"></canvas>
+        <canvas class="face" id="face-canvas" width="25" height="25"></canvas>
+        <span class="orb-label" id="orb-label">hold</span>
+      </div>
+    </div>
+
+    <p class="burst-meta" id="burst-meta">idle · mesh optional</p>
+    <div class="burst-actions">
+      <button type="button" class="btn primary" id="btn-hold">Hold burst</button>
+      <button type="button" class="btn ghost" id="btn-cam">Enable cam</button>
+      <label class="btn ghost">
+        Hub
+        <input type="text" id="hub-url" value="" placeholder="ws://127.0.0.1:9876" style="display:none" />
+      </label>
+      <button type="button" class="btn ghost" id="btn-connect">Connect</button>
+    </div>
+
+    <div class="glyph-preview">
+      <p>Glyph Matrix preview (25×25 luminance)</p>
+      <canvas id="glyph-canvas" width="125" height="125"></canvas>
+    </div>
+
+    <p class="burst-hint">
+      Terminal: <code>grokytalky burst</code> · space = same hold gesture.<br />
+      Android: see <code>glyph/</code> Glyph Toy service.
+    </p>
+  </main>
+
+  <script src="burst-orb.js"></script>
+</body>
+</html>

@@ -6,36 +6,62 @@ import (
 	"image/color"
 	_ "image/jpeg"
 	_ "image/png"
+	"math"
 	"strings"
+	"time"
 
 	"charm.land/lipgloss/v2"
 	"github.com/lucasb-eyer/go-colorful"
 )
 
-// PixelMode selects how hexcast frames render in the terminal (cliamp-style modes).
+// PixelMode selects how frames render (cliamp + vwall styles).
 type PixelMode int
 
 const (
-	PixelHalf PixelMode = iota // ▀ half-blocks (truecolor / 256)
-	PixelHex                   // hex-ish mosaic blocks (hexcast vibe)
-	PixelBraille               // denser braille dots
-	PixelASCII                 // shade ramp
+	PixelHalf PixelMode = iota // ▀ half-blocks (truecolor)
+	PixelHex                   // hex mosaic
+	PixelBraille               // braille density
+	PixelASCII                 // shade ramp glyphs
+	PixelBlocks                // chunky pixel blocks
+	PixelPoints                // pointillist dots
+	PixelHalftone              // AM newspaper dots
+	PixelDepth                 // zip-lite depth false-color
+	PixelGsplat                // gsplat depth stack
 	PixelCount
 )
 
 func (m PixelMode) String() string {
 	switch m {
 	case PixelHalf:
-		return "Half"
+		return "half"
 	case PixelHex:
-		return "Hex"
+		return "hex"
 	case PixelBraille:
-		return "Braille"
+		return "braille"
 	case PixelASCII:
-		return "Ascii"
+		return "ascii"
+	case PixelBlocks:
+		return "blocks"
+	case PixelPoints:
+		return "points"
+	case PixelHalftone:
+		return "halftone"
+	case PixelDepth:
+		return "depth"
+	case PixelGsplat:
+		return "gsplat"
 	default:
 		return "?"
 	}
+}
+
+// AllStyles lists style names for UI/docs.
+func AllStyles() []string {
+	out := make([]string, 0, PixelCount)
+	for i := PixelMode(0); i < PixelCount; i++ {
+		out = append(out, i.String())
+	}
+	return out
 }
 
 // FramePixels holds a decoded grayscale/RGB buffer for terminal paint.
@@ -129,19 +155,165 @@ func rgbHex(r, g, b byte) string {
 }
 
 // RenderFrame paints frame into a string using the selected pixel mode + lipgloss.
+// maxHalfRows limits vertical size (0 = full frame height).
 func RenderFrame(f *FramePixels, mode PixelMode, widthCols int) string {
+	return RenderFrameH(f, mode, widthCols, 0)
+}
+
+// RenderFrameH same as RenderFrame but caps half-block rows.
+func RenderFrameH(f *FramePixels, mode PixelMode, widthCols, maxHalfRows int) string {
 	if f == nil || f.W == 0 || f.H == 0 {
-		return dimStyle.Render("  no video — waiting for hexcast frames / press c for cam  ")
+		return dimStyle.Render("  no video — waiting for frames / c cam / a sim  ")
 	}
+	// style preprocess on a copy for modes that mutate RGB
+	src := f
+	switch mode {
+	case PixelBlocks, PixelPoints, PixelHalftone, PixelDepth, PixelGsplat:
+		src = f.Clone()
+		applyPixelStyle(src, mode)
+	}
+	var body string
 	switch mode {
 	case PixelHex:
-		return renderHex(f, widthCols)
+		body = renderHex(src, widthCols)
 	case PixelBraille:
-		return renderBraille(f, widthCols)
+		body = renderBraille(src, widthCols)
 	case PixelASCII:
-		return renderASCII(f, widthCols)
+		body = renderASCII(src, widthCols)
 	default:
-		return renderHalf(f, widthCols)
+		// half / blocks / points / halftone / depth / gsplat all paint as half-blocks after preprocess
+		body = renderHalf(src, widthCols)
+	}
+	if maxHalfRows > 0 {
+		body = fitHalfBlock(body, widthCols, maxHalfRows)
+	}
+	return body
+}
+
+// Clone deep-copies RGB buffer.
+func (f *FramePixels) Clone() *FramePixels {
+	if f == nil {
+		return nil
+	}
+	cp := make([]byte, len(f.RGB))
+	copy(cp, f.RGB)
+	return &FramePixels{W: f.W, H: f.H, RGB: cp, Source: f.Source}
+}
+
+// applyPixelStyle mutates f.RGB in place for lab styles.
+func applyPixelStyle(f *FramePixels, mode PixelMode) {
+	if f == nil {
+		return
+	}
+	switch mode {
+	case PixelBlocks:
+		applyBlocks(f, 4)
+	case PixelPoints:
+		applyPoints(f, 5)
+	case PixelHalftone:
+		applyHalftone(f, 6)
+	case PixelDepth:
+		if dm := EstimateZipLite(f.RGB, f.W, f.H); dm != nil {
+			ApplyDepthColorize(f, dm)
+		}
+	case PixelGsplat:
+		if dm := EstimateZipLite(f.RGB, f.W, f.H); dm != nil {
+			ApplyGsplatStack(f, dm, defaultGsplat, float64(time.Now().UnixMilli())/1000)
+		}
+	}
+}
+
+func applyBlocks(f *FramePixels, cell int) {
+	if cell < 2 {
+		cell = 2
+	}
+	for y := 0; y < f.H; y += cell {
+		for x := 0; x < f.W; x += cell {
+			var r, g, b, n int
+			for dy := 0; dy < cell && y+dy < f.H; dy++ {
+				for dx := 0; dx < cell && x+dx < f.W; dx++ {
+					rr, gg, bb := f.at(x+dx, y+dy)
+					r += int(rr)
+					g += int(gg)
+					b += int(bb)
+					n++
+				}
+			}
+			if n == 0 {
+				continue
+			}
+			r /= n
+			g /= n
+			b /= n
+			for dy := 0; dy < cell && y+dy < f.H; dy++ {
+				for dx := 0; dx < cell && x+dx < f.W; dx++ {
+					i := ((y+dy)*f.W + (x + dx)) * 3
+					f.RGB[i] = byte(r)
+					f.RGB[i+1] = byte(g)
+					f.RGB[i+2] = byte(b)
+				}
+			}
+		}
+	}
+}
+
+func applyPoints(f *FramePixels, cell int) {
+	if cell < 3 {
+		cell = 3
+	}
+	src := f.Clone()
+	for i := 0; i < len(f.RGB); i += 3 {
+		f.RGB[i], f.RGB[i+1], f.RGB[i+2] = 8, 8, 12
+	}
+	for y := cell / 2; y < f.H; y += cell {
+		for x := cell / 2; x < f.W; x += cell {
+			r, g, b := src.at(x, y)
+			L := (0.299*float64(r) + 0.587*float64(g) + 0.114*float64(b)) / 255
+			rad := float64(cell) * 0.45 * (0.15 + L*0.95)
+			r2 := rad * rad
+			for dy := -cell; dy <= cell; dy++ {
+				for dx := -cell; dx <= cell; dx++ {
+					if float64(dx*dx+dy*dy) > r2 {
+						continue
+					}
+					xx, yy := x+dx, y+dy
+					if xx < 0 || yy < 0 || xx >= f.W || yy >= f.H {
+						continue
+					}
+					i := (yy*f.W + xx) * 3
+					f.RGB[i], f.RGB[i+1], f.RGB[i+2] = r, g, b
+				}
+			}
+		}
+	}
+}
+
+func applyHalftone(f *FramePixels, cell int) {
+	if cell < 3 {
+		cell = 3
+	}
+	src := f.Clone()
+	for y := 0; y < f.H; y++ {
+		for x := 0; x < f.W; x++ {
+			cx := (x/cell)*cell + cell/2
+			cy := (y/cell)*cell + cell/2
+			if cx >= f.W {
+				cx = f.W - 1
+			}
+			if cy >= f.H {
+				cy = f.H - 1
+			}
+			r, g, b := src.at(cx, cy)
+			L := (0.299*float64(r) + 0.587*float64(g) + 0.114*float64(b)) / 255
+			dist := math.Hypot(float64(x-cx), float64(y-cy))
+			maxR := float64(cell) * 0.48 * (1 - L)
+			ink := byte(245)
+			if dist <= maxR {
+				ink = 0
+			}
+			i := (y*f.W + x) * 3
+			f.RGB[i], f.RGB[i+1], f.RGB[i+2] = ink, ink, ink
+		}
 	}
 }
 

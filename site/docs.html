@@ -35,6 +35,8 @@
       <a href="#companion">Companion dock</a>
       <a href="#modes">Modes</a>
       <a href="#video">Camera &amp; video</a>
+      <a href="#vwall">VWall simulcast</a>
+      <a href="#burst">Video burst / Glyph</a>
       <a href="#patterns">Patterns</a>
       <a href="#midi">MIDI</a>
       <a href="#grok">Grok prompt</a>
@@ -92,7 +94,7 @@ go build -o bin/grokytalky .
 
       <section id="video" class="docs-section">
         <h2>Camera &amp; video</h2>
-        <p><strong>On this site:</strong> the home page hero streams your camera or a local video file into half-block pixels (same idea as the terminal).</p>
+        <p><strong>On this site:</strong> multi-feed vwall (below). Terminal strip on the left mirrors the active feed.</p>
         <p><strong>In the TUI:</strong></p>
         <ul>
           <li><code>c</code> — small camera strip (Half truecolor)</li>
@@ -105,6 +107,49 @@ ffmpeg -re -i SRC -an -vf scale=W:H,format=rgb24 -f rawvideo pipe:1
 ffplay -vn SRC   # audio parallel</code></pre>
         <p>Layout clamps every line to terminal width so resize does not spool half-blocks.</p>
         <p><a href="./#conversation">Open streaming hero on home →</a></p>
+      </section>
+
+      <section id="vwall" class="docs-section">
+        <h2>VWall simulcast</h2>
+        <p>
+          Home page multi-feed wall, modeled on overview <code>VideoFeedsLab</code> / vwall.
+          Up to 6 simultaneous streams; settings persist in <code>localStorage</code> (<code>gy-vwall</code>).
+        </p>
+        <table class="docs-table">
+          <thead><tr><th>Control</th><th>Range</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td>Size</td><td>32–128 px</td><td>Cell canvas max dimension (all feeds share)</td></tr>
+            <tr><td>FPS</td><td>4–30</td><td>Frame cap for the whole wall</td></tr>
+            <tr><td>Style</td><td>half / blocks / points / ascii / halftone</td><td>Post-pass like overview videoLabEffects</td></tr>
+            <tr><td>Layout</td><td>grid · focus</td><td>Grid mosaic, or focus active tile only</td></tr>
+          </tbody>
+        </table>
+        <ul>
+          <li><strong>+ Sim feed</strong> — procedural motion (used when camera is blocked)</li>
+          <li><strong>+ Camera</strong> — <code>getUserMedia</code>; falls back to sim on deny</li>
+          <li><strong>+ Video file</strong> — local mp4/webm/mov (looped, muted)</li>
+          <li>Click a tile to set it active (mirrors into the terminal strip)</li>
+          <li>× on a tile removes that feed</li>
+        </ul>
+        <p><a href="./#conversation">Open VWall on home →</a></p>
+      </section>
+
+      <section id="burst" class="docs-section">
+        <h2>Video burst / Glyph Matrix</h2>
+        <p>
+          Siri-sized short <strong>face + voice</strong> walkie. Hold to TX, release to stop —
+          same mesh as audio PTT, plus a 25×25 luminance grid for
+          <a href="https://github.com/Nothing-Developer-Programme/GlyphMatrix-Developer-Kit">Nothing Glyph Matrix</a>.
+        </p>
+        <pre class="code-block"><code>./bin/grokytalky burst     # terminal orb
+# press space to hold-burst
+# b toggles burst from companion dock</code></pre>
+        <ul>
+          <li><a href="burst.html">Web burst orb</a> — hold the circle</li>
+          <li>Android scaffold in <code>glyph/</code> — Glyph Button down/up</li>
+          <li>Protocol: <code>vburst-start</code> · <code>vburst-frame</code> · <code>audio</code> · <code>vburst-end</code></li>
+        </ul>
+        <p>Full write-up: <code>docs/burst.md</code> in the repo.</p>
       </section>
 
       <section id="patterns" class="docs-section">

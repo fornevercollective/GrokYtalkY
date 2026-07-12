@@ -4,12 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>GrokYtalkY · fornevercollective</title>
-  <meta name="description" content="Grok terminal companion — live camera/video hero, walkie mesh, Strudel, MIDI. Charm Bubble Tea. fornevercollective." />
+  <meta name="description" content="Grok companion — multi-feed simulcast wall, size/FPS/style controls, Charm dock." />
   <meta name="theme-color" content="#0c0c0f" />
   <link rel="canonical" href="https://fornevercollective.github.io/GrokYtalkY/" />
-  <meta property="og:title" content="GrokYtalkY" />
-  <meta property="og:description" content="Streaming video hero · talk · pattern · grok companion dock." />
-  <meta property="og:url" content="https://fornevercollective.github.io/GrokYtalkY/" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -24,9 +21,8 @@
       <span class="brand-name">GrokYtalkY</span>
     </a>
     <nav>
-      <a href="#conversation">Stream</a>
-      <a href="#terminal">Terminal</a>
-      <a href="#modes">Modes</a>
+      <a href="#conversation">VWall</a>
+      <a href="burst.html">Burst</a>
       <a href="#install">Install</a>
       <a href="docs.html">Docs</a>
       <a href="https://github.com/fornevercollective/GrokYtalkY" rel="noopener">GitHub</a>
@@ -36,118 +32,102 @@
   <main id="top">
     <section id="conversation" class="hero-convo">
       <div class="convo-copy-top">
-        <p class="eyebrow">fornevercollective · terminal left · feed hero</p>
-        <h1>Your feed is the conversation.</h1>
+        <p class="eyebrow">fornevercollective · vwall simulcast</p>
+        <h1>Multi-feed wall. Tunable stream.</h1>
         <p class="lede">
-          Charm dock on the left (with in-terminal video sim). Live stream on the right.
-          Camera permission optional — sim runs when blocked.
+          Overview-style simulcast: size, FPS, and style (half / blocks / points / ascii / halftone).
+          Terminal on the left mirrors the active feed. Camera optional — sim when blocked.
         </p>
+
+        <!-- stream controls (vwall / VideoFeedsLab inspired) -->
+        <div class="vwall-controls" role="group" aria-label="Stream controls">
+          <label class="vctrl">
+            <span>Size</span>
+            <input type="range" id="ctrl-size" min="32" max="128" step="16" value="64" />
+            <em id="ctrl-size-val">64</em>
+          </label>
+          <label class="vctrl">
+            <span>FPS</span>
+            <input type="range" id="ctrl-fps" min="4" max="30" step="1" value="12" />
+            <em id="ctrl-fps-val">12</em>
+          </label>
+          <label class="vctrl">
+            <span>Style</span>
+            <select id="ctrl-style">
+              <option value="half">half (blocks)</option>
+              <option value="blocks">blocks</option>
+              <option value="points">points</option>
+              <option value="ascii">ascii</option>
+              <option value="halftone">halftone</option>
+              <option value="depth">depth (zip-lite)</option>
+              <option value="gsplat">gsplat stack</option>
+            </select>
+          </label>
+          <label class="vctrl">
+            <span>Layout</span>
+            <select id="ctrl-layout">
+              <option value="grid">grid</option>
+              <option value="focus">focus</option>
+            </select>
+          </label>
+        </div>
+
         <div class="hero-cta">
-          <button type="button" class="btn primary" id="btn-cam">Start camera</button>
-          <button type="button" class="btn ghost" id="btn-sim">Sim feed</button>
+          <button type="button" class="btn primary" id="btn-add-sim">+ Sim feed</button>
+          <button type="button" class="btn ghost" id="btn-add-cam">+ Camera</button>
+          <button type="button" class="btn ghost" id="btn-cam" hidden>cam</button>
+          <button type="button" class="btn ghost" id="btn-sim" hidden>sim</button>
           <label class="btn ghost file-btn">
-            Open video
+            + Video file
             <input type="file" id="file-video" accept="video/*,.mp4,.mkv,.mov,.webm" hidden />
           </label>
           <a class="btn ghost" href="docs.html">Open docs →</a>
         </div>
-        <p class="stream-status" id="stream-status">Starting sim feed…</p>
+        <p class="stream-status" id="stream-status">vwall ready</p>
       </div>
 
-      <!-- dual stage: terminal LEFT, stream RIGHT -->
       <div class="dual-stage">
-        <!-- LEFT: actual terminal preview + embedded video sim -->
-        <div class="term term-preview term-left" id="terminal" aria-label="GrokYtalkY terminal preview">
+        <!-- LEFT: terminal + feed mirror -->
+        <div class="term term-preview term-left" id="terminal" aria-label="GrokYtalkY terminal">
           <div class="term-bar">
             <span></span><span></span><span></span>
             <code>grokytalky · companion dock</code>
           </div>
-          <div class="term-cam" aria-hidden="false">
-            <canvas id="term-canvas" width="160" height="72" aria-label="In-terminal video sim"></canvas>
-            <span class="term-cam-label" id="term-cam-label">cam sim · half-block</span>
+          <div class="term-cam">
+            <canvas id="term-canvas" width="160" height="72" aria-label="Active feed mirror"></canvas>
+            <span class="term-cam-label" id="term-cam-label">vwall · half · 64</span>
           </div>
-          <pre class="term-body" id="term-body"><span class="c-dim">◈ gy</span> <span class="c-live">●</span> <span class="c-tab">chat</span><span class="c-dim">│</span><span class="c-tab on">live</span><span class="c-dim">│</span><span class="c-tab">grok</span><span class="c-dim">│</span><span class="c-tab">watch</span>
+          <pre class="term-body"><span class="c-dim">◈ gy</span> <span class="c-live">●</span> <span class="c-tab">chat</span><span class="c-dim">│</span><span class="c-tab on">live</span><span class="c-dim">│</span><span class="c-tab">grok</span><span class="c-dim">│</span><span class="c-tab">watch</span>
 <span class="c-dim">▶ s("bd*4, [~ sd]*2")  cyc=12  hit=drum bd</span>
 <span class="c-live">█</span><span class="c-dim">····</span><span class="c-live">█</span><span class="c-dim">····</span><span class="c-live">█</span><span class="c-dim">····</span><span class="c-accent">│</span><span class="c-dim">···</span>
-<span class="c-dim">· companion dock · mesh :9876 · midi GrokYtalkY</span>
-<span class="c-dim">· feed: <span id="term-feed-line">sim</span> · tab modes · F compact</span>
+<span class="c-dim">· companion · mesh :9876 · midi GrokYtalkY</span>
+<span class="c-dim">· feed: <span id="term-feed-line">2×half@12</span> · size/fps/style</span>
 <span class="c-grok">✦ grok</span><span class="c-dim"> ›</span> make a house pattern at 124 bpm<span class="cursor">█</span></pre>
         </div>
 
-        <!-- RIGHT: large stream hero -->
+        <!-- RIGHT: multi-feed wall + chat -->
         <div class="stream-hero" id="stream-hero">
           <div class="stream-chrome">
-            <span class="pill live-pill" id="live-pill">○ idle</span>
-            <span class="pill" id="stream-meta">half-block · 0 fps</span>
-            <span class="pill mono">mesh ready</span>
+            <span class="pill live-pill on" id="live-pill">● live</span>
+            <span class="pill" id="stream-meta">feeds · half · 12 fps</span>
+            <span class="pill mono">vwall simulcast</span>
           </div>
-          <div class="stream-view">
-            <video id="hero-video" playsinline muted autoplay></video>
-            <canvas id="hero-canvas" aria-label="Streaming half-block video feed"></canvas>
-            <div class="stream-placeholder" id="stream-placeholder">
-              <span class="glyph">◈</span>
-              <p>Streaming camera / video hero</p>
-              <p class="sub">Sim runs when camera blocked</p>
-            </div>
-          </div>
+          <div class="feed-wall layout-grid n-2" id="feed-wall" aria-label="Multi-feed wall"></div>
           <div class="stream-chat" id="stream-chat" aria-live="polite">
-            <div class="bubble sys">· conversation · feed is the hero</div>
-            <div class="bubble peer">◎ pattern ready · s("bd*4")</div>
-            <div class="bubble me">terminal left · stream right</div>
+            <div class="bubble sys">· vwall · adjust size / FPS / style</div>
+            <div class="bubble peer">+ sim feeds · click tile to focus</div>
+            <div class="bubble me">terminal left mirrors active feed</div>
           </div>
         </div>
-      </div>
-    </section>
-
-    <section id="build" class="section">
-      <p class="section-label">Build</p>
-      <h2>Charm-grade. Companion-first.</h2>
-      <p class="section-lead">
-        Bubble Tea v2 dock, width-clamped video, MIDI, Strudel-lite, Grok prompts.
-        <a href="docs.html">Full documentation →</a>
-      </p>
-      <div class="cards">
-        <article class="card">
-          <h3>Live feed hero</h3>
-          <p class="tag">camera · sim · mp4</p>
-          <p>Browser half-blocks; terminal ffmpeg RGB → ▀.</p>
-        </article>
-        <article class="card">
-          <h3>Walkie mesh</h3>
-          <p class="tag">WebSocket hub</p>
-          <p><code>grokytalky serve</code> for multi-peer talk.</p>
-        </article>
-        <article class="card">
-          <h3>Strudel-lite</h3>
-          <p class="tag">live coding</p>
-          <p><code>s("bd*4")</code> with local synth + MIDI.</p>
-        </article>
-        <article class="card">
-          <h3>Grok mode</h3>
-          <p class="tag">✦ prompt</p>
-          <p>xAI or local backend — patterns can hot-eval.</p>
-        </article>
-      </div>
-    </section>
-
-    <section id="modes" class="section alt">
-      <p class="section-label">Modes</p>
-      <h2>Tab through intent.</h2>
-      <div class="mode-grid">
-        <div class="mode"><span class="glyph">›</span><h3>chat</h3><p>Mesh walkie · SPACE PTT</p></div>
-        <div class="mode"><span class="glyph">◎</span><h3>live</h3><p>Mini-notation patterns</p></div>
-        <div class="mode"><span class="glyph">✦</span><h3>grok</h3><p>Prompt beside the feed</p></div>
-        <div class="mode"><span class="glyph">▶</span><h3>watch</h3><p>/watch file or URL</p></div>
       </div>
     </section>
 
     <section id="install" class="section">
       <p class="section-label">Install</p>
-      <h2>One clone. One build.</h2>
+      <h2>Companion dock + mesh hub</h2>
       <div class="install">
         <pre class="code-block"><code>git clone https://github.com/fornevercollective/GrokYtalkY.git
-cd GrokYtalkY
-go build -o bin/grokytalky .
+cd GrokYtalkY && go build -o bin/grokytalky .
 ./bin/grokytalky
 ./bin/grokytalky serve
 ./bin/grokytalky watch clip.mp4</code></pre>
@@ -160,14 +140,12 @@ go build -o bin/grokytalky .
   </main>
 
   <footer class="footer">
-    <div><strong>GrokYtalkY</strong><span class="c-dim"> · fornevercollective · Apache-2.0</span></div>
+    <div><strong>GrokYtalkY</strong><span class="c-dim"> · fornevercollective</span></div>
     <div class="footer-links">
       <a href="docs.html">Docs</a>
       <a href="https://github.com/fornevercollective/GrokYtalkY">Source</a>
-      <a href="https://charm.land" rel="noopener">charm.land</a>
     </div>
   </footer>
-
   <script src="stream-hero.js"></script>
 </body>
 </html>

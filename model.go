@@ -18,9 +18,8 @@ import (
 	"github.com/fornevercollective/grokytalky/strudel"
 )
 
-const version = "1.7.0-dock"
-
 // Model is the Bubble Tea v2 app state (cliamp-style Elm architecture).
+// Version string lives in version.go (ldflags-overridable).
 type Model struct {
 	nick      string
 	host      string
@@ -82,6 +81,18 @@ type Model struct {
 	compact      bool // companion dock (default) — not full takeover
 	layoutW      int  // last stable layout width for resize debounce
 	layoutH      int
+
+	// Siri-sized video burst orb (Glyph Matrix walkie)
+	burstMode   bool
+	burstRemote string // nick currently bursting video at us
+	glyphN      int    // 25 Phone(3) / 13 Phone(4a)
+	lastGlyph   []int  // last brightness grid for debug / Android bridge
+
+	// Live depth + gsplat (ZipDepth sidecar / zip-lite / overview-style stack)
+	depth *depthSession
+
+	// Multi-feed video lab (FPS / scale / style / layout + feeds | chat)
+	lab *LabState
 }
 
 type peerInfo struct {
@@ -138,6 +149,9 @@ type Options struct {
 	Full      bool // full dashboard (default is compact companion)
 	NoHub     bool
 	Cam       bool
+	Burst     bool // Siri-sized video burst orb (Glyph Matrix walkie)
+	GlyphN    int  // matrix side (25 or 13); default 25
+	Lab       bool // multi-feed video lab next to chat
 }
 
 func NewModel(opts Options) *Model {
@@ -146,12 +160,16 @@ func NewModel(opts Options) *Model {
 		host:      opts.Host,
 		width:     80,
 		height:    24,
-		status:    "starting…",
+		status:    "tab · ? · q",
 		bands:     make([]float64, 32),
 		pixelMode:  PixelHalf,
-		videoOn:    opts.Cam || opts.Full, // companion: video off until c or /watch
-		camOn:      opts.Cam,
+		videoOn:    opts.Cam || opts.Full || opts.Burst,
+		camOn:      opts.Cam || opts.Burst,
 		compact:    !opts.Full,
+		burstMode:  opts.Burst,
+		glyphN:     opts.GlyphN,
+		depth:      newDepthSession(),
+		lab:        newLabState(),
 		player:     &Player{},
 		midiOn:     opts.MIDI,
 		xl8On:      opts.Translate,
@@ -170,40 +188,41 @@ func NewModel(opts Options) *Model {
 		},
 		grokCfg: loadGrokConfig(),
 		chat: []chatLine{
-			{Sys: true, Text: fmt.Sprintf("GrokYtalkY %s · companion dock (Grok-side)", version)},
-			{Sys: true, Text: "tab modes · g grok · /watch mp4 · c cam · F full · ? help"},
+			{Sys: true, Text: fmt.Sprintf("gy %s · companion", Version)},
 		},
+	}
+	if m.glyphN != GlyphPhone3 && m.glyphN != GlyphPhone4a {
+		m.glyphN = GlyphPhone3
+	}
+	if opts.Burst {
+		m.width, m.height = OrbCols+4, OrbRows+4
+		m.chat = []chatLine{{Sys: true, Text: "burst · space hold = video walkie"}}
+		m.status = "space = burst"
 	}
 	if opts.Live {
 		m.promptMode = ModeLive
 		m.liveMode = true
 	}
 
-	// MIDI first so live sink can use it
+	// MIDI first so live sink can use it (quiet — status only)
 	var mid hwmidi.Midi
 	var dev int
 	if opts.MIDI {
 		mid = hwmidi.NewOptional()
 		dev = hwmidi.FindDevice(mid.DeviceNames(), opts.MIDIDev)
 		m.midiBridge = hwmidi.NewBridge(mid, dev)
-		names := mid.DeviceNames()
-		if len(names) > 0 {
-			m.pushSys(fmt.Sprintf("midi: %s — signls/sektron + strudel hits", names[dev]))
-		} else {
-			m.pushSys("midi: no devices")
+		if len(mid.DeviceNames()) == 0 {
 			m.midiOn = false
 		}
 	}
 
-	// Live engine (Strudel REPL-like)
-	// IMPORTANT: MIDI virtual port alone is silent — always attach local audio synth.
+	// Live engine: always attach local audio (MIDI port alone is silent).
 	var sinks []strudel.Sink
 	audio := strudel.NewAudioSink()
 	if audio.Enabled() {
 		sinks = append(sinks, audio)
-		m.pushSys("audio: local synth (afplay/ffplay) — you should hear bd/sd/hh")
 	} else {
-		m.pushSys("audio: NONE — install afplay or ffplay")
+		m.status = "no afplay/ffplay"
 	}
 	if mid != nil {
 		ms := strudel.NewMIDISink(mid, dev)
@@ -213,7 +232,6 @@ func NewModel(opts Options) *Model {
 			}
 		})
 		sinks = append(sinks, ms)
-		m.pushSys("midi out also on (needs a softsynth on GrokYtalkY port for MIDI audio)")
 	}
 	sinks = append(sinks, &strudel.FuncSink{Fn: func(ev strudel.Event, cyc int64) {
 		if m.prog != nil {
@@ -228,20 +246,26 @@ func NewModel(opts Options) *Model {
 	})
 	_ = m.live.Eval(m.liveCode)
 
-	if opts.Translate {
-		if m.xl8.Enabled {
-			m.pushSys("translate: whisper on PTT release")
-		} else {
-			m.xl8On = false
-		}
-	}
-	if m.liveMode {
-		m.pushSys("mode live · Enter evaluates mini-notation")
+	if opts.Translate && !m.xl8.Enabled {
+		m.xl8On = false
 	}
 	if m.grokCfg.APIKey != "" {
-		m.pushSys("grok: " + m.grokCfg.ModeLabel() + " ready · tab → grok")
-	} else {
-		m.pushSys("grok: set XAI_API_KEY or start backend at " + m.grokCfg.BackendURL)
+		m.status = m.grokCfg.ModeLabel()
+	}
+	if opts.Lab {
+		m.lab.On = true
+		m.compact = false
+		m.lab.EnsurePlaceholders(4)
+		// one sim demo so tiles aren't all empty on first paint
+		m.lab.FillSimIntoActive()
+		m.lab.NextFeed()
+		m.chat = []chatLine{
+			{Sys: true, Text: "lab · multi-feed next to chat"},
+			{Sys: true, Text: LabKeysHelp()},
+			{Sys: true, Text: "drop: select slot 1-6 → c cam · a sim · /watch url"},
+		}
+		m.status = "lab"
+		m.videoOn = true
 	}
 	return m
 }
@@ -283,27 +307,52 @@ func (m *Model) AttachClient(ctx context.Context, prog *tea.Program) {
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		// debounce thrash: only reflow when size actually changes
+		// use REAL terminal size only — never invent a larger width (wrap spool)
 		nw, nh := msg.Width, msg.Height
-		if nw < 40 {
-			nw = 40
+		if nw < 1 {
+			nw = 1
 		}
-		if nh < 10 {
-			nh = 10
+		if nh < 1 {
+			nh = 1
 		}
 		if nw == m.layoutW && nh == m.layoutH {
 			return m, nil
 		}
 		m.width, m.height = nw, nh
 		m.layoutW, m.layoutH = nw, nh
-		// drop oversized frame so next paint resamples to new cols
-		if m.frame != nil && m.frame.W > m.videoCols()+8 {
+		// always drop frame on resize so cam/watch resample to new scale
+		if m.frame != nil {
 			m.frame = nil
+		}
+		// reopen video pipe at new geometry when watching
+		if m.vpipe != nil && m.vpipe.Running() && m.watchPath != "" {
+			src := m.watchPath
+			// watchPath may be title — keep last resolved via vpipe.Src if needed
+			if m.vpipe.Src != "" && !isURL(src) && !isVideoPath(src) {
+				// title only; can't re-open without original URL — leave pipe
+			} else {
+				m.vpipe.Stop()
+				m.vpipe = nil
+				return m.startWatch(src, true)
+			}
 		}
 		return m, nil
 
 	case tickMsg:
 		m.spin++
+		// spectrum decay (cliamp-style radio viz)
+		m.level *= 0.88
+		m.peak *= 0.93
+		for i := range m.bands {
+			m.bands[i] *= 0.90
+			if m.bands[i] < 0.02 {
+				m.bands[i] = 0
+			}
+		}
+		// soft idle shimmer while pattern is running
+		if m.live != nil && m.live.Playing() {
+			pulseSpectrum(m.bands, 0.08+m.peak*0.2, m.spin)
+		}
 		var cmds []tea.Cmd
 		// pull ffmpeg video pipe frames (~12 fps)
 		if m.vpipe != nil && m.vpipe.Running() {
@@ -313,12 +362,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.frameMeta = fmt.Sprintf("file %dx%d", w, h)
 				m.pixelMode = PixelHalf
 				m.videoOn = true
+				m.applyDepthToFrame()
 			}
 		} else if m.camOn && (m.vpipe == nil || !m.vpipe.Running()) {
-			// camera only when not watching a file/stream
 			m.camTick++
-			if m.camTick%8 == 0 { // ~2.5 fps
-				cmds = append(cmds, m.captureCamCmd())
+			// burst TX: snappier face frames; idle cam slower
+			every := 8 // ~2.5 fps
+			if m.burstMode && m.talking {
+				every = 3 // ~6–7 fps for short video bursts
+			}
+			if m.camTick%every == 0 {
+				if m.burstMode {
+					cmds = append(cmds, m.captureBurstCamCmd())
+				} else {
+					cmds = append(cmds, m.captureCamCmd())
+				}
 			}
 		}
 		cmds = append(cmds, tickCmd())
@@ -344,10 +402,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case wsStatusMsg:
-		m.status = string(msg)
-		m.connected = strings.Contains(string(msg), "connected")
-		if m.connected {
-			m.pushSys("connected as " + m.nick + " → " + m.host)
+		s := string(msg)
+		m.connected = strings.Contains(s, "connected")
+		// keep status lean — no chat spam for mesh noise
+		switch {
+		case m.connected:
+			m.status = m.nick
+		case strings.Contains(s, "hello"):
+			// ignore hub hello chatter
+		default:
+			m.status = truncate(s, 36)
 		}
 		return m, nil
 
@@ -372,18 +436,42 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case frameReady:
 		m.frame = msg.F
 		m.frameMeta = msg.Meta
+		m.applyDepthToFrame()
 		if m.midiOn && m.midiBridge != nil {
 			m.midiBridge.Frame()
 		}
 		return m, nil
 
 	case camSnapMsg:
-		if m.client != nil && len(msg) > 0 {
-			m.client.SendFrame("term:"+m.nick, 320, 200, msg)
-			// local preview
-			return m, decodeFrameCmd(msg, "local", m.videoCols(), m.videoPxH())
+		if len(msg) == 0 {
+			return m, nil
 		}
-		return m, nil
+		// local preview always
+		maxW, maxH := m.videoCols(), m.videoPxH()
+		if m.burstMode {
+			maxW, maxH = 48, 48
+		}
+		cmd := decodeFrameCmd(msg, "local", maxW, maxH)
+		if m.client == nil {
+			return m, cmd
+		}
+		if m.burstMode && m.talking {
+			// decode sync for glyph so we can ship LED grid with the JPEG
+			fp, err := decodeFrameJPEG(msg, maxW, maxH)
+			if err == nil && fp != nil {
+				m.frame = fp
+				gm := FrameToGlyph(fp, m.glyphN)
+				m.lastGlyph = gm.IntColors()
+				m.client.SendBurstFrame(msg, fp.W, fp.H, m.lastGlyph)
+			} else {
+				m.client.SendBurstFrame(msg, maxW, maxH, nil)
+			}
+			return m, nil
+		}
+		if !m.burstMode {
+			m.client.SendFrame("term:"+m.nick, 320, 200, msg)
+		}
+		return m, cmd
 
 	case autoWatchMsg:
 		return m.startWatch(msg.src, true)
@@ -391,14 +479,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case liveHitMsg:
 		m.liveHit = fmt.Sprintf("%s %s", msg.Ev.Kind, msg.Ev.Sound)
 		m.liveCycle = msg.Cycle
-		// flash spectrum on hits
-		m.level = 0.7
-		m.peak = PeakHold(m.peak, 0.7, 0.8, 0.2)
+		// flash spectrum on hits (cliamp radio viz)
+		m.level = 0.75
+		m.peak = PeakHold(m.peak, 0.75, 0.8, 0.2)
+		hitPulse(m.bands, msg.Ev.Sound)
 		return m, nil
 
 	case liveCycleMsg:
 		m.liveCycle = msg.Cycle
-		m.status = fmt.Sprintf("live cyc=%d cps=%.2f", msg.Cycle, msg.CPS)
+		// stay quiet — cycle shows on pattern line
 		return m, nil
 
 	case transcriptMsg:
@@ -459,26 +548,148 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.input = ""
 		return m, nil
 	case "tab":
+		if m.lab != nil && m.lab.On && m.input == "" {
+			m.lab.NextFeed()
+			if af := m.lab.ActiveFeed(); af != nil {
+				m.status = "feed " + af.Label
+			}
+			return m, nil
+		}
 		m.promptMode = (m.promptMode + 1) % ModeCount
 		m.liveMode = m.promptMode == ModeLive
-		m.pushSys("mode " + m.promptMode.String())
+		m.status = m.promptMode.String()
 		return m, nil
 	case "shift+tab":
 		m.promptMode = (m.promptMode + ModeCount - 1) % ModeCount
 		m.liveMode = m.promptMode == ModeLive
-		m.pushSys("mode " + m.promptMode.String())
+		m.status = m.promptMode.String()
 		return m, nil
 	}
 
 	if m.input == "" {
 		switch k {
 		case " ":
-			if m.promptMode == ModeChat {
+			if m.burstMode || m.promptMode == ModeChat {
 				return m.togglePTT()
 			}
 			m.input += " "
 			return m, nil
+		case "b":
+			// toggle Siri-sized burst orb
+			m.burstMode = !m.burstMode
+			if m.burstMode {
+				m.camOn = true
+				m.videoOn = true
+				m.compact = true
+				m.status = "burst orb"
+			} else {
+				m.status = "companion"
+			}
+			return m, nil
+		case "d":
+			// cycle live depth / gsplat (ZipDepth · zip-lite · gsplat stack)
+			if m.depth == nil {
+				m.depth = newDepthSession()
+			}
+			mode := m.depth.Cycle()
+			m.status = formatDepthStatus(m.depth)
+			if mode != DepthOff {
+				m.videoOn = true
+				m.camOn = true // need frames for mono depth
+				m.applyDepthToFrame()
+			}
+			return m, nil
+		case "V", "lab":
+			// toggle multi-feed lab (feeds | chat)
+			if m.lab == nil {
+				m.lab = newLabState()
+			}
+			m.lab.On = !m.lab.On
+			if m.lab.On {
+				m.burstMode = false
+				m.compact = false
+				m.lab.EnsurePlaceholders(4)
+				m.status = "lab · " + m.lab.Layout.String()
+				m.pushSys(LabKeysHelp())
+				m.pushSys(m.lab.BudgetLine())
+			} else {
+				m.status = "companion"
+			}
+			return m, nil
+		case "1", "2", "3", "4", "5", "6", "7":
+			// lab: 1–6 select slot for quick fill; else pattern presets 1–7
+			if m.lab != nil && m.lab.On && k[0] != '7' {
+				n := int(k[0] - '0')
+				m.lab.EnsurePlaceholders(n)
+				m.lab.SelectSlot(n)
+				m.status = fmt.Sprintf("slot %d · c cam · a sim · /watch", n)
+				return m, nil
+			}
+			idx := int(k[0] - '1')
+			if idx >= 0 && idx < len(m.presets) {
+				return m.evalLive(m.presets[idx], true)
+			}
+			return m, nil
+		case "[":
+			if m.lab != nil && m.lab.On {
+				m.status = fmt.Sprintf("scale %d · %s", m.lab.NudgeScale(-1), m.lab.BudgetLine())
+			}
+			return m, nil
+		case "]":
+			if m.lab != nil && m.lab.On {
+				m.status = fmt.Sprintf("scale %d · %s", m.lab.NudgeScale(1), m.lab.BudgetLine())
+			}
+			return m, nil
+		case ",":
+			if m.lab != nil && m.lab.On {
+				m.status = fmt.Sprintf("fps %d · %s", m.lab.NudgeFPS(-1), m.lab.BudgetLine())
+			}
+			return m, nil
+		case ".":
+			if m.lab != nil && m.lab.On {
+				m.status = fmt.Sprintf("fps %d · %s", m.lab.NudgeFPS(1), m.lab.BudgetLine())
+			}
+			return m, nil
+		case "L":
+			if m.lab != nil && m.lab.On {
+				m.status = "layout " + m.lab.CycleLayout().String()
+			}
+			return m, nil
+		case "a":
+			if m.lab != nil && m.lab.On {
+				// fill active placeholder with sim (or add)
+				m.lab.FillSimIntoActive()
+				m.status = "sim → slot"
+			}
+			return m, nil
+		case "r":
+			if m.lab != nil && m.lab.On {
+				m.lab.ClearActive()
+				m.status = "slot cleared"
+			}
+			return m, nil
+		case "x":
+			if m.lab != nil && m.lab.On {
+				m.lab.RemoveActive()
+				m.lab.EnsurePlaceholders(max(1, len(m.lab.Feeds)))
+				m.status = fmt.Sprintf("feeds %d", len(m.lab.Feeds))
+			}
+			return m, nil
+		case "o":
+			if m.lab != nil && m.lab.On {
+				m.lab.ShowList = !m.lab.ShowList
+				m.status = map[bool]string{true: "list on", false: "list off"}[m.lab.ShowList]
+			}
+			return m, nil
 		case "c":
+			if m.lab != nil && m.lab.On {
+				// quick: drop camera into active/empty placeholder
+				m.lab.FillCamIntoActive()
+				m.camOn = true
+				m.videoOn = true
+				m.status = "cam → slot"
+				return m, nil
+			}
 			if m.vpipe != nil {
 				m.vpipe.Stop()
 				m.vpipe = nil
@@ -488,17 +699,38 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			if m.camOn {
 				m.pixelMode = PixelHalf
 				m.videoOn = true
-				m.pushSys("cam on · Half truecolor")
+				m.status = "cam on"
 			} else {
-				m.pushSys("cam off")
+				m.videoOn = false
+				m.frame = nil
+				m.status = "cam off"
 			}
 			return m, nil
 		case "v":
 			m.videoOn = !m.videoOn
+			m.status = map[bool]string{true: "vid on", false: "vid off"}[m.videoOn]
 			return m, nil
 		case "m":
+			if m.lab != nil && m.lab.On {
+				st := m.lab.CycleStyle()
+				m.pixelMode = st
+				m.status = "style " + st.String()
+				return m, nil
+			}
 			m.pixelMode = (m.pixelMode + 1) % PixelCount
-			m.pushSys("pixel: " + m.pixelMode.String())
+			m.status = "style " + m.pixelMode.String()
+			return m, nil
+		case "tab":
+			// handled above for mode cycle — lab feed focus when lab on + shift?
+			// empty-input tab already cycles prompt modes; use ctrl+tab? use 'n' for next feed
+			return m, nil
+		case "n":
+			if m.lab != nil && m.lab.On {
+				m.lab.NextFeed()
+				if af := m.lab.ActiveFeed(); af != nil {
+					m.status = "feed " + af.Label
+				}
+			}
 			return m, nil
 		case "t":
 			m.xl8On = !m.xl8On
@@ -506,7 +738,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				m.xl8 = defaultTranslateConfig()
 				m.xl8On = m.xl8.Enabled
 			}
-			m.pushSys(fmt.Sprintf("translate %v", m.xl8On))
+			m.status = fmt.Sprintf("xl8 %v", m.xl8On)
 			return m, nil
 		case "i":
 			m.midiOn = !m.midiOn
@@ -514,25 +746,19 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				mid := hwmidi.NewOptional()
 				m.midiBridge = hwmidi.NewBridge(mid, 0)
 			}
-			m.pushSys(fmt.Sprintf("midi %v", m.midiOn))
+			m.status = fmt.Sprintf("midi %v", m.midiOn)
 			return m, nil
 		case "l":
 			m.promptMode = ModeLive
 			m.liveMode = true
-			m.pushSys("mode live")
+			m.status = "live"
 			return m, nil
 		case "g":
 			m.promptMode = ModeGrok
-			m.pushSys("mode grok · " + m.grokCfg.ModeLabel())
+			m.status = "grok · " + m.grokCfg.ModeLabel()
 			return m, nil
 		case "p":
 			_ = m.toggleLive()
-			return m, nil
-		case "1", "2", "3", "4", "5", "6", "7":
-			idx := int(k[0] - '1')
-			if idx >= 0 && idx < len(m.presets) {
-				return m.evalLive(m.presets[idx], true)
-			}
 			return m, nil
 		case "?", "f1":
 			m.showHelp = !m.showHelp
@@ -540,9 +766,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case "f", "F":
 			m.compact = !m.compact
 			if m.compact {
-				m.pushSys("companion dock")
+				m.status = "companion"
 			} else {
-				m.pushSys("full layout")
+				m.status = "full"
 			}
 			return m, nil
 		}
@@ -728,13 +954,83 @@ func (m *Model) slash(line string) (tea.Model, tea.Cmd) {
 		}
 		m.pushSys("■ live stop")
 		return m, nil
-	case "watch", "vplay", "movie", "video":
+	case "watch", "vplay", "movie", "video", "ytdl", "yt", "fill":
 		src := arg
 		if src == "" {
-			m.pushSys("usage: /watch file.mp4|mkv|mov  or  /watch https://…")
+			m.pushSys("usage: /watch file|url|yt-link  (auto yt-dlp → active slot)")
 			return m, nil
 		}
+		// ensure lab open when filling from slash in companion
+		if cmd == "fill" && m.lab != nil {
+			m.lab.On = true
+		}
 		return m.startWatch(src, true)
+	case "cam":
+		// quick cam into lab slot
+		if m.lab == nil {
+			m.lab = newLabState()
+		}
+		m.lab.On = true
+		m.lab.FillCamIntoActive()
+		m.camOn = true
+		m.videoOn = true
+		m.status = "cam → slot"
+		m.pushSys("cam → slot " + fmt.Sprintf("%d", m.lab.Active+1))
+		return m, nil
+	case "resolve", "streams":
+		src := arg
+		if src == "" {
+			m.pushSys("usage: /resolve https://…")
+			return m, nil
+		}
+		r, err := ResolveMediaTimeout(src, 60*time.Second)
+		if err != nil {
+			m.pushSys("resolve: " + err.Error())
+			return m, nil
+		}
+		m.pushSys(fmt.Sprintf("via %s · %s", r.Via, truncate(r.Title, 40)))
+		m.pushSys("v " + truncate(r.Video, 60))
+		if r.Audio != "" {
+			m.pushSys("a " + truncate(r.Audio, 60))
+		}
+		return m, nil
+	case "doctor":
+		for _, ln := range strings.Split(strings.TrimSpace(StreamDoctor()), "\n") {
+			if ln != "" {
+				m.pushSys(ln)
+			}
+		}
+		for _, ln := range strings.Split(strings.TrimSpace(DepthDoctorLine()), "\n") {
+			if ln != "" {
+				m.pushSys(ln)
+			}
+		}
+		m.pushSys(DepthModesList())
+		return m, nil
+	case "depth", "zipdepth", "gsplat":
+		if m.depth == nil {
+			m.depth = newDepthSession()
+		}
+		switch {
+		case cmd == "gsplat" || arg == "gsplat":
+			m.depth.SetMode(DepthGsplat)
+		case cmd == "zipdepth" || arg == "zipdepth" || arg == "zip":
+			m.depth.SetMode(DepthZipDepth)
+		case arg == "lite" || arg == "zip-lite":
+			m.depth.SetMode(DepthZipLite)
+		case arg == "off" || arg == "0":
+			m.depth.SetMode(DepthOff)
+		default:
+			m.depth.Cycle()
+		}
+		if m.depth.Mode() != DepthOff {
+			m.camOn = true
+			m.videoOn = true
+		}
+		m.status = formatDepthStatus(m.depth)
+		m.pushSys(m.status)
+		m.applyDepthToFrame()
+		return m, nil
 	case "vstop", "watchstop":
 		m.stopWatch()
 		m.pushSys("■ video pipe stopped")
@@ -776,6 +1072,22 @@ func (m *Model) slash(line string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// applyDepthToFrame runs live mono depth / gsplat on the current RGB frame.
+func (m *Model) applyDepthToFrame() {
+	if m.depth == nil || m.frame == nil {
+		return
+	}
+	if m.depth.Mode() == DepthOff {
+		return
+	}
+	m.depth.Process(m.frame)
+	// burst / Glyph Matrix: prefer depth brightness when active
+	if dm := m.depth.LastMap(); dm != nil && m.glyphN > 0 {
+		gm := DepthToGlyph(dm, m.glyphN)
+		m.lastGlyph = gm.IntColors()
+	}
+}
+
 func (m *Model) startWatch(src string, withAudio bool) (tea.Model, tea.Cmd) {
 	src = strings.Trim(src, `"'`)
 	// stop camera while watching file
@@ -784,21 +1096,46 @@ func (m *Model) startWatch(src string, withAudio bool) (tea.Model, tea.Cmd) {
 		m.vpipe.Stop()
 		m.vpipe = nil
 	}
+	m.status = "resolving…"
+	m.pushSys("resolve " + truncate(src, 50))
+
+	r, err := ResolveMediaTimeout(src, 90*time.Second)
+	if err != nil {
+		m.pushSys("watch: " + err.Error())
+		m.status = "resolve fail"
+		return m, nil
+	}
 	w := m.videoCols()
 	h := m.videoPxH()
-	vp, err := OpenVideoPipe(src, w, h, withAudio)
+	vp, err := OpenVideoPipeResolved(r, w, h, withAudio)
 	if err != nil {
 		m.pushSys("watch: " + err.Error())
 		return m, nil
 	}
 	m.vpipe = vp
-	m.watchPath = src
+	m.watchPath = r.Input
+	if r.Title != "" {
+		m.watchPath = r.Title
+	}
 	m.videoOn = true
 	m.pixelMode = PixelHalf
 	m.vpipeSeq = 0
-	base := filepath.Base(src)
-	m.pushSys(fmt.Sprintf("▶ ffmpeg pipe %s → %dx%d half-blocks + audio", base, w, h))
-	m.pushSys("/vstop to stop · m cycles pixel mode")
+	label := r.Title
+	if label == "" {
+		label = filepath.Base(r.Input)
+	}
+	via := r.Via
+	if r.Audio != "" {
+		via += "+a"
+	}
+	m.status = fmt.Sprintf("▶ %s", truncate(label, 28))
+	m.pushSys(fmt.Sprintf("▶ %s · %s · %dx%d", truncate(label, 40), via, w, h))
+	m.applyDepthToFrame()
+	// multi-feed lab: drop video into active/empty placeholder
+	if m.lab != nil && m.lab.On {
+		m.lab.FillWatchIntoActive(truncate(label, 14), r.Input, m.frame)
+		m.pushSys("vid → slot " + fmt.Sprintf("%d", m.lab.Active+1))
+	}
 	return m, nil
 }
 
@@ -829,7 +1166,8 @@ func looksLikePattern(line string) bool {
 }
 
 func looksLikeVideoArg(line string) bool {
-	if isURL(line) {
+	line = strings.TrimSpace(line)
+	if isURL(line) || strings.HasPrefix(line, "ytdl://") || strings.HasPrefix(line, "yt-dlp://") {
 		return true
 	}
 	// path with known container even without checking disk here
@@ -860,7 +1198,7 @@ func (m *Model) evalLive(code string, autoplay bool) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.liveCode = code
-	m.pushSys("◎ eval " + truncate(strings.ReplaceAll(code, "\n", " "), 60))
+	m.status = "eval"
 	// mesh sync (Qbpm jam style)
 	if m.client != nil {
 		_ = m.client.SendJSON(map[string]any{
@@ -871,28 +1209,27 @@ func (m *Model) evalLive(code string, autoplay bool) (tea.Model, tea.Cmd) {
 	if autoplay {
 		if !m.live.Playing() {
 			m.live.Play()
-			m.pushSys("▶ live")
+			m.status = "live"
 		}
 	}
 	return m, nil
 }
 
 func (m *Model) toggleLive() tea.Cmd {
-	// run sync so model state is immediate; return nil cmd
 	if m.live == nil {
-		m.pushSys("no live engine")
+		m.status = "no live"
 		return nil
 	}
 	if m.live.Playing() {
 		m.live.Stop()
-		m.pushSys("■ stop")
+		m.status = "stop"
 		return nil
 	}
 	if m.live.Code() == "" {
 		_ = m.live.Eval(m.liveCode)
 	}
 	m.live.Play()
-	m.pushSys("▶ play")
+	m.status = "play"
 	return nil
 }
 
@@ -905,10 +1242,11 @@ func (m *Model) togglePTT() (tea.Model, tea.Cmd) {
 
 func (m *Model) startPTT() (tea.Model, tea.Cmd) {
 	if m.client == nil {
-		m.pushSys("not connected")
+		m.status = "not connected"
 		return m, nil
 	}
 	prog := m.prog
+	burst := m.burstMode
 	sess, err := startPTT(func(chunk []byte) {
 		// soft gate near-silence (signls/sektron-style clean triggers)
 		if SoftGate(chunk, 0.008) == nil {
@@ -923,16 +1261,24 @@ func (m *Model) startPTT() (tea.Model, tea.Cmd) {
 		}
 	})
 	if err != nil {
-		m.pushSys("mic/ffmpeg: " + err.Error())
+		m.pushSys("mic: " + err.Error())
 		return m, nil
 	}
 	m.ptt = sess
 	m.talking = true
-	m.client.SendPTT(true)
+	if burst {
+		m.camOn = true
+		m.videoOn = true
+		m.client.SendBurstStart()
+		m.client.SendPTT(true)
+		m.status = "BURST"
+	} else {
+		m.client.SendPTT(true)
+		m.status = "PTT"
+	}
 	if m.midiOn && m.midiBridge != nil {
 		m.midiBridge.PTT(true, LevelToVelocity(0.5))
 	}
-	m.pushSys("🎤 PTT")
 	return m, nil
 }
 
@@ -945,15 +1291,19 @@ func (m *Model) stopPTT() (tea.Model, tea.Cmd) {
 			m.lastClip = writeLastClip(pcm)
 		}
 	}
+	burst := m.burstMode
 	m.talking = false
 	m.level = 0
 	if m.client != nil {
+		if burst {
+			m.client.SendBurstEnd()
+		}
 		m.client.SendPTT(false)
 	}
 	if m.midiOn && m.midiBridge != nil {
 		m.midiBridge.PTT(false, LevelToVelocity(m.peak))
 	}
-	m.pushSys("⏹ clear")
+	m.status = m.nick
 
 	// live translation on released PTT clip
 	if m.xl8On && m.xl8.Enabled && m.lastClip != "" && len(pcm) > sampleRate*2/4 {
@@ -1022,7 +1372,7 @@ func (m *Model) handleWS(raw []byte) (tea.Model, tea.Cmd) {
 	}
 	switch msg["type"] {
 	case "hello":
-		m.pushSys(fmt.Sprintf("hub hello id=%v", msg["id"]))
+		// quiet — status already shows nick when connected
 	case "roster":
 		m.peers = nil
 		if arr, ok := msg["peers"].([]any); ok {
@@ -1036,11 +1386,11 @@ func (m *Model) handleWS(raw []byte) (tea.Model, tea.Cmd) {
 		}
 	case "join":
 		if n, _ := msg["nick"].(string); n != "" {
-			m.pushSys(n + " joined")
+			m.status = n + " +"
 		}
 	case "leave":
 		if n, _ := msg["nick"].(string); n != "" {
-			m.pushSys(n + " left")
+			m.status = n + " −"
 		}
 	case "chat":
 		from, _ := msg["from"].(string)
@@ -1052,11 +1402,61 @@ func (m *Model) handleWS(raw []byte) (tea.Model, tea.Cmd) {
 		st, _ := msg["state"].(string)
 		if st == "down" {
 			m.remoteTX = from
-			m.pushSys("🎤 " + from + " TX")
+			m.status = from + " TX"
 		} else {
 			m.remoteTX = ""
-			m.pushSys("⏹ " + from + " clear")
+			if m.burstRemote == from {
+				m.burstRemote = ""
+			}
+			m.status = "clear"
 		}
+	case "vburst-start":
+		from, _ := msg["from"].(string)
+		if from != "" && from != m.nick {
+			m.burstRemote = from
+			m.remoteTX = from
+			m.status = from + " burst"
+		}
+	case "vburst-end":
+		from, _ := msg["from"].(string)
+		if from == m.burstRemote || from == m.remoteTX {
+			m.burstRemote = ""
+			m.remoteTX = ""
+			m.status = "clear"
+		}
+	case "vburst-frame":
+		from, _ := msg["from"].(string)
+		if from == m.nick {
+			return m, nil
+		}
+		m.burstRemote = from
+		m.remoteTX = from
+		// optional glyph grid for Nothing Phone / local orb
+		if g, ok := msg["glyph"].([]any); ok && len(g) > 0 {
+			ints := make([]int, 0, len(g))
+			for _, v := range g {
+				switch n := v.(type) {
+				case float64:
+					ints = append(ints, int(n))
+				case int:
+					ints = append(ints, n)
+				}
+			}
+			m.lastGlyph = ints
+		}
+		b64, _ := msg["b64"].(string)
+		if b64 == "" {
+			return m, nil
+		}
+		jpeg, err := base64.StdEncoding.DecodeString(b64)
+		if err != nil {
+			return m, nil
+		}
+		maxW, maxH := m.videoCols(), m.videoPxH()
+		if m.burstMode {
+			maxW, maxH = 48, 48
+		}
+		return m, decodeFrameCmd(jpeg, "burst:"+from, maxW, maxH)
 	case "audio":
 		from, _ := msg["from"].(string)
 		if from == m.nick {
@@ -1121,11 +1521,77 @@ func decodeFrameCmd(jpeg []byte, meta string, maxW, maxH int) tea.Cmd {
 	}
 }
 
+// captureBurstCamCmd — small square face snap for Siri-orb / Glyph Matrix.
+func (m *Model) captureBurstCamCmd() tea.Cmd {
+	return func() tea.Msg {
+		path := os.TempDir() + "/grokytalky-burst.jpg"
+		// ~120² JPEG keeps mesh light for short video bursts
+		var args []string
+		if runtime.GOOS == "darwin" {
+			args = []string{
+				"-hide_banner", "-loglevel", "error", "-y",
+				"-f", "avfoundation", "-pixel_format", "nv12",
+				"-framerate", "30", "-video_size", "640x480",
+				"-i", "0:none",
+				"-frames:v", "1",
+				"-vf", "scale=120:120:force_original_aspect_ratio=increase,crop=120:120",
+				"-q:v", "8",
+				path,
+			}
+		} else {
+			args = []string{
+				"-hide_banner", "-loglevel", "error", "-y",
+				"-f", "v4l2", "-i", "/dev/video0",
+				"-frames:v", "1",
+				"-vf", "scale=120:120:force_original_aspect_ratio=increase,crop=120:120",
+				"-q:v", "8",
+				path,
+			}
+		}
+		cmd := exec.Command("ffmpeg", args...)
+		cmd.Stderr = nil
+		if err := cmd.Run(); err != nil {
+			// soft fail — try minimal capture
+			args2 := []string{
+				"-hide_banner", "-loglevel", "error", "-y",
+				"-f", "avfoundation", "-i", "0:none",
+				"-frames:v", "1", "-vf", "scale=96:96", "-q:v", "10", path,
+			}
+			if runtime.GOOS != "darwin" {
+				args2 = []string{
+					"-hide_banner", "-loglevel", "error", "-y",
+					"-f", "v4l2", "-i", "/dev/video0",
+					"-frames:v", "1", "-vf", "scale=96:96", "-q:v", "10", path,
+				}
+			}
+			if err2 := exec.Command("ffmpeg", args2...).Run(); err2 != nil {
+				return nil
+			}
+		}
+		b, err := os.ReadFile(path)
+		if err != nil || len(b) < 80 {
+			return nil
+		}
+		return camSnapMsg(b)
+	}
+}
+
 func (m *Model) captureCamCmd() tea.Cmd {
+	// sample at terminal video scale (srcW×srcH) so boot fill stays sharp
+	sc := m.computeVideoScale(m.width, m.height)
+	sw, sh := sc.SrcW, sc.SrcH
+	if sw < 80 {
+		sw = max(80, m.videoCols())
+	}
+	if sh < 48 {
+		sh = max(48, m.videoPxH())
+	}
+	if sh%2 != 0 {
+		sh++
+	}
 	return func() tea.Msg {
 		path := os.TempDir() + "/grokytalky-cam.jpg"
-		// Higher res + correct AVFoundation pixel format (uyvy422/nv12).
-		// q:v 5 ≈ readable faces in truecolor half-blocks.
+		scale := fmt.Sprintf("scale=%d:%d:flags=bicubic", sw, sh)
 		var args []string
 		if runtime.GOOS == "darwin" {
 			args = []string{
@@ -1136,7 +1602,7 @@ func (m *Model) captureCamCmd() tea.Cmd {
 				"-video_size", "640x480",
 				"-i", "0:none",
 				"-frames:v", "1",
-				"-vf", "scale=480:300:flags=bicubic",
+				"-vf", scale,
 				"-q:v", "5",
 				path,
 			}
@@ -1145,7 +1611,7 @@ func (m *Model) captureCamCmd() tea.Cmd {
 				"-hide_banner", "-loglevel", "error", "-y",
 				"-f", "v4l2", "-i", "/dev/video0",
 				"-frames:v", "1",
-				"-vf", "scale=480:300:flags=bicubic",
+				"-vf", scale,
 				"-q:v", "5",
 				path,
 			}
@@ -1158,13 +1624,13 @@ func (m *Model) captureCamCmd() tea.Cmd {
 			args2 := []string{
 				"-hide_banner", "-loglevel", "error", "-y",
 				"-f", "avfoundation", "-framerate", "30", "-i", "0:none",
-				"-frames:v", "1", "-vf", "scale=320:200", "-q:v", "8", path,
+				"-frames:v", "1", "-vf", scale, "-q:v", "8", path,
 			}
 			if runtime.GOOS != "darwin" {
 				args2 = []string{
 					"-hide_banner", "-loglevel", "error", "-y",
 					"-f", "v4l2", "-i", "/dev/video0",
-					"-frames:v", "1", "-vf", "scale=320:200", "-q:v", "8", path,
+					"-frames:v", "1", "-vf", scale, "-q:v", "8", path,
 				}
 			}
 			cmd2 := exec.Command("ffmpeg", args2...)
@@ -1192,20 +1658,27 @@ func (m *Model) trimChat() {
 }
 
 func (m *Model) videoCols() int {
-	// companion: small fixed-ish width to avoid wrap
-	if m.compact {
-		return max(24, min(56, m.width-2))
+	sc := m.computeVideoScale(m.width, m.height)
+	if sc.Cols > 0 {
+		return sc.Cols
 	}
-	return max(32, min(72, m.width-4))
+	return max(24, safeCols(m.width))
 }
 
 func (m *Model) videoPxH() int {
-	// companion: few half-block rows only
-	if m.compact {
-		return 12 // 6 visual rows
+	sc := m.computeVideoScale(m.width, m.height)
+	if sc.SrcH > 0 {
+		return sc.SrcH
 	}
-	rows := max(6, min(14, m.height/4))
-	return rows * 2
+	if sc.HalfRows > 0 {
+		return sc.HalfRows * 2
+	}
+	return max(8, min(48, m.height))
+}
+
+// lastScale used by status crumbs
+func (m *Model) videoScaleLabel() string {
+	return m.computeVideoScale(m.width, m.height).label()
 }
 
 func (m *Model) View() tea.View {

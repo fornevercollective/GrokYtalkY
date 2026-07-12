@@ -95,3 +95,64 @@ func renderVU(level float64, width int) string {
 	}
 	return b.String()
 }
+
+// hitPulse boosts bands from a strudel hit sound name (cliamp radio flash).
+func hitPulse(bands []float64, sound string) {
+	if len(bands) == 0 {
+		return
+	}
+	// map common drum names → band regions
+	lo, hi, amp := 0, len(bands)/4, 0.85
+	s := strings.ToLower(sound)
+	switch {
+	case strings.Contains(s, "bd") || strings.Contains(s, "kick") || strings.Contains(s, "drum"):
+		lo, hi, amp = 0, len(bands)/5, 1.0
+	case strings.Contains(s, "sd") || strings.Contains(s, "snare") || strings.Contains(s, "cp") || strings.Contains(s, "clap"):
+		lo, hi, amp = len(bands)/5, len(bands)/2, 0.9
+	case strings.Contains(s, "hh") || strings.Contains(s, "hat") || strings.Contains(s, "oh"):
+		lo, hi, amp = len(bands)/2, len(bands), 0.75
+	case strings.Contains(s, "note") || strings.HasPrefix(s, "c") || strings.HasPrefix(s, "d") || strings.HasPrefix(s, "e"):
+		lo, hi, amp = len(bands)/4, 3*len(bands)/4, 0.7
+	default:
+		// spread mid
+		lo, hi = len(bands)/4, 3*len(bands)/4
+	}
+	if hi <= lo {
+		hi = lo + 1
+	}
+	if hi > len(bands) {
+		hi = len(bands)
+	}
+	for i := lo; i < hi; i++ {
+		// triangular weight toward center of region
+		t := float64(i-lo) / float64(max(1, hi-lo-1))
+		w := 1 - math.Abs(t-0.5)*1.4
+		if w < 0.2 {
+			w = 0.2
+		}
+		v := bands[i] + amp*w
+		if v > 1 {
+			v = 1
+		}
+		bands[i] = v
+	}
+}
+
+// pulseSpectrum adds a soft traveling shimmer while a pattern is playing.
+func pulseSpectrum(bands []float64, amp float64, phase int) {
+	if len(bands) == 0 || amp <= 0 {
+		return
+	}
+	n := len(bands)
+	for i := 0; i < n; i++ {
+		// slow traveling wave
+		wave := 0.5 + 0.5*math.Sin(float64(phase)*0.12+float64(i)*0.45)
+		v := bands[i] + amp*wave*0.35
+		if v > 1 {
+			v = 1
+		}
+		if v > bands[i] {
+			bands[i] = v
+		}
+	}
+}
