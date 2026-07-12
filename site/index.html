@@ -25,6 +25,7 @@
     </a>
     <nav>
       <a href="#conversation">Stream</a>
+      <a href="#terminal">Terminal</a>
       <a href="#modes">Modes</a>
       <a href="#install">Install</a>
       <a href="docs.html">Docs</a>
@@ -33,15 +34,15 @@
   </header>
 
   <main id="top">
-    <!-- ── Conversation hero: streaming camera/video is the centerpiece ── -->
+    <!-- ── Conversation hero: stream feed + real terminal preview ── -->
     <section id="conversation" class="hero-convo">
       <div class="convo-layout">
         <div class="convo-copy">
-          <p class="eyebrow">fornevercollective · live stream hero</p>
+          <p class="eyebrow">fornevercollective · live stream + terminal</p>
           <h1>Your feed is the conversation.</h1>
           <p class="lede">
-            Camera and video streams sit in the middle of the talk — half-block hex in the terminal,
-            live preview here. Walkie, Strudel, Grok prompt — beside your Grok session, not instead of it.
+            Camera and video sit in the middle of the talk — half-block preview here, Charm dock
+            in the terminal window below. Walkie, Strudel, Grok prompt — beside your Grok session.
           </p>
           <div class="hero-cta">
             <button type="button" class="btn primary" id="btn-cam">Start camera stream</button>
@@ -55,6 +56,7 @@
         </div>
 
         <div class="convo-stage">
+          <!-- live camera / video hero -->
           <div class="stream-hero" id="stream-hero">
             <div class="stream-chrome">
               <span class="pill live-pill" id="live-pill">○ idle</span>
@@ -75,6 +77,20 @@
               <div class="bubble peer">◎ pattern ready · s("bd*4")</div>
               <div class="bubble me">watching feed · half-blocks live</div>
             </div>
+          </div>
+
+          <!-- actual Charm terminal preview (always visible) -->
+          <div class="term term-preview" id="terminal" role="img" aria-label="GrokYtalkY terminal preview">
+            <div class="term-bar">
+              <span></span><span></span><span></span>
+              <code>grokytalky · companion dock</code>
+            </div>
+            <pre class="term-body"><span class="c-dim">◈ gy</span> <span class="c-live">●</span> <span class="c-tab">chat</span><span class="c-dim">│</span><span class="c-tab on">live</span><span class="c-dim">│</span><span class="c-tab">grok</span><span class="c-dim">│</span><span class="c-tab">watch</span>
+<span class="c-dim">▶ s("bd*4, [~ sd]*2")  cyc=12  hit=drum bd</span>
+<span class="c-live">█</span><span class="c-dim">····</span><span class="c-live">█</span><span class="c-dim">····</span><span class="c-live">█</span><span class="c-dim">····</span><span class="c-accent">│</span><span class="c-dim">···</span>
+<span class="c-dim">· companion dock · mesh :9876 · midi GrokYtalkY</span>
+<span class="c-dim">· cam half-block · watch clip.mp4 · tab modes</span>
+<span class="c-grok">✦ grok</span><span class="c-dim"> ›</span> make a house pattern at 124 bpm<span class="cursor">█</span></pre>
           </div>
         </div>
       </div>
