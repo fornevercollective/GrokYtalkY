@@ -4,13 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>GrokYtalkY · fornevercollective</title>
-  <meta name="description" content="Grok terminal companion — walkie mesh, Strudel live coding, hex video, MIDI. Built with Charm Bubble Tea. By fornevercollective." />
+  <meta name="description" content="Grok terminal companion — live camera/video hero, walkie mesh, Strudel, MIDI. Charm Bubble Tea. fornevercollective." />
   <meta name="theme-color" content="#0c0c0f" />
   <link rel="canonical" href="https://fornevercollective.github.io/GrokYtalkY/" />
   <meta property="og:title" content="GrokYtalkY" />
-  <meta property="og:description" content="Charm-grade companion dock for Grok terminal. Talk, pattern, watch, ask." />
+  <meta property="og:description" content="Streaming video hero · talk · pattern · grok companion dock." />
   <meta property="og:url" content="https://fornevercollective.github.io/GrokYtalkY/" />
-  <meta property="og:type" content="website" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -20,157 +19,136 @@
   <div class="noise" aria-hidden="true"></div>
 
   <header class="nav">
-    <a class="brand" href="#top">
+    <a class="brand" href="./">
       <span class="brand-mark">◈</span>
       <span class="brand-name">GrokYtalkY</span>
     </a>
     <nav>
-      <a href="#build">Build</a>
+      <a href="#conversation">Stream</a>
       <a href="#modes">Modes</a>
-      <a href="#stack">Stack</a>
       <a href="#install">Install</a>
+      <a href="docs.html">Docs</a>
       <a href="https://github.com/fornevercollective/GrokYtalkY" rel="noopener">GitHub</a>
     </nav>
   </header>
 
   <main id="top">
-    <section class="hero">
-      <p class="eyebrow">fornevercollective · Charm companion</p>
-      <h1>Talk. Pattern. Watch.<br /><em>Beside</em> Grok — not instead of it.</h1>
-      <p class="lede">
-        A Bubble Tea dock for walkie mesh, Strudel-lite live coding, ffmpeg pixel video, MIDI,
-        and Grok prompts. Compact by default. Server-ready when you need a hub.
-      </p>
-      <div class="hero-cta">
-        <a class="btn primary" href="#install">Get GrokYtalkY</a>
-        <a class="btn ghost" href="https://github.com/fornevercollective/GrokYtalkY">View source</a>
-      </div>
-      <div class="term" role="img" aria-label="Terminal preview">
-        <div class="term-bar">
-          <span></span><span></span><span></span>
-          <code>grokytalky</code>
+    <!-- ── Conversation hero: streaming camera/video is the centerpiece ── -->
+    <section id="conversation" class="hero-convo">
+      <div class="convo-layout">
+        <div class="convo-copy">
+          <p class="eyebrow">fornevercollective · live stream hero</p>
+          <h1>Your feed is the conversation.</h1>
+          <p class="lede">
+            Camera and video streams sit in the middle of the talk — half-block hex in the terminal,
+            live preview here. Walkie, Strudel, Grok prompt — beside your Grok session, not instead of it.
+          </p>
+          <div class="hero-cta">
+            <button type="button" class="btn primary" id="btn-cam">Start camera stream</button>
+            <label class="btn ghost file-btn">
+              Open video
+              <input type="file" id="file-video" accept="video/*,.mp4,.mkv,.mov,.webm" hidden />
+            </label>
+            <a class="btn ghost" href="docs.html">Open docs →</a>
+          </div>
+          <p class="stream-status" id="stream-status">Idle · allow camera or pick mp4/mkv/mov</p>
         </div>
-        <pre class="term-body"><span class="c-dim">◈ gy</span> <span class="c-live">●</span> <span class="c-tab">chat</span><span class="c-dim">│</span><span class="c-tab on">live</span><span class="c-dim">│</span><span class="c-tab">grok</span><span class="c-dim">│</span><span class="c-tab">watch</span>
-<span class="c-dim">▶ s("bd*4, [~ sd]*2")  cyc=12  hit=drum bd</span>
-<span class="c-live">█</span><span class="c-dim">····</span><span class="c-live">█</span><span class="c-dim">····</span><span class="c-live">█</span><span class="c-dim">····</span><span class="c-accent">│</span><span class="c-dim">···</span>
-<span class="c-dim">· companion dock · mesh :9876 · midi GrokYtalkY</span>
-<span class="c-grok">✦ grok</span><span class="c-dim"> ›</span> make a house pattern at 124 bpm<span class="cursor">█</span></pre>
+
+        <div class="convo-stage">
+          <div class="stream-hero" id="stream-hero">
+            <div class="stream-chrome">
+              <span class="pill live-pill" id="live-pill">○ idle</span>
+              <span class="pill" id="stream-meta">half-block · 0 fps</span>
+              <span class="pill mono">mesh ready</span>
+            </div>
+            <div class="stream-view">
+              <video id="hero-video" playsinline muted autoplay></video>
+              <canvas id="hero-canvas" aria-label="Streaming half-block video feed"></canvas>
+              <div class="stream-placeholder" id="stream-placeholder">
+                <span class="glyph">◈</span>
+                <p>Streaming camera / video hero</p>
+                <p class="sub">Same pipeline as terminal: frames → pixels</p>
+              </div>
+            </div>
+            <div class="stream-chat" id="stream-chat" aria-live="polite">
+              <div class="bubble sys">· conversation stream · feed is the hero</div>
+              <div class="bubble peer">◎ pattern ready · s("bd*4")</div>
+              <div class="bubble me">watching feed · half-blocks live</div>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
 
     <section id="build" class="section">
-      <p class="section-label">Build with the same spirit as Charm</p>
-      <h2>Industrial terminal tooling.<br />Open source. Mission-critical.</h2>
+      <p class="section-label">Build</p>
+      <h2>Charm-grade. Companion-first.</h2>
       <p class="section-lead">
-        Same design language as <a href="https://charm.land" rel="noopener">charm.land</a> —
-        Bubble Tea, Lip Gloss, alt-screen docks — purpose-built as a Grok-side companion for
-        fornevercollective / Colossus / Dojo workflows.
+        Bubble Tea v2 dock, width-clamped video, MIDI (signls/sektron lineage), Strudel-lite, Grok prompts.
+        <a href="docs.html">Full documentation →</a>
       </p>
       <div class="cards">
         <article class="card">
-          <h3>Bubble Tea v2</h3>
-          <p class="tag">Elm architecture</p>
-          <p>Modes, resize-safe frames, alt-screen. No wrap-spool glitches.</p>
+          <h3>Live feed hero</h3>
+          <p class="tag">camera · mp4 · mkv · mov</p>
+          <p>Browser preview here; terminal uses ffmpeg RGB → truecolor ▀.</p>
         </article>
         <article class="card">
-          <h3>Lip Gloss</h3>
-          <p class="tag">Style kit</p>
-          <p>ANSI-first palette, spectrum VU, companion chrome that stays out of the way.</p>
-        </article>
-        <article class="card">
-          <h3>MIDI mesh</h3>
-          <p class="tag">signls · sektron</p>
-          <p>Buffered outs, virtual port <code>GrokYtalkY</code>, clock on PTT / patterns.</p>
+          <h3>Walkie mesh</h3>
+          <p class="tag">WebSocket hub</p>
+          <p><code>grokytalky serve</code> for multi-peer talk + frames.</p>
         </article>
         <article class="card">
           <h3>Strudel-lite</h3>
-          <p class="tag">Live coding</p>
-          <p><code>s("bd*4")</code>, stack, setcps — local synth + MIDI hits.</p>
+          <p class="tag">live coding</p>
+          <p><code>s("bd*4, [~ sd]*2")</code> with local synth + MIDI.</p>
         </article>
         <article class="card">
-          <h3>ffmpeg pipe</h3>
-          <p class="tag">Video</p>
-          <p>mp4 / mkv / mov / URL → clamped truecolor half-blocks + audio.</p>
-        </article>
-        <article class="card">
-          <h3>Grok prompt</h3>
-          <p class="tag">xAI · backend</p>
-          <p>Tab to <code>grok</code> · <code>XAI_API_KEY</code> or local notes backend.</p>
+          <h3>Grok mode</h3>
+          <p class="tag">✦ prompt</p>
+          <p>xAI or local backend — patterns can hot-eval into live.</p>
         </article>
       </div>
     </section>
 
     <section id="modes" class="section alt">
       <p class="section-label">Modes</p>
-      <h2>One dock. Four intents.</h2>
+      <h2>Tab through intent.</h2>
       <div class="mode-grid">
-        <div class="mode">
-          <span class="glyph">›</span>
-          <h3>chat</h3>
-          <p>Mesh walkie. Space = PTT. Peers on the hub.</p>
-        </div>
-        <div class="mode">
-          <span class="glyph">◎</span>
-          <h3>live</h3>
-          <p>Strudel mini-notation. Hot-swap patterns while they play.</p>
-        </div>
-        <div class="mode">
-          <span class="glyph">✦</span>
-          <h3>grok</h3>
-          <p>Prompt style integration. Patterns from replies can auto-eval.</p>
-        </div>
-        <div class="mode">
-          <span class="glyph">▶</span>
-          <h3>watch</h3>
-          <p><code>/watch clip.mkv</code> — terminal cinema, width-clamped.</p>
-        </div>
+        <div class="mode"><span class="glyph">›</span><h3>chat</h3><p>Mesh walkie · SPACE PTT</p></div>
+        <div class="mode"><span class="glyph">◎</span><h3>live</h3><p>Mini-notation patterns</p></div>
+        <div class="mode"><span class="glyph">✦</span><h3>grok</h3><p>Prompt beside the feed</p></div>
+        <div class="mode"><span class="glyph">▶</span><h3>watch</h3><p>/watch file or URL</p></div>
       </div>
     </section>
 
-    <section id="stack" class="section">
-      <p class="section-label">Lineage</p>
-      <h2>Standing on open terminals.</h2>
-      <ul class="lineage">
-        <li><a href="https://github.com/charmbracelet/bubbletea" rel="noopener">charmbracelet/bubbletea</a> — TUI core</li>
-        <li><a href="https://github.com/bjarneo/cliamp" rel="noopener">bjarneo/cliamp</a> — Charm music player reference</li>
-        <li><a href="https://github.com/emprcl/signls" rel="noopener">emprcl/signls</a> · <a href="https://github.com/emprcl/sektron" rel="noopener">sektron</a> — MIDI engine patterns</li>
-        <li><a href="https://strudel.cc/" rel="noopener">strudel.cc</a> — live coding mini-notation</li>
-        <li><a href="https://github.com/fornevercollective/grok-repo-template" rel="noopener">grok-repo-template</a> — Colossus / Dojo assembly line</li>
-      </ul>
-    </section>
-
-    <section id="install" class="section alt">
+    <section id="install" class="section">
       <p class="section-label">Install</p>
       <h2>One clone. One build.</h2>
       <div class="install">
         <pre class="code-block"><code>git clone https://github.com/fornevercollective/GrokYtalkY.git
 cd GrokYtalkY
 go build -o bin/grokytalky .
-./bin/grokytalky              # companion dock
-./bin/grokytalky serve        # headless mesh hub
+./bin/grokytalky
+./bin/grokytalky serve
 ./bin/grokytalky watch clip.mp4</code></pre>
-        <pre class="code-block"><code># optional
-export XAI_API_KEY=xai-...
-export GROK_MODEL=grok-3-mini
-# ffmpeg / ffplay recommended for video + audio</code></pre>
       </div>
       <div class="hero-cta">
-        <a class="btn primary" href="https://github.com/fornevercollective/GrokYtalkY">GitHub</a>
-        <a class="btn ghost" href="https://github.com/fornevercollective/GrokYtalkY/blob/main/README.md">Docs</a>
+        <a class="btn primary" href="docs.html">Open docs page</a>
+        <a class="btn ghost" href="https://github.com/fornevercollective/GrokYtalkY">GitHub</a>
       </div>
     </section>
   </main>
 
   <footer class="footer">
-    <div>
-      <strong>GrokYtalkY</strong>
-      <span class="c-dim"> · fornevercollective · Apache-2.0</span>
-    </div>
+    <div><strong>GrokYtalkY</strong><span class="c-dim"> · fornevercollective · Apache-2.0</span></div>
     <div class="footer-links">
-      <a href="https://github.com/fornevercollective">org</a>
-      <a href="https://github.com/fornevercollective/grok-repo-template">template</a>
+      <a href="docs.html">Docs</a>
+      <a href="https://github.com/fornevercollective/GrokYtalkY">Source</a>
       <a href="https://charm.land" rel="noopener">charm.land</a>
     </div>
   </footer>
+
+  <script src="stream-hero.js"></script>
 </body>
 </html>

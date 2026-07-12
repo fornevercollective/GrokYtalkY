@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Docs · GrokYtalkY</title>
+  <meta name="description" content="GrokYtalkY documentation — install, modes, video pipe, MIDI, Grok env, companion dock." />
+  <meta name="theme-color" content="#0c0c0f" />
+  <link rel="canonical" href="https://fornevercollective.github.io/GrokYtalkY/docs.html" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="docs-page">
+  <div class="noise" aria-hidden="true"></div>
+
+  <header class="nav">
+    <a class="brand" href="./">
+      <span class="brand-mark">◈</span>
+      <span class="brand-name">GrokYtalkY</span>
+    </a>
+    <nav>
+      <a href="./">Home</a>
+      <a href="docs.html" class="nav-active">Docs</a>
+      <a href="./#conversation">Stream hero</a>
+      <a href="https://github.com/fornevercollective/GrokYtalkY" rel="noopener">GitHub</a>
+    </nav>
+  </header>
+
+  <div class="docs-shell">
+    <aside class="docs-side" aria-label="Docs navigation">
+      <p class="side-label">Documentation</p>
+      <a href="#quickstart">Quick start</a>
+      <a href="#companion">Companion dock</a>
+      <a href="#modes">Modes</a>
+      <a href="#video">Camera &amp; video</a>
+      <a href="#patterns">Patterns</a>
+      <a href="#midi">MIDI</a>
+      <a href="#grok">Grok prompt</a>
+      <a href="#server">Server / mesh</a>
+      <a href="#env">Environment</a>
+      <a href="#keys">Keys</a>
+      <a href="#stack">Stack &amp; lineage</a>
+    </aside>
+
+    <article class="docs-main">
+      <p class="eyebrow">docs · fornevercollective/GrokYtalkY</p>
+      <h1>Documentation</h1>
+      <p class="lede docs-lede">
+        Grok terminal companion: walkie mesh, live video hero, Strudel-lite, MIDI, and Grok prompts.
+        Compact by default — sits beside your session.
+      </p>
+
+      <section id="quickstart" class="docs-section">
+        <h2>Quick start</h2>
+        <pre class="code-block"><code>git clone https://github.com/fornevercollective/GrokYtalkY.git
+cd GrokYtalkY
+go build -o bin/grokytalky .
+./bin/grokytalky                 # companion dock
+./bin/grokytalky serve           # headless hub
+./bin/grokytalky watch clip.mp4  # terminal pixel video + audio</code></pre>
+        <p>Optional: <code>./scripts/install.sh</code> → <code>~/.local/bin/grokytalky</code></p>
+      </section>
+
+      <section id="companion" class="docs-section">
+        <h2>Companion dock</h2>
+        <p>
+          Default UI is a small Charm dock (alt-screen, width-clamped lines). Camera is <strong>off</strong>
+          until you press <code>c</code> or run <code>/watch</code>. This avoids taking over the Grok terminal.
+        </p>
+        <ul>
+          <li><code>--full</code> — larger dashboard</li>
+          <li><code>F</code> — toggle full ↔ companion</li>
+          <li><code>serve</code> — no TUI; mesh only (Colossus / multi-machine)</li>
+        </ul>
+      </section>
+
+      <section id="modes" class="docs-section">
+        <h2>Modes</h2>
+        <p>Cycle with <kbd>tab</kbd> / <kbd>shift+tab</kbd>. Enter is mode-dependent.</p>
+        <table class="docs-table">
+          <thead><tr><th>Mode</th><th>Glyph</th><th>Enter</th></tr></thead>
+          <tbody>
+            <tr><td>chat</td><td>›</td><td>Mesh chat · Space = PTT when line empty</td></tr>
+            <tr><td>live</td><td>◎</td><td>Eval Strudel mini-notation</td></tr>
+            <tr><td>grok</td><td>✦</td><td>Ask Grok (xAI or local backend)</td></tr>
+            <tr><td>watch</td><td>▶</td><td>Path/URL → ffmpeg video pipe</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="video" class="docs-section">
+        <h2>Camera &amp; video</h2>
+        <p><strong>On this site:</strong> the home page hero streams your camera or a local video file into half-block pixels (same idea as the terminal).</p>
+        <p><strong>In the TUI:</strong></p>
+        <ul>
+          <li><code>c</code> — small camera strip (Half truecolor)</li>
+          <li><code>/watch file.mp4|mkv|mov</code> or URL</li>
+          <li><code>/vstop</code> — stop pipe</li>
+        </ul>
+        <pre class="code-block"><code># terminal pipeline
+ffmpeg -re -i SRC -an -vf scale=W:H,format=rgb24 -f rawvideo pipe:1
+# → clamped truecolor ▀ half-blocks
+ffplay -vn SRC   # audio parallel</code></pre>
+        <p>Layout clamps every line to terminal width so resize does not spool half-blocks.</p>
+        <p><a href="./#conversation">Open streaming hero on home →</a></p>
+      </section>
+
+      <section id="patterns" class="docs-section">
+        <h2>Patterns (Strudel-lite)</h2>
+        <pre class="code-block"><code>s("bd sd hh cp")
+s("bd*4, [~ sd]*2")
+setcps(0.6)
+stack(s("bd*4"), note("c2 g2"))
+bpm(124)</code></pre>
+        <p>Live mode + <code>p</code> play/stop. Local synth (afplay/ffplay) + MIDI hits.</p>
+      </section>
+
+      <section id="midi" class="docs-section">
+        <h2>MIDI</h2>
+        <p>Buffered per-device outs (signls/sektron lineage). Virtual port name: <strong>GrokYtalkY</strong>.</p>
+        <ul>
+          <li>Pattern hits → GM drums / notes</li>
+          <li>PTT → note + clock</li>
+          <li>Levels → CC</li>
+        </ul>
+        <p>Point signls, sektron, or a softsynth at the virtual port for external sound.</p>
+      </section>
+
+      <section id="grok" class="docs-section">
+        <h2>Grok prompt</h2>
+        <pre class="code-block"><code>export XAI_API_KEY=xai-...
+# or GROK_API_KEY · loads ~/.grok/env when present
+export GROK_MODEL=grok-3-mini
+export GROK_CLI_URL=http://127.0.0.1:3000   # optional notes backend</code></pre>
+        <p>Tab to <strong>grok</strong> or press <code>g</code>. Slash: <code>/grok make a house beat</code>.</p>
+        <p>If a reply contains <code>s("…")</code> / <code>stack(…)</code>, the dock can auto-eval into live mode.</p>
+      </section>
+
+      <section id="server" class="docs-section">
+        <h2>Server / mesh</h2>
+        <pre class="code-block"><code>./bin/grokytalky serve --port 9876 --bind 0.0.0.0
+./bin/grokytalky join HOST:9876</code></pre>
+        <p>Headless WebSocket hub for multi-peer chat, audio, frames, patterns. No TUI takeover.</p>
+      </section>
+
+      <section id="env" class="docs-section">
+        <h2>Environment</h2>
+        <table class="docs-table">
+          <thead><tr><th>Var</th><th>Purpose</th></tr></thead>
+          <tbody>
+            <tr><td><code>XAI_API_KEY</code> / <code>GROK_API_KEY</code></td><td>xAI chat</td></tr>
+            <tr><td><code>GROK_MODEL</code></td><td>default <code>grok-3-mini</code></td></tr>
+            <tr><td><code>GROK_CLI_URL</code></td><td>local backend base URL</td></tr>
+            <tr><td><code>GROK_OFFLINE</code></td><td><code>1</code> force backend offline path</td></tr>
+          </tbody>
+        </table>
+        <p>See <code>.env.example</code> in the repo.</p>
+      </section>
+
+      <section id="keys" class="docs-section">
+        <h2>Keys</h2>
+        <table class="docs-table">
+          <thead><tr><th>Key</th><th>Action</th></tr></thead>
+          <tbody>
+            <tr><td><kbd>tab</kbd></td><td>Cycle modes</td></tr>
+            <tr><td><kbd>enter</kbd></td><td>Send (mode-dependent)</td></tr>
+            <tr><td><kbd>g</kbd></td><td>Grok mode</td></tr>
+            <tr><td><kbd>l</kbd></td><td>Live mode</td></tr>
+            <tr><td><kbd>p</kbd></td><td>Pattern play/stop</td></tr>
+            <tr><td><kbd>c</kbd></td><td>Camera strip</td></tr>
+            <tr><td><kbd>F</kbd></td><td>Full ↔ companion</td></tr>
+            <tr><td><kbd>?</kbd></td><td>In-app help</td></tr>
+            <tr><td><kbd>q</kbd></td><td>Quit</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="stack" class="docs-section">
+        <h2>Stack &amp; lineage</h2>
+        <ul>
+          <li><a href="https://github.com/charmbracelet/bubbletea">Bubble Tea v2</a> · Lip Gloss v2</li>
+          <li><a href="https://github.com/bjarneo/cliamp">cliamp</a> — Charm player reference</li>
+          <li><a href="https://github.com/emprcl/signls">signls</a> · <a href="https://github.com/emprcl/sektron">sektron</a> — MIDI</li>
+          <li><a href="https://strudel.cc/">strudel.cc</a> — live coding</li>
+          <li><a href="https://github.com/fornevercollective/grok-repo-template">grok-repo-template</a> — Colossus/Dojo</li>
+          <li><a href="https://charm.land">charm.land</a> — design inspiration for this site</li>
+        </ul>
+        <p>Module: <code>github.com/fornevercollective/grokytalky</code> · Apache-2.0</p>
+      </section>
+
+      <p class="docs-foot">
+        <a class="btn primary" href="./#conversation">Back to streaming hero</a>
+        <a class="btn ghost" href="https://github.com/fornevercollective/GrokYtalkY">Source on GitHub</a>
+      </p>
+    </article>
+  </div>
+
+  <footer class="footer">
+    <div><strong>GrokYtalkY</strong><span class="c-dim"> · docs</span></div>
+    <div class="footer-links">
+      <a href="./">Home</a>
+      <a href="https://github.com/fornevercollective/GrokYtalkY">GitHub</a>
+    </div>
+  </footer>
+</body>
+</html>
