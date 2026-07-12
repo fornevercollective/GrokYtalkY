@@ -34,63 +34,66 @@
   </header>
 
   <main id="top">
-    <!-- ── Conversation hero: stream feed + real terminal preview ── -->
     <section id="conversation" class="hero-convo">
-      <div class="convo-layout">
-        <div class="convo-copy">
-          <p class="eyebrow">fornevercollective · live stream + terminal</p>
-          <h1>Your feed is the conversation.</h1>
-          <p class="lede">
-            Camera and video sit in the middle of the talk — half-block preview here, Charm dock
-            in the terminal window below. Walkie, Strudel, Grok prompt — beside your Grok session.
-          </p>
-          <div class="hero-cta">
-            <button type="button" class="btn primary" id="btn-cam">Start camera stream</button>
-            <label class="btn ghost file-btn">
-              Open video
-              <input type="file" id="file-video" accept="video/*,.mp4,.mkv,.mov,.webm" hidden />
-            </label>
-            <a class="btn ghost" href="docs.html">Open docs →</a>
-          </div>
-          <p class="stream-status" id="stream-status">Idle · allow camera or pick mp4/mkv/mov</p>
+      <div class="convo-copy-top">
+        <p class="eyebrow">fornevercollective · terminal left · feed hero</p>
+        <h1>Your feed is the conversation.</h1>
+        <p class="lede">
+          Charm dock on the left (with in-terminal video sim). Live stream on the right.
+          Camera permission optional — sim runs when blocked.
+        </p>
+        <div class="hero-cta">
+          <button type="button" class="btn primary" id="btn-cam">Start camera</button>
+          <button type="button" class="btn ghost" id="btn-sim">Sim feed</button>
+          <label class="btn ghost file-btn">
+            Open video
+            <input type="file" id="file-video" accept="video/*,.mp4,.mkv,.mov,.webm" hidden />
+          </label>
+          <a class="btn ghost" href="docs.html">Open docs →</a>
         </div>
+        <p class="stream-status" id="stream-status">Starting sim feed…</p>
+      </div>
 
-        <div class="convo-stage">
-          <!-- live camera / video hero -->
-          <div class="stream-hero" id="stream-hero">
-            <div class="stream-chrome">
-              <span class="pill live-pill" id="live-pill">○ idle</span>
-              <span class="pill" id="stream-meta">half-block · 0 fps</span>
-              <span class="pill mono">mesh ready</span>
-            </div>
-            <div class="stream-view">
-              <video id="hero-video" playsinline muted autoplay></video>
-              <canvas id="hero-canvas" aria-label="Streaming half-block video feed"></canvas>
-              <div class="stream-placeholder" id="stream-placeholder">
-                <span class="glyph">◈</span>
-                <p>Streaming camera / video hero</p>
-                <p class="sub">Same pipeline as terminal: frames → pixels</p>
-              </div>
-            </div>
-            <div class="stream-chat" id="stream-chat" aria-live="polite">
-              <div class="bubble sys">· conversation stream · feed is the hero</div>
-              <div class="bubble peer">◎ pattern ready · s("bd*4")</div>
-              <div class="bubble me">watching feed · half-blocks live</div>
-            </div>
+      <!-- dual stage: terminal LEFT, stream RIGHT -->
+      <div class="dual-stage">
+        <!-- LEFT: actual terminal preview + embedded video sim -->
+        <div class="term term-preview term-left" id="terminal" aria-label="GrokYtalkY terminal preview">
+          <div class="term-bar">
+            <span></span><span></span><span></span>
+            <code>grokytalky · companion dock</code>
           </div>
-
-          <!-- actual Charm terminal preview (always visible) -->
-          <div class="term term-preview" id="terminal" role="img" aria-label="GrokYtalkY terminal preview">
-            <div class="term-bar">
-              <span></span><span></span><span></span>
-              <code>grokytalky · companion dock</code>
-            </div>
-            <pre class="term-body"><span class="c-dim">◈ gy</span> <span class="c-live">●</span> <span class="c-tab">chat</span><span class="c-dim">│</span><span class="c-tab on">live</span><span class="c-dim">│</span><span class="c-tab">grok</span><span class="c-dim">│</span><span class="c-tab">watch</span>
+          <div class="term-cam" aria-hidden="false">
+            <canvas id="term-canvas" width="160" height="72" aria-label="In-terminal video sim"></canvas>
+            <span class="term-cam-label" id="term-cam-label">cam sim · half-block</span>
+          </div>
+          <pre class="term-body" id="term-body"><span class="c-dim">◈ gy</span> <span class="c-live">●</span> <span class="c-tab">chat</span><span class="c-dim">│</span><span class="c-tab on">live</span><span class="c-dim">│</span><span class="c-tab">grok</span><span class="c-dim">│</span><span class="c-tab">watch</span>
 <span class="c-dim">▶ s("bd*4, [~ sd]*2")  cyc=12  hit=drum bd</span>
 <span class="c-live">█</span><span class="c-dim">····</span><span class="c-live">█</span><span class="c-dim">····</span><span class="c-live">█</span><span class="c-dim">····</span><span class="c-accent">│</span><span class="c-dim">···</span>
 <span class="c-dim">· companion dock · mesh :9876 · midi GrokYtalkY</span>
-<span class="c-dim">· cam half-block · watch clip.mp4 · tab modes</span>
+<span class="c-dim">· feed: <span id="term-feed-line">sim</span> · tab modes · F compact</span>
 <span class="c-grok">✦ grok</span><span class="c-dim"> ›</span> make a house pattern at 124 bpm<span class="cursor">█</span></pre>
+        </div>
+
+        <!-- RIGHT: large stream hero -->
+        <div class="stream-hero" id="stream-hero">
+          <div class="stream-chrome">
+            <span class="pill live-pill" id="live-pill">○ idle</span>
+            <span class="pill" id="stream-meta">half-block · 0 fps</span>
+            <span class="pill mono">mesh ready</span>
+          </div>
+          <div class="stream-view">
+            <video id="hero-video" playsinline muted autoplay></video>
+            <canvas id="hero-canvas" aria-label="Streaming half-block video feed"></canvas>
+            <div class="stream-placeholder" id="stream-placeholder">
+              <span class="glyph">◈</span>
+              <p>Streaming camera / video hero</p>
+              <p class="sub">Sim runs when camera blocked</p>
+            </div>
+          </div>
+          <div class="stream-chat" id="stream-chat" aria-live="polite">
+            <div class="bubble sys">· conversation · feed is the hero</div>
+            <div class="bubble peer">◎ pattern ready · s("bd*4")</div>
+            <div class="bubble me">terminal left · stream right</div>
           </div>
         </div>
       </div>
@@ -100,29 +103,29 @@
       <p class="section-label">Build</p>
       <h2>Charm-grade. Companion-first.</h2>
       <p class="section-lead">
-        Bubble Tea v2 dock, width-clamped video, MIDI (signls/sektron lineage), Strudel-lite, Grok prompts.
+        Bubble Tea v2 dock, width-clamped video, MIDI, Strudel-lite, Grok prompts.
         <a href="docs.html">Full documentation →</a>
       </p>
       <div class="cards">
         <article class="card">
           <h3>Live feed hero</h3>
-          <p class="tag">camera · mp4 · mkv · mov</p>
-          <p>Browser preview here; terminal uses ffmpeg RGB → truecolor ▀.</p>
+          <p class="tag">camera · sim · mp4</p>
+          <p>Browser half-blocks; terminal ffmpeg RGB → ▀.</p>
         </article>
         <article class="card">
           <h3>Walkie mesh</h3>
           <p class="tag">WebSocket hub</p>
-          <p><code>grokytalky serve</code> for multi-peer talk + frames.</p>
+          <p><code>grokytalky serve</code> for multi-peer talk.</p>
         </article>
         <article class="card">
           <h3>Strudel-lite</h3>
           <p class="tag">live coding</p>
-          <p><code>s("bd*4, [~ sd]*2")</code> with local synth + MIDI.</p>
+          <p><code>s("bd*4")</code> with local synth + MIDI.</p>
         </article>
         <article class="card">
           <h3>Grok mode</h3>
           <p class="tag">✦ prompt</p>
-          <p>xAI or local backend — patterns can hot-eval into live.</p>
+          <p>xAI or local backend — patterns can hot-eval.</p>
         </article>
       </div>
     </section>
