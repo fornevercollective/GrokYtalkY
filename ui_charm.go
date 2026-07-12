@@ -204,21 +204,25 @@ func helpOverlay(width, height int) string {
   ?          help ·  q / ctrl+c quit
 
   /watch url|file   ffmpeg (auto yt-dlp for YT/…)
-  /resolve url      show resolved stream URLs
-  /depth [off|lite|zipdepth|gsplat]
-  d                 cycle live depth modes
-  V / gy lab        multi-feed lab next to chat
-  [ ]  scale        , .  fps        L  layout
-  m    style        a  +sim         o  list
   /vstop            stop pipe
-  /doctor           ffmpeg · yt-dlp · zipdepth
-  s("bd*4")         live mini-notation
+  /pause            toggle pause
+  /seek +10|-30|90  relative or absolute (seconds)
+  /rate 1.5         playback speed
+  /rec · /export f  record frames → .gyst|.gyhex|.pcap
+  /load stream.gyst binary-level load & play
+  /hexdump          current frame as hex line
+
+  scrub: k/space pause · j/l ±5s · J/L ±30s · 0 start · <> rate
+
+  binary formats:
+  .gyst   GYST packets (rgb24/pcm16/jpeg/hexlum)
+  .gyhex  text hex lines (editable)
+  .pcap   Wireshark USER0 wrapping GYST
+  gy encode clip.mp4 out.gyst
+  gy decode out.pcap
 
   styles: half hex braille ascii blocks points
           halftone depth gsplat
-  layouts: side | stack | grid | focus
-
-  depth: ZipDepth sidecar :8766 (zipdepth.github.io)
 
 env  XAI_API_KEY · GROK_MODEL · ZIPDEPTH_URL`
 	return panel("help", styText().Render(body), width)

@@ -612,17 +612,133 @@
   if (el.btnCam) el.btnCam.addEventListener('click', () => addCamera());
   if (el.fileInput) {
     el.fileInput.addEventListener('change', () => {
-      const f = el.fileInput.files && el.fileInput.files[0];
-      if (f) addFile(f);
+      const list = el.fileInput.files;
+      if (list && list.length) {
+        for (let i = 0; i < list.length; i++) addDroppedFile(list[i]);
+      }
       el.fileInput.value = '';
     });
   }
 
+  // ── Drag & drop image/video onto wall or stage ─────────────
+  function isMediaFile(f) {
+    if (!f) return false;
+    const t = (f.type || '').toLowerCase();
+    if (t.startsWith('video/') || t.startsWith('image/')) return true;
+    const n = (f.name || '').toLowerCase();
+    return /\.(mp4|mkv|mov|webm|avi|m4v|gif|jpg|jpeg|png|webp|bmp)$/i.test(n);
+  }
+
+  function addDroppedFile(file) {
+    if (!isMediaFile(file)) {
+      pushBubble('skip ' + (file && file.name), 'sys');
+      return;
+    }
+    const t = (file.type || '').toLowerCase();
+    if (t.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(file.name || '')) {
+      addImageFile(file);
+      return;
+    }
+    addFile(file);
+  }
+
+  function addImageFile(file) {
+    if (feeds.length >= MAX_FEEDS) {
+      pushBubble('max ' + MAX_FEEDS + ' feeds', 'sys');
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const id = 'f' + ++uid;
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      const feed = {
+        id,
+        kind: 'image',
+        label: (file.name || 'image').slice(0, 18),
+        video: null,
+        stream: null,
+        objectUrl: url,
+        canvas,
+        ctx,
+        seed: uid,
+        still: img,
+      };
+      feeds.push(feed);
+      activeId = id;
+      renderWall();
+      pushBubble('+ ' + feed.label + ' (image)', 'sys');
+      setStatus(feeds.length + ' feed(s) · drop ok', true);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      pushBubble('image failed', 'sys');
+    };
+    img.src = url;
+  }
+
+  // draw still images in feed loop
+  const _drawFeedOrig = drawFeed;
+  drawFeed = function (feed, now) {
+    if (feed.still && feed.kind === 'image') {
+      const { w, h } = feedSize();
+      if (feed.canvas.width !== w || feed.canvas.height !== h) {
+        feed.canvas.width = w;
+        feed.canvas.height = h;
+      }
+      feed.ctx.drawImage(feed.still, 0, 0, w, h);
+      applyStyle(feed.ctx, w, h, settings.style);
+      return;
+    }
+    _drawFeedOrig(feed, now);
+  };
+
+  function bindDropTarget(node) {
+    if (!node) return;
+    node.addEventListener('dragenter', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      node.classList.add('drop-hover');
+    });
+    node.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+      node.classList.add('drop-hover');
+    });
+    node.addEventListener('dragleave', (e) => {
+      if (e.target === node) node.classList.remove('drop-hover');
+    });
+    node.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      node.classList.remove('drop-hover');
+      const dt = e.dataTransfer;
+      if (!dt) return;
+      const files = dt.files;
+      if (files && files.length) {
+        for (let i = 0; i < files.length; i++) addDroppedFile(files[i]);
+        pushBubble('dropped ' + files.length + ' file(s)', 'sys');
+        return;
+      }
+      // URL drag from browser
+      const uri = dt.getData('text/uri-list') || dt.getData('text/plain');
+      if (uri && /^https?:\/\//i.test(uri.trim().split('\n')[0])) {
+        pushBubble('URL drop — use gy lab /watch for yt-dlp', 'sys');
+      }
+    });
+  }
+
+  bindDropTarget(el.wall);
+  bindDropTarget(document.getElementById('stream-hero'));
+  bindDropTarget(document.getElementById('dual-stage') || document.querySelector('.dual-stage'));
+
   // seed wall with 2 sims (simulcast demo)
   addSim();
   addSim();
-  setStatus('vwall simulcast · sim feeds (add cam/file)', true);
-  pushBubble('vwall: size / fps / style · multi-feed', 'sys');
+  setStatus('vwall · drop image/video files onto wall', true);
+  pushBubble('vwall: drag-drop files · size/fps/style', 'sys');
 
   t0 = performance.now();
   raf = requestAnimationFrame(loop);

@@ -130,6 +130,12 @@ func run(args []string) error {
 			fmt.Printf("path: %s\n", p)
 		}
 		return nil
+	case "encode":
+		// gy encode in.mp4 out.gyst|gyhex|pcap
+		return runEncodeCLI(fs.Args())
+	case "decode":
+		// gy decode stream.gyst  (prints info; play via gy watch)
+		return runDecodeCLI(fs.Args())
 	case "hub", "receive", "serve":
 		// server-level: headless mesh only — no TUI takeover
 		return runHubOnly(*bind, *port)
@@ -240,14 +246,16 @@ func printHelp() {
 	fmt.Printf(`GrokYtalkY %s — lean Charm companion + video burst
 
   %s                 companion dock (default)
-  %s burst           Siri-sized video walkie orb
+  %s burst           Nothing Glyph dual circles (you | peer)
   %s lab             multi-feed lab (feeds | chat)
+  %s encode in out   binary/hex/pcap encode stream
+  %s decode file     inspect .gyst|.gyhex|.pcap
   %s serve           headless hub
   %s version         version + build info
   %s update          check & install latest
   %s update --check  check only (exit 2 if outdated)
   %s --full          larger layout
-  %s watch URL|file  ffmpeg pixels (auto yt-dlp)
+  %s watch URL|file  ffmpeg or binary stream
   %s doctor          check ffmpeg / yt-dlp / ffplay
   %s join HOST:PORT  remote hub
 
@@ -264,7 +272,7 @@ func printHelp() {
   burst = short video+audio walkie, face → Glyph Matrix 25×25
   flags: --burst --glyph 25|13 --midi --cam --live --port --nick
   env:   XAI_API_KEY · GROK_MODEL · GROK_CLI_URL
-`, Version, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd)
+`, Version, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd)
 }
 
 func runHubOnly(bind string, port int) error {

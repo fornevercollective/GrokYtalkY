@@ -385,7 +385,46 @@
     }
   });
 
-  setMeta('enable cam · connect hub · hold orb');
+  // drag-drop video/image onto orb
+  function bindOrbDrop(node) {
+    if (!node) return;
+    ['dragenter', 'dragover'].forEach((ev) => {
+      node.addEventListener(ev, (e) => {
+        e.preventDefault();
+        node.classList.add('drop-hover');
+      });
+    });
+    node.addEventListener('dragleave', () => node.classList.remove('drop-hover'));
+    node.addEventListener('drop', (e) => {
+      e.preventDefault();
+      node.classList.remove('drop-hover');
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (!f) return;
+      const url = URL.createObjectURL(f);
+      if ((f.type || '').startsWith('video/')) {
+        if (!video) video = document.createElement('video');
+        video.playsInline = true;
+        video.muted = true;
+        video.loop = true;
+        video.src = url;
+        video.play().catch(() => {});
+        setMeta('dropped video · hold to burst');
+      } else if ((f.type || '').startsWith('image/')) {
+        const im = new Image();
+        im.onload = () => {
+          remoteImg = im;
+          faceCtx.drawImage(im, 0, 0, GLYPH_N, GLYPH_N);
+          paintGlyph();
+        };
+        im.src = url;
+        setMeta('dropped image · hold to burst');
+      }
+    });
+  }
+  bindOrbDrop(el.orb);
+  bindOrbDrop(document.querySelector('.burst-stage'));
+
+  setMeta('enable cam · drop file · hold orb');
   paintSimFace(0);
   raf = requestAnimationFrame(loop);
 })();

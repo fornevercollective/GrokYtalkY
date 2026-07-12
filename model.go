@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -82,17 +83,23 @@ type Model struct {
 	layoutW      int  // last stable layout width for resize debounce
 	layoutH      int
 
-	// Siri-sized video burst orb (Glyph Matrix walkie)
-	burstMode   bool
-	burstRemote string // nick currently bursting video at us
-	glyphN      int    // 25 Phone(3) / 13 Phone(4a)
-	lastGlyph   []int  // last brightness grid for debug / Android bridge
+	// Siri-sized video burst orb (Glyph Matrix walkie) — dual side-by-side streams
+	burstMode       bool
+	burstRemote     string // nick currently bursting video at us
+	burstLocalFrame *FramePixels
+	burstPeerFrame  *FramePixels
+	glyphN          int   // 25 Phone(3) / 13 Phone(4a)
+	lastGlyph       []int // last brightness grid for debug / Android bridge
 
 	// Live depth + gsplat (ZipDepth sidecar / zip-lite / overview-style stack)
 	depth *depthSession
 
 	// Multi-feed video lab (FPS / scale / style / layout + feeds | chat)
 	lab *LabState
+
+	// Binary/hex/pcap packet player + recorder
+	pktPlayer *PacketPlayer
+	recorder  *RecordSession
 }
 
 type peerInfo struct {
@@ -170,6 +177,7 @@ func NewModel(opts Options) *Model {
 		glyphN:     opts.GlyphN,
 		depth:      newDepthSession(),
 		lab:        newLabState(),
+		recorder:   NewRecordSession(),
 		player:     &Player{},
 		midiOn:     opts.MIDI,
 		xl8On:      opts.Translate,
@@ -195,9 +203,20 @@ func NewModel(opts Options) *Model {
 		m.glyphN = GlyphPhone3
 	}
 	if opts.Burst {
-		m.width, m.height = OrbCols+4, OrbRows+4
-		m.chat = []chatLine{{Sys: true, Text: "burst · space hold = video walkie"}}
-		m.status = "space = burst"
+		// exact dual 25×25 needs ≥52 cols × 30 rows; 13×13 needs ≥28×18
+		gn := m.glyphN
+		if gn != GlyphPhone3 && gn != GlyphPhone4a {
+			gn = GlyphPhone3
+		}
+		m.width = max(80, gn*2+8)
+		m.height = max(32, gn+8)
+		m.chat = []chatLine{
+			{Sys: true, Text: fmt.Sprintf("burst · exact %d×%d full-color Glyph Matrix", gn, gn)},
+			{Sys: true, Text: "1 cell = 1 LED · left ◎ you · right ◎ peer"},
+		}
+		m.status = fmt.Sprintf("burst · ◎ %d×%d color", gn, gn)
+		m.camOn = true
+		m.videoOn = true
 	}
 	if opts.Live {
 		m.promptMode = ModeLive
@@ -354,17 +373,36 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			pulseSpectrum(m.bands, 0.08+m.peak*0.2, m.spin)
 		}
 		var cmds []tea.Cmd
-		// pull ffmpeg video pipe frames (~12 fps)
-		if m.vpipe != nil && m.vpipe.Running() {
-			if rgb, w, h, seq, ok := m.vpipe.Snapshot(); ok && seq != m.vpipeSeq {
+		// binary/hex/pcap packet player
+		if m.pktPlayer != nil && m.pktPlayer.Playing() {
+			if fr, seq, ok := m.pktPlayer.Snapshot(); ok && (seq != m.vpipeSeq || m.frame == nil) {
+				m.vpipeSeq = seq
+				m.frame = fr
+				m.videoOn = true
+				m.frameMeta = m.pktPlayer.StatusLine()
+				m.status = m.pktPlayer.StatusLine()
+				m.applyDepthToFrame()
+				if m.recorder != nil && m.recorder.Active() {
+					m.recorder.AddFrame(fr)
+				}
+			}
+		} else if m.vpipe != nil && (m.vpipe.Alive() || m.vpipe.Paused() || m.vpipe.Running()) {
+			// pull ffmpeg video pipe frames; scrub keeps last frame when paused
+			if rgb, w, h, seq, ok := m.vpipe.Snapshot(); ok && (seq != m.vpipeSeq || m.frame == nil) {
 				m.vpipeSeq = seq
 				m.frame = RGBToFramePixels(rgb, w, h, m.watchPath)
-				m.frameMeta = fmt.Sprintf("file %dx%d", w, h)
+				m.frameMeta = m.vpipe.StatusLine()
 				m.pixelMode = PixelHalf
 				m.videoOn = true
 				m.applyDepthToFrame()
+				if m.recorder != nil && m.recorder.Active() {
+					m.recorder.AddFrame(m.frame)
+				}
 			}
-		} else if m.camOn && (m.vpipe == nil || !m.vpipe.Running()) {
+			if m.vpipe.Alive() || m.vpipe.Paused() {
+				m.status = m.vpipe.StatusLine()
+			}
+		} else if m.camOn && (m.vpipe == nil || !m.vpipe.Alive()) {
 			m.camTick++
 			// burst TX: snappier face frames; idle cam slower
 			every := 8 // ~2.5 fps
@@ -436,6 +474,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case frameReady:
 		m.frame = msg.F
 		m.frameMeta = msg.Meta
+		// dual burst: tag local vs peer by meta
+		if m.burstMode && msg.F != nil {
+			if strings.HasPrefix(msg.Meta, "burst:") {
+				m.burstPeerFrame = msg.F
+				if nick := strings.TrimPrefix(msg.Meta, "burst:"); nick != "" {
+					m.burstRemote = nick
+				}
+			} else if msg.Meta == "local" || msg.Meta == "burst-local" || m.talking || m.camOn {
+				m.burstLocalFrame = msg.F
+			}
+		}
 		m.applyDepthToFrame()
 		if m.midiOn && m.midiBridge != nil {
 			m.midiBridge.Frame()
@@ -449,9 +498,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// local preview always
 		maxW, maxH := m.videoCols(), m.videoPxH()
 		if m.burstMode {
-			maxW, maxH = 48, 48
+			maxW, maxH = 64, 64 // square tiles for dual burst
 		}
-		cmd := decodeFrameCmd(msg, "local", maxW, maxH)
+		meta := "local"
+		if m.burstMode {
+			meta = "burst-local"
+		}
+		cmd := decodeFrameCmd(msg, meta, maxW, maxH)
 		if m.client == nil {
 			return m, cmd
 		}
@@ -460,6 +513,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			fp, err := decodeFrameJPEG(msg, maxW, maxH)
 			if err == nil && fp != nil {
 				m.frame = fp
+				m.burstLocalFrame = fp
 				gm := FrameToGlyph(fp, m.glyphN)
 				m.lastGlyph = gm.IntColors()
 				m.client.SendBurstFrame(msg, fp.W, fp.H, m.lastGlyph)
@@ -467,6 +521,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.client.SendBurstFrame(msg, maxW, maxH, nil)
 			}
 			return m, nil
+		}
+		if m.burstMode && !m.talking {
+			// still refresh local preview tile while idle in burst mode
+			return m, cmd
 		}
 		if !m.burstMode {
 			m.client.SendFrame("term:"+m.nick, 320, 200, msg)
@@ -519,8 +577,89 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pushSys(string(msg))
 		return m, nil
 
+	case tea.PasteMsg:
+		// Terminal drag-drop / bracketed paste of file paths
+		return m.handlePaste(msg.Content)
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
+	}
+	return m, nil
+}
+
+// handlePaste processes Finder/Terminal drag-drop paths and multi-line pastes.
+func (m *Model) handlePaste(content string) (tea.Model, tea.Cmd) {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return m, nil
+	}
+	// media drops take priority over chat paste
+	if LooksLikeDropPaste(content) {
+		paths := ParseDroppedPaths(content)
+		return m.ingestDroppedPaths(paths)
+	}
+	// plain text → append to input (bracketed paste)
+	m.input += content
+	return m, nil
+}
+
+// ingestDroppedPaths loads images into tiles and opens videos via watch/lab.
+func (m *Model) ingestDroppedPaths(paths []string) (tea.Model, tea.Cmd) {
+	if len(paths) == 0 {
+		return m, nil
+	}
+	// auto-open lab when dropping multiple files or when already in lab
+	if len(paths) > 1 || (m.lab != nil && m.lab.On) {
+		if m.lab == nil {
+			m.lab = newLabState()
+		}
+		m.lab.On = true
+		m.burstMode = false
+		m.lab.EnsurePlaceholders(max(4, len(paths)))
+	}
+
+	var lastVideo string
+	loaded := 0
+	for _, p := range paths {
+		p = strings.TrimSpace(p)
+		if p == "" || !IsMediaPath(p) {
+			continue
+		}
+		// still image → lab tile / single frame
+		if IsImagePath(p) && !isURL(p) {
+			maxW, maxH := m.videoCols(), m.videoPxH()
+			if m.lab != nil && m.lab.On {
+				maxW = max(48, m.lab.Scale)
+				maxH = max(32, maxW*10/16)
+			}
+			fp, err := LoadImageFile(p, maxW, maxH)
+			if err != nil {
+				m.pushSys("drop image: " + filepath.Base(p) + " · " + err.Error())
+				continue
+			}
+			m.frame = fp
+			m.videoOn = true
+			if m.lab != nil && m.lab.On {
+				m.lab.FillActive("watch", filepath.Base(p), p, fp)
+			}
+			m.pushSys("drop img → " + filepath.Base(p))
+			loaded++
+			continue
+		}
+		// video / URL / stream
+		lastVideo = p
+		if m.lab != nil && m.lab.On {
+			// reserve slot label; startWatch will fill frame
+			m.lab.FillWatchIntoActive(filepath.Base(p), p, nil)
+			m.lab.NextFeed() // next drop goes to next slot
+		}
+		loaded++
+	}
+	if lastVideo != "" {
+		m.pushSys(fmt.Sprintf("drop %d media · playing last", loaded))
+		return m.startWatch(lastVideo, true)
+	}
+	if loaded > 0 {
+		m.status = fmt.Sprintf("dropped %d", loaded)
 	}
 	return m, nil
 }
@@ -569,19 +708,126 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.input == "" {
 		switch k {
 		case " ":
+			// packet / video scrub pause
+			if m.pktPlayer != nil && m.pktPlayer.Playing() && !m.burstMode {
+				m.pktPlayer.TogglePause()
+				m.status = m.pktPlayer.StatusLine()
+				return m, nil
+			}
+			if m.vpipe != nil && (m.vpipe.Alive() || m.vpipe.Paused()) && !m.burstMode {
+				m.vpipe.TogglePause()
+				m.status = m.vpipe.StatusLine()
+				return m, nil
+			}
 			if m.burstMode || m.promptMode == ModeChat {
 				return m.togglePTT()
 			}
 			m.input += " "
 			return m, nil
+		case "k":
+			// pause / play (mpv-style) — ffmpeg pipe or packet player
+			if m.pktPlayer != nil && m.pktPlayer.Playing() {
+				m.pktPlayer.TogglePause()
+				m.status = m.pktPlayer.StatusLine()
+				return m, nil
+			}
+			if m.vpipe != nil && (m.vpipe.Alive() || m.vpipe.Paused() || m.frame != nil) {
+				m.vpipe.TogglePause()
+				m.status = m.vpipe.StatusLine()
+			}
+			return m, nil
+		case "j", "left":
+			if m.pktPlayer != nil {
+				m.pktPlayer.SeekRel(-12) // ~1s at 12fps packets
+				m.status = m.pktPlayer.StatusLine()
+				return m, nil
+			}
+			if m.vpipe != nil {
+				if err := m.vpipe.SeekRel(-5 * time.Second); err != nil {
+					m.status = "seek: " + err.Error()
+				} else {
+					m.status = m.vpipe.StatusLine()
+				}
+			}
+			return m, nil
+		case "l", "right":
+			if m.pktPlayer != nil {
+				m.pktPlayer.SeekRel(12)
+				m.status = m.pktPlayer.StatusLine()
+				return m, nil
+			}
+			if m.vpipe != nil && (m.vpipe.Alive() || m.vpipe.Paused() || m.vpipe.Running()) {
+				if err := m.vpipe.SeekRel(5 * time.Second); err != nil {
+					m.status = "seek: " + err.Error()
+				} else {
+					m.status = m.vpipe.StatusLine()
+				}
+				return m, nil
+			}
+			if k == "l" {
+				m.promptMode = ModeLive
+				m.liveMode = true
+				m.status = "live"
+			}
+			return m, nil
+		case "J", "shift+left":
+			if m.pktPlayer != nil {
+				m.pktPlayer.SeekRel(-60)
+				m.status = m.pktPlayer.StatusLine()
+				return m, nil
+			}
+			if m.vpipe != nil {
+				_ = m.vpipe.SeekRel(-30 * time.Second)
+				m.status = m.vpipe.StatusLine()
+			}
+			return m, nil
+		case "L", "shift+right":
+			if m.lab != nil && m.lab.On && k == "L" {
+				m.status = "layout " + m.lab.CycleLayout().String()
+				return m, nil
+			}
+			if m.pktPlayer != nil {
+				m.pktPlayer.SeekRel(60)
+				m.status = m.pktPlayer.StatusLine()
+				return m, nil
+			}
+			if m.vpipe != nil {
+				_ = m.vpipe.SeekRel(30 * time.Second)
+				m.status = m.vpipe.StatusLine()
+			}
+			return m, nil
+		case "0", "home":
+			if m.pktPlayer != nil {
+				m.pktPlayer.SeekIndex(0)
+				m.status = m.pktPlayer.StatusLine()
+				return m, nil
+			}
+			if m.vpipe != nil {
+				_ = m.vpipe.Seek(0, 0)
+				m.status = m.vpipe.StatusLine()
+			}
+			return m, nil
+		case "<":
+			if m.vpipe != nil {
+				_ = m.vpipe.NudgeRate(-1)
+				m.status = m.vpipe.StatusLine()
+			}
+			return m, nil
+		case ">":
+			if m.vpipe != nil {
+				_ = m.vpipe.NudgeRate(1)
+				m.status = m.vpipe.StatusLine()
+			}
+			return m, nil
 		case "b":
-			// toggle Siri-sized burst orb
+			// toggle dual-stream burst (local | peer side-by-side)
 			m.burstMode = !m.burstMode
 			if m.burstMode {
 				m.camOn = true
 				m.videoOn = true
 				m.compact = true
-				m.status = "burst orb"
+				m.status = "burst · you | peer"
+				m.pushSys("burst dual: left=you · right=peer · space PTT")
 			} else {
 				m.status = "companion"
 			}
@@ -648,11 +894,6 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case ".":
 			if m.lab != nil && m.lab.On {
 				m.status = fmt.Sprintf("fps %d · %s", m.lab.NudgeFPS(1), m.lab.BudgetLine())
-			}
-			return m, nil
-		case "L":
-			if m.lab != nil && m.lab.On {
-				m.status = "layout " + m.lab.CycleLayout().String()
 			}
 			return m, nil
 		case "a":
@@ -748,16 +989,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 			m.status = fmt.Sprintf("midi %v", m.midiOn)
 			return m, nil
-		case "l":
-			m.promptMode = ModeLive
-			m.liveMode = true
-			m.status = "live"
-			return m, nil
 		case "g":
 			m.promptMode = ModeGrok
 			m.status = "grok · " + m.grokCfg.ModeLabel()
 			return m, nil
 		case "p":
+			// pattern play; if video open and shift not - keep pattern
 			_ = m.toggleLive()
 			return m, nil
 		case "?", "f1":
@@ -816,7 +1053,14 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) dispatchPrompt(line string) (tea.Model, tea.Cmd) {
-	if isVideoPath(line) || looksLikeVideoArg(line) {
+	// drag-drop style path(s) typed/pasted into the prompt
+	if LooksLikeDropPaste(line) {
+		return m.ingestDroppedPaths(ParseDroppedPaths(line))
+	}
+	if isVideoPath(line) || looksLikeVideoArg(line) || IsImagePath(line) {
+		if IsImagePath(line) && !isURL(line) {
+			return m.ingestDroppedPaths([]string{line})
+		}
 		m.promptMode = ModeWatch
 		return m.startWatch(line, true)
 	}
@@ -1035,9 +1279,149 @@ func (m *Model) slash(line string) (tea.Model, tea.Cmd) {
 		m.stopWatch()
 		m.pushSys("■ video pipe stopped")
 		return m, nil
+	case "rec", "record":
+		if m.recorder == nil {
+			m.recorder = NewRecordSession()
+		}
+		if arg == "stop" || (m.recorder.Active() && arg == "") {
+			m.recorder.Stop()
+			m.pushSys(fmt.Sprintf("rec stop · %d packets", m.recorder.Count()))
+			return m, nil
+		}
+		m.recorder.Start()
+		m.pushSys("rec ● capturing frames/pcm → /export")
+		return m, nil
+	case "export", "encode":
+		// /export out.gyst | out.gyhex | out.pcap
+		if m.recorder == nil || m.recorder.Count() == 0 {
+			// export current frame as single-packet file
+			if m.frame == nil {
+				m.pushSys("nothing to export — /rec first or load video")
+				return m, nil
+			}
+			path := arg
+			if path == "" {
+				path = fmt.Sprintf("gy-frame-%d.gyst", time.Now().Unix())
+			}
+			p := PacketFromFramePixels(m.frame, 1)
+			format := strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), ".")
+			if format == "" {
+				format = "gyst"
+				path += ".gyst"
+			}
+			var err error
+			switch format {
+			case "gyhex", "hex":
+				err = WriteGyHexFile(path, []StreamPacket{p}, nil)
+			case "pcap":
+				err = WritePCAP(path, []StreamPacket{p})
+			default:
+				err = WriteGystFile(path, []StreamPacket{p})
+			}
+			if err != nil {
+				m.pushSys("export: " + err.Error())
+			} else {
+				m.pushSys("export → " + path)
+			}
+			return m, nil
+		}
+		path := arg
+		if path == "" {
+			path = fmt.Sprintf("gy-stream-%d.gyst", time.Now().Unix())
+		}
+		format := strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), ".")
+		if format == "" {
+			format = "gyst"
+			path += ".gyst"
+		}
+		if err := m.recorder.Export(path, format); err != nil {
+			m.pushSys("export: " + err.Error())
+		} else {
+			m.pushSys(fmt.Sprintf("export %d pkts → %s", m.recorder.Count(), path))
+		}
+		return m, nil
+	case "load", "decode", "bin":
+		// /load file.gyst|.gyhex|.pcap
+		if arg == "" {
+			m.pushSys("usage: /load stream.gyst|gyhex|pcap")
+			return m, nil
+		}
+		return m.startPacketWatch(arg)
+	case "hexdump":
+		// /hexdump — dump current frame as gyhex lines to chat
+		if m.frame == nil {
+			m.pushSys("no frame")
+			return m, nil
+		}
+		p := PacketFromFramePixels(m.frame, 1)
+		line := EncodeHexLine(p)
+		if len(line) > 120 {
+			m.pushSys(line[:120] + "…")
+		} else {
+			m.pushSys(line)
+		}
+		m.pushSys(fmt.Sprintf("rgb %dx%d · %d bytes · use /export f.gyhex", m.frame.W, m.frame.H, len(p.Payload)))
+		return m, nil
+	case "pause", "vpause":
+		if m.pktPlayer != nil {
+			m.pktPlayer.TogglePause()
+			m.pushSys(m.pktPlayer.StatusLine())
+			return m, nil
+		}
+		if m.vpipe != nil {
+			m.vpipe.TogglePause()
+			m.pushSys(m.vpipe.StatusLine())
+		}
+		return m, nil
+	case "seek":
+		// /seek 90  or /seek +10  or /seek -30
+		if m.vpipe == nil {
+			m.pushSys("no video")
+			return m, nil
+		}
+		arg = strings.TrimSpace(arg)
+		if arg == "" {
+			m.pushSys(m.vpipe.StatusLine())
+			return m, nil
+		}
+		if strings.HasPrefix(arg, "+") || strings.HasPrefix(arg, "-") {
+			sec, err := strconv.ParseFloat(arg, 64)
+			if err != nil {
+				m.pushSys("usage: /seek +10 | /seek -30 | /seek 90")
+				return m, nil
+			}
+			_ = m.vpipe.SeekRel(time.Duration(sec * float64(time.Second)))
+		} else {
+			sec, err := strconv.ParseFloat(arg, 64)
+			if err != nil {
+				m.pushSys("usage: /seek 90")
+				return m, nil
+			}
+			_ = m.vpipe.Seek(time.Duration(sec*float64(time.Second)), 0)
+		}
+		m.pushSys(m.vpipe.StatusLine())
+		return m, nil
+	case "rate", "speed":
+		if m.vpipe == nil {
+			m.pushSys("no video")
+			return m, nil
+		}
+		if arg == "" {
+			m.pushSys(fmt.Sprintf("rate %g×", m.vpipe.Rate()))
+			return m, nil
+		}
+		r, err := strconv.ParseFloat(arg, 64)
+		if err != nil {
+			m.pushSys("usage: /rate 1.5")
+			return m, nil
+		}
+		_ = m.vpipe.SetRate(r)
+		m.pushSys(m.vpipe.StatusLine())
+		return m, nil
 	case "vpipe", "vinfo":
-		if m.vpipe != nil && m.vpipe.Running() {
-			m.pushSys(fmt.Sprintf("vpipe %s %dx%d audio=%v", m.watchPath, m.vpipe.W, m.vpipe.H, m.vpipe.HasAudio))
+		if m.vpipe != nil {
+			m.pushSys(m.vpipe.StatusLine())
+			m.pushSys(fmt.Sprintf("src %s · %dx%d · audio=%v", truncate(m.watchPath, 40), m.vpipe.W, m.vpipe.H, m.vpipe.HasAudio))
 		} else {
 			m.pushSys("vpipe idle — /watch movie.mp4")
 		}
@@ -1072,6 +1456,53 @@ func (m *Model) slash(line string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// startPacketWatch loads .gyst / .gyhex / .pcap / hex JSON and plays frames.
+func (m *Model) startPacketWatch(path string) (tea.Model, tea.Cmd) {
+	path = expandPath(strings.Trim(path, `"'`))
+	pkts, err := LoadStreamFile(path)
+	if err != nil {
+		m.pushSys("bin load: " + err.Error())
+		return m, nil
+	}
+	if len(pkts) == 0 {
+		m.pushSys("bin load: empty")
+		return m, nil
+	}
+	m.stopWatch()
+	if m.pktPlayer != nil {
+		m.pktPlayer.Stop()
+	}
+	m.pktPlayer = NewPacketPlayer(pkts)
+	m.pktPlayer.onPCM = func(pcm []byte, sr, ch int) {
+		if m.player != nil {
+			m.player.Write(pcm, sr, ch)
+		}
+		if m.recorder != nil && m.recorder.Active() {
+			m.recorder.AddPCM(pcm, sr, ch)
+		}
+	}
+	m.camOn = false
+	m.videoOn = true
+	m.watchPath = path
+	// prime first video frame
+	for i, p := range pkts {
+		if p.Kind == KindRGB24 || p.Kind == KindJPEG || p.Kind == KindHexLum {
+			m.pktPlayer.SeekIndex(i)
+			if fr, err := FrameFromPacket(&p); err == nil {
+				m.frame = fr
+			}
+			break
+		}
+	}
+	m.pktPlayer.Play()
+	m.status = m.pktPlayer.StatusLine()
+	m.pushSys(fmt.Sprintf("▶ bin %s · %d packets · %s", filepath.Base(path), len(pkts), DetectStreamFile(path)))
+	if m.lab != nil && m.lab.On {
+		m.lab.FillWatchIntoActive(filepath.Base(path), path, m.frame)
+	}
+	return m, nil
+}
+
 // applyDepthToFrame runs live mono depth / gsplat on the current RGB frame.
 func (m *Model) applyDepthToFrame() {
 	if m.depth == nil || m.frame == nil {
@@ -1090,8 +1521,19 @@ func (m *Model) applyDepthToFrame() {
 
 func (m *Model) startWatch(src string, withAudio bool) (tea.Model, tea.Cmd) {
 	src = strings.Trim(src, `"'`)
+	src = expandPath(src)
+	// binary/hex/pcap stream files
+	if IsStreamCodecPath(src) || DetectStreamFile(src) != "unknown" {
+		if DetectStreamFile(src) != "unknown" {
+			return m.startPacketWatch(src)
+		}
+	}
 	// stop camera while watching file
 	m.camOn = false
+	if m.pktPlayer != nil {
+		m.pktPlayer.Stop()
+		m.pktPlayer = nil
+	}
 	if m.vpipe != nil {
 		m.vpipe.Stop()
 		m.vpipe = nil
@@ -1143,6 +1585,10 @@ func (m *Model) stopWatch() {
 	if m.vpipe != nil {
 		m.vpipe.Stop()
 		m.vpipe = nil
+	}
+	if m.pktPlayer != nil {
+		m.pktPlayer.Stop()
+		m.pktPlayer = nil
 	}
 	m.watchPath = ""
 	m.vpipeSeq = 0
@@ -1422,6 +1868,7 @@ func (m *Model) handleWS(raw []byte) (tea.Model, tea.Cmd) {
 		if from == m.burstRemote || from == m.remoteTX {
 			m.burstRemote = ""
 			m.remoteTX = ""
+			// keep last peer frame frozen (don't nil) so dual view stays readable
 			m.status = "clear"
 		}
 	case "vburst-frame":
@@ -1452,10 +1899,11 @@ func (m *Model) handleWS(raw []byte) (tea.Model, tea.Cmd) {
 		if err != nil {
 			return m, nil
 		}
-		maxW, maxH := m.videoCols(), m.videoPxH()
-		if m.burstMode {
-			maxW, maxH = 48, 48
+		maxW, maxH := 64, 64
+		if !m.burstMode {
+			maxW, maxH = m.videoCols(), m.videoPxH()
 		}
+		// decode into peer tile (meta burst:nick) without replacing local cam frame path
 		return m, decodeFrameCmd(jpeg, "burst:"+from, maxW, maxH)
 	case "audio":
 		from, _ := msg["from"].(string)
@@ -1685,5 +2133,7 @@ func (m *Model) View() tea.View {
 	v := tea.NewView(m.renderCharm())
 	// v2: alt screen on the View (prevents scrollback spool)
 	v.AltScreen = true
+	// bracketed paste so Finder/Terminal drag-drop arrives as PasteMsg
+	v.DisableBracketedPasteMode = false
 	return v
 }

@@ -42,6 +42,19 @@ gy watch clip.mp4
 
 **Depth / gsplat:** live mono depth (`d` cycles) — zip-lite offline, [ZipDepth](https://zipdepth.github.io) sidecar (`:8766` from aito-mac), or gsplat-style stack (aito / overview). See `docs/depth-gsplat.md`.
 
+**Drag & drop:** drop image/video files onto the Terminal window (`gy` / `gy lab`) or the site feed wall — paths auto-open as watch tiles or stills.
+
+**Scrub:** while a video is open — `k`/`space` pause, `j`/`l` ±5s, `J`/`L` ±30s, `0` restart, `<>` rate, `/seek`, `/rate`.
+
+**Binary streams:** encode/decode RGB/PCM at packet level — `.gyst` / `.gyhex` / `.pcap` (see `docs/stream-binary.md`).
+
+```bash
+gy encode clip.mp4 out.gyst
+gy decode out.pcap
+gy watch out.gyst          # play packets; j/k scrub
+# TUI: /rec → /export out.gyhex · /load out.gyst · /hexdump
+```
+
 **Video lab:** multi-feed wall next to chat with listed **FPS / scale / style / layout** controls:
 
 ```bash

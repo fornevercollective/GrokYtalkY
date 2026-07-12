@@ -465,7 +465,7 @@ func listLayouts(cur FeedLayout) string {
 
 // KeysHelp for lab mode.
 func LabKeysHelp() string {
-	return "lab: 1-6 slot · c cam · a sim · /watch url · [ ] scale · , . fps · m style · L layout · r clear · o list"
+	return "lab: drop files · 1-6 slot · c cam · a sim · /watch · [ ] scale · , . fps · m style · L layout · r clear"
 }
 
 // tileGrid returns cols/rows for n feeds.

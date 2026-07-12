@@ -36,41 +36,63 @@ func (m *Model) renderCharm() string {
 	return stableView(m.renderFull(cw, h), w, h)
 }
 
-// renderBurstOrb — Siri-sized popup (fixed footprint).
+// renderBurstOrb — dual exact-scale full-color Glyph Matrix circles (you | peer).
+// Each circle is glyphN×glyphN cells (1 LED = 1 cell), FG+BG truecolor █ like half style.
 func (m *Model) renderBurstOrb(w, h int) string {
-	cols := min(OrbCols, w)
-	rows := min(OrbRows, max(8, h-3))
-	if rows > OrbRows {
-		rows = OrbRows
+	gn := m.glyphN
+	if gn != GlyphPhone3 && gn != GlyphPhone4a {
+		gn = GlyphPhone3
+	}
+	// exact dual matrix needs 2*N + gutter columns and N+title rows
+	gutter := 2
+	needW := gn*2 + gutter + 2
+	needH := gn + 5 // header, status, matrix, vu, hint
+	cols := safeCols(w)
+	if cols < needW {
+		cols = needW
+	}
+	rows := h
+	if rows < needH {
+		rows = needH
 	}
 
-	face := m.frame
 	tx := m.talking
 	rx := m.burstRemote
 	if rx == "" {
 		rx = m.remoteTX
 	}
-
-	orb := RenderOrb(cols, rows, face, maxF(m.level, m.peak*0.8), m.bands, tx, rx, m.nick)
-	status := BurstStatusLine(cols, tx, rx, m.nick, len(m.peers))
-	pad := (w - cols) / 2
-	if pad < 0 {
-		pad = 0
+	local := m.burstLocalFrame
+	if local == nil {
+		local = m.frame
 	}
-	prefix := strings.Repeat(" ", pad)
+	peer := m.burstPeerFrame
 
 	var parts []string
-	topPad := max(0, (h-rows-2)/3)
-	for i := 0; i < topPad && i < 4; i++ {
-		parts = append(parts, "")
+	parts = append(parts, clampCells(m.headerLine(cols), cols))
+	parts = append(parts, clampCells(BurstStatusLine(cols, tx, rx, m.nick, len(m.peers)), cols))
+
+	// panel height: exact N + 1 title inside dual renderer
+	panelH := gn + 1
+	dual := RenderBurstDualGlyph(cols, panelH, local, peer, tx, rx, m.nick, gn)
+	for _, ln := range strings.Split(dual, "\n") {
+		parts = append(parts, clampCells(ln, cols))
 	}
-	for _, ln := range strings.Split(orb, "\n") {
-		parts = append(parts, clampCells(prefix+ln, w))
+
+	vu := renderVU(maxF(m.level, m.peak*0.85), min(16, cols/4))
+	parts = append(parts, clampCells(
+		styDim().Render("♪ ")+vu+
+			styDim().Render(fmt.Sprintf("  ◎ exact %d×%d full-color LEDs · half-style truecolor", gn, gn)),
+		cols,
+	))
+	parts = append(parts, clampCells(
+		styDim().Render("space PTT · b exit · 1 cell=1 LED · FG+BG truecolor · left=you right=peer"),
+		cols,
+	))
+
+	// stableView will pad; if terminal smaller than need, still emit exact matrix
+	if len(parts) > h && h >= needH {
+		parts = parts[:h]
 	}
-	parts = append(parts, clampCells(prefix+status, w))
-	hint := styDim().Render("b exit · q quit · glyph ")
-	hint += styDim().Render(fmt.Sprintf("%d×%d", m.glyphN, m.glyphN))
-	parts = append(parts, clampCells(prefix+hint, w))
 	return strings.Join(parts, "\n")
 }
 
@@ -236,6 +258,15 @@ func (m *Model) statusCrumb() string {
 
 // vizLine: spectrum + vu — single line, hard-clamped
 func (m *Model) vizLine(w int) string {
+	// when watching: scrub status bar instead of spectrum
+	if m.pktPlayer != nil && m.pktPlayer.Playing() {
+		return clampCells(styDim().Render(m.pktPlayer.StatusLine())+" "+
+			styDim().Render("j/l pkt · k pause · 0 start"), w)
+	}
+	if m.vpipe != nil && (m.vpipe.Alive() || m.vpipe.Paused() || m.vpipe.Running()) {
+		return clampCells(m.scrubLine(w), w)
+	}
+
 	fixed := 2
 	hit := ""
 	if m.liveHit != "" && m.live != nil && m.live.Playing() {
@@ -294,6 +325,34 @@ func (m *Model) footerPrompt(w int) string {
 		)
 	}
 	return clampCells(promptLine(m.promptMode, m.nick, m.input, m.grokThinking, w), w)
+}
+
+// scrubLine — transport: ⏸ 1:23 / 4:56 ████░░░░ 1×  [ ] j k l
+func (m *Model) scrubLine(w int) string {
+	vp := m.vpipe
+	if vp == nil {
+		return ""
+	}
+	pos := vp.Position()
+	dur := vp.Duration()
+	label := styDim().Render(vp.StatusLine())
+	// progress bar
+	barW := max(8, min(28, w/3))
+	filled := 0
+	if dur > 0 {
+		filled = int(float64(barW) * float64(pos) / float64(dur))
+		if filled > barW {
+			filled = barW
+		}
+		if filled < 0 {
+			filled = 0
+		}
+	}
+	bar := styLive().Render(strings.Repeat("█", filled)) +
+		styDim().Render(strings.Repeat("░", barW-filled))
+	hint := styDim().Render(" j/l ±5s · J/L ±30s · k pause · <> rate · 0 start")
+	line := label + " " + bar + " " + hint
+	return clampCells(line, w)
 }
 
 func (m *Model) showPatternLine() bool {
