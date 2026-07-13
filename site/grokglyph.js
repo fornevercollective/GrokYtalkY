@@ -5,11 +5,11 @@
 (function () {
   "use strict";
 
-  const N = 25;
+  let glyphN = 25; // 13|25|37|49
   const GAP = 1;
   const CAST_MS = 110; // ~9 fps cast (glyph grid is tiny)
   const RX_STALE_MS = 2500;
-  const STORAGE_KEY = "grokglyph.v4";
+  const STORAGE_KEY = "grokglyph.v5";
   const DIR_ORDER = ["n", "e", "s", "w"];
   const DIR_DELTA = {
     n: { x: 0, y: -1 },
@@ -63,6 +63,23 @@
     captionBar: document.getElementById("gg-caption-bar"),
     captionMeta: document.getElementById("gg-caption-meta"),
     captionText: document.getElementById("gg-caption-text"),
+    clearRoom: document.getElementById("gg-clear-room"),
+    clearRoomDrawer: document.getElementById("gg-clear-room-drawer"),
+    roomId: document.getElementById("gg-room-id"),
+    roomLabel: document.getElementById("gg-room-label"),
+    regionList: document.getElementById("gg-region-list"),
+    regionHint: document.getElementById("gg-region-hint"),
+    geoStatus: document.getElementById("gg-geo-status"),
+    geoLat: document.getElementById("gg-geo-lat"),
+    geoLon: document.getElementById("gg-geo-lon"),
+    geoAcc: document.getElementById("gg-geo-acc"),
+    geoHeadingEl: document.getElementById("gg-geo-heading"),
+    geoNearest: document.getElementById("gg-geo-nearest"),
+    geoFacing: document.getElementById("gg-geo-facing"),
+    geoLocate: document.getElementById("gg-geo-locate"),
+    gyroToggle: document.getElementById("gg-gyro-toggle"),
+    geoAutoJoin: document.getElementById("gg-geo-autojoin"),
+    styleHint: document.getElementById("gg-style-hint"),
   };
 
   const sampleCtx = els.sample
@@ -82,6 +99,15 @@
   let rosterSort = "live"; // live|name|dir
   /** @type {string|null} */
   let focusPeerId = null;
+  /** @type {string} matrix|blocks|braille|ascii */
+  let renderStyle = "matrix";
+  /** @type {string} mesh room id */
+  let meshRoom = "global";
+  /** @type {{lat:number,lon:number,acc:number}|null} */
+  let geoFix = null;
+  /** @type {number|null} compass heading degrees */
+  let geoHeading = null;
+  let gyroOn = false;
   let gridCols = 1;
   let gridRows = 1;
   let cellPx = 100;
@@ -105,7 +131,7 @@
   let deferredInstall = null;
   // jpeg encode helper (reuse)
   const jpegCanvas = document.createElement("canvas");
-  jpegCanvas.width = 100;
+  jpegCanvas.width = Math.max(100, glyphN * 4);
   jpegCanvas.height = 100;
   const jpegCtx = jpegCanvas.getContext("2d");
   if (jpegCtx) jpegCtx.imageSmoothingEnabled = false;
@@ -132,6 +158,9 @@
           nick: myNick(),
           meshOn,
           hubUrl: els.hubUrl ? els.hubUrl.value.trim() : "",
+          meshRoom,
+          glyphN,
+          renderStyle,
           peers: peers.map((p) => ({
             id: p.id,
             nick: p.nick,
@@ -140,6 +169,7 @@
             seed: p.seed,
             self: !!p.self,
             nfc: !!p.nfc,
+            room: p.room || meshRoom,
           })),
         })
       );
@@ -165,6 +195,7 @@
       seed: 42,
       self: true,
       source: "sim",
+      room: meshRoom,
     };
   }
 
@@ -178,6 +209,7 @@
       seed: (Math.random() * 1e9) | 0,
       nfc: false,
       source: "sim",
+      room: meshRoom,
     };
   }
 
@@ -188,6 +220,9 @@
       meshOn = st.meshOn !== false;
       if (st.nick && els.nick) els.nick.value = st.nick;
       if (st.hubUrl && els.hubUrl) els.hubUrl.value = st.hubUrl;
+      if (st.meshRoom) meshRoom = st.meshRoom;
+      if (st.glyphN) glyphN = [13, 25, 37, 49].includes(st.glyphN) ? st.glyphN : 25;
+      if (st.renderStyle) renderStyle = st.renderStyle;
       if (!peers.some((p) => p.self || p.id === "self")) peers.unshift(defaultSelf());
     } else {
       peers = [defaultSelf()];
@@ -197,6 +232,15 @@
     }
     applyNick();
     if (els.hubUrl && !els.hubUrl.value) els.hubUrl.value = defaultHubURL();
+    if (els.roomId) els.roomId.value = meshRoom;
+    if (els.roomLabel) els.roomLabel.textContent = meshRoom;
+    syncSampleCanvas();
+    document.querySelectorAll(".gg-chip[data-res]").forEach((b) => {
+      b.classList.toggle("is-on", parseInt(b.getAttribute("data-res"), 10) === glyphN);
+    });
+    document.querySelectorAll(".gg-chip[data-style]").forEach((b) => {
+      b.classList.toggle("is-on", b.getAttribute("data-style") === renderStyle);
+    });
   }
 
   function applyNick() {
@@ -219,7 +263,7 @@
 
   // ── video → 25×25 luminance ──────────────────────────────
   /**
-   * Sample a video/image element into out (length N*N). Returns false if not ready.
+   * Sample a video/image element into out (length glyphN*glyphN). Returns false if not ready.
    * @param {CanvasImageSource} src
    * @param {Uint8Array} out
    */
@@ -233,10 +277,10 @@
     } catch {
       /* continue */
     }
-    sampleCtx.drawImage(src, 0, 0, N, N);
+    sampleCtx.drawImage(src, 0, 0, glyphN, glyphN);
     let img;
     try {
-      img = sampleCtx.getImageData(0, 0, N, N);
+      img = sampleCtx.getImageData(0, 0, glyphN, glyphN);
     } catch {
       return false; // tainted
     }
@@ -251,33 +295,128 @@
 
   function ensureLum(id) {
     let buf = lumBuf.get(id);
-    if (!buf) {
-      buf = new Uint8Array(N * N);
+    const need = glyphN * glyphN;
+    if (!buf || buf.length !== need) {
+      buf = new Uint8Array(need);
       lumBuf.set(id, buf);
     }
     return buf;
   }
 
+  function syncSampleCanvas() {
+    if (!els.sample) return;
+    if (els.sample.width !== glyphN) els.sample.width = glyphN;
+    if (els.sample.height !== glyphN) els.sample.height = glyphN;
+  }
+
+  function setGlyphResolution(n) {
+    n = parseInt(n, 10);
+    if (![13, 25, 37, 49].includes(n)) n = 25;
+    if (n === glyphN) return;
+    glyphN = n;
+    lumBuf.clear();
+    syncSampleCanvas();
+    document.querySelectorAll(".gg-chip[data-res]").forEach((b) => {
+      b.classList.toggle("is-on", parseInt(b.getAttribute("data-res"), 10) === glyphN);
+    });
+    saveState();
+    layoutAndPaint();
+  }
+
+  function setRenderStyle(st) {
+    const ok = ["matrix", "blocks", "braille", "ascii"];
+    if (!ok.includes(st)) st = "matrix";
+    renderStyle = st;
+    document.querySelectorAll(".gg-chip[data-style]").forEach((b) => {
+      b.classList.toggle("is-on", b.getAttribute("data-style") === renderStyle);
+    });
+    if (els.styleHint) {
+      const hints = {
+        matrix: "LED luminance grid (default Glyph look)",
+        blocks: "chunky block LEDs with gutters",
+        braille: "Unicode braille 2×4 luminance",
+        ascii: "ASCII ramp characters",
+      };
+      els.styleHint.textContent = hints[renderStyle] || "";
+    }
+    saveState();
+    layoutAndPaint();
+  }
+
+  function clearRoom(confirmFirst) {
+    if (confirmFirst && peers.filter((p) => !p.self).length > 0) {
+      if (!window.confirm("Clear room? Remove all peers (keep you).")) return;
+    }
+    peers = [defaultSelf()];
+    applyNick();
+    if (peers[0]) peers[0].room = meshRoom;
+    focusPeerId = null;
+    lumBuf.clear();
+    canvasById.clear();
+    hideCaptionBar();
+    saveState();
+    setCastLabel("room cleared");
+    layoutAndPaint();
+  }
+
+  function setMeshRoom(id, opts) {
+    opts = opts || {};
+    id = String(id || "global").trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-") || "global";
+    const prev = meshRoom;
+    meshRoom = id;
+    if (els.roomId) els.roomId.value = meshRoom;
+    if (els.roomLabel) els.roomLabel.textContent = meshRoom;
+    const self = peers.find((p) => p.self);
+    if (self) self.room = meshRoom;
+    // drop peers from other rooms
+    peers = peers.filter((p) => p.self || !p.room || p.room === meshRoom);
+    saveState();
+    if (els.regionHint) els.regionHint.textContent = "Room · " + meshRoom;
+    if (prev !== meshRoom && ws && ws.readyState === WebSocket.OPEN) {
+      sendJSON({
+        type: "join",
+        nick: myNick(),
+        role: "grokglyph",
+        room: meshRoom,
+        geo: geoFix ? { lat: geoFix.lat, lon: geoFix.lon, heading: geoHeading } : null,
+        cap: {
+          class: "term-lean",
+          role: "peer",
+          lanes: ["glyph", "hex", "chat", "gyst"],
+          glyph_n: glyphN,
+          forge: false,
+        },
+      });
+      if (opts.reconnect) {
+        // soft rejoin label
+        setCastLabel("room " + meshRoom);
+      }
+    }
+    layoutAndPaint();
+  }
+
+
   function fillSimLuminance(out, seed, t, isSelf) {
-    const cx = 12,
-      cy = 12;
+    const cx = (glyphN - 1) / 2,
+      cy = (glyphN - 1) / 2;
+    const rad = glyphN * 0.52;
     const pulse = 0.55 + 0.45 * Math.sin(t * (isSelf ? 2.1 : 1.4) + (seed % 7) * 0.3);
-    for (let y = 0; y < N; y++) {
-      for (let x = 0; x < N; x++) {
+    for (let y = 0; y < glyphN; y++) {
+      for (let x = 0; x < glyphN; x++) {
         const dx = x - cx;
         const dy = y - cy;
         const r = Math.sqrt(dx * dx + dy * dy);
-        let v = Math.max(0, 1 - r / 13.2);
+        let v = Math.max(0, 1 - r / rad);
         v = v * v;
         const h = hash2(x + seed * 3, y + seed * 7);
         v = v * (0.72 + 0.28 * h) * pulse;
         if (isSelf) {
-          const ring = Math.abs(r - 8 - 2 * Math.sin(t * 1.5));
+          const ring = Math.abs(r - glyphN * 0.32 - 2 * Math.sin(t * 1.5));
           if (ring < 1.2) v = Math.min(1, v + 0.35 * (1 - ring / 1.2));
         } else {
           v *= 0.55 + 0.45 * Math.sin((x + y) * 0.35 + t + seed * 0.01);
         }
-        out[y * N + x] = Math.max(0, Math.min(255, (v * 255) | 0));
+        out[y * glyphN + x] = Math.max(0, Math.min(255, (v * 255) | 0));
       }
     }
   }
@@ -292,31 +431,99 @@
   function drawGlyph(canvas, data, mode) {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    if (canvas.width !== N) canvas.width = N;
-    if (canvas.height !== N) canvas.height = N;
-    const img = ctx.createImageData(N, N);
-    const d = img.data;
-    // mode: self | cast | rx | sim
-    for (let i = 0; i < N * N; i++) {
-      const L = data[i];
-      let r, g, b;
-      if (mode === "cast") {
-        r = Math.min(255, (L * 1.0) | 0);
-        g = Math.min(255, (L * 0.55) | 0);
-        b = Math.min(255, (L * 0.5) | 0);
-      } else if (mode === "rx") {
-        r = (L * 0.4) | 0;
-        g = (L * 0.85) | 0;
-        b = Math.min(255, (L * 1.05) | 0);
-      } else if (mode === "self") {
-        r = (L * 0.55) | 0;
-        g = (L * 0.95) | 0;
-        b = Math.min(255, L);
-      } else {
-        r = (L * 0.35) | 0;
-        g = (L * 0.85) | 0;
-        b = (L * 0.95) | 0;
+    const n = glyphN;
+    const style = renderStyle || "matrix";
+    // high-res display canvas for text styles
+    const scale = style === "matrix" ? 1 : Math.max(4, Math.min(12, Math.floor(96 / n) || 4));
+    const W = n * scale;
+    const H = n * scale;
+    if (canvas.width !== W) canvas.width = W;
+    if (canvas.height !== H) canvas.height = H;
+    ctx.imageSmoothingEnabled = false;
+
+    function tint(L) {
+      if (mode === "cast") return [Math.min(255, L), (L * 0.55) | 0, (L * 0.5) | 0];
+      if (mode === "rx") return [(L * 0.4) | 0, (L * 0.85) | 0, Math.min(255, (L * 1.05) | 0)];
+      if (mode === "self") return [(L * 0.55) | 0, (L * 0.95) | 0, Math.min(255, L)];
+      return [(L * 0.35) | 0, (L * 0.85) | 0, (L * 0.95) | 0];
+    }
+
+    if (style === "ascii" || style === "braille") {
+      ctx.fillStyle = "#050508";
+      ctx.fillRect(0, 0, W, H);
+      if (style === "ascii") {
+        const ramp = " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
+        ctx.font = `bold ${Math.max(4, scale)}px "IBM Plex Mono", ui-monospace, monospace`;
+        ctx.textBaseline = "top";
+        for (let y = 0; y < n; y++) {
+          for (let x = 0; x < n; x++) {
+            const L = data[y * n + x] || 0;
+            const idx = Math.min(ramp.length - 1, (L / 255) * (ramp.length - 1) | 0);
+            const [r, g, b] = tint(L);
+            ctx.fillStyle = `rgb(${r},${g},${b})`;
+            ctx.fillText(ramp[idx], x * scale, y * scale);
+          }
+        }
+        return;
       }
+      // braille: 2x4 cells → U+2800
+      ctx.font = `${Math.max(6, scale * 2)}px "IBM Plex Mono", ui-monospace, monospace`;
+      ctx.textBaseline = "top";
+      const thr = 96;
+      for (let y = 0; y < n; y += 4) {
+        for (let x = 0; x < n; x += 2) {
+          let bits = 0;
+          let sum = 0;
+          let cnt = 0;
+          // standard braille dot order
+          const dots = [
+            [0, 0, 0x01], [1, 0, 0x08],
+            [0, 1, 0x02], [1, 1, 0x10],
+            [0, 2, 0x04], [1, 2, 0x20],
+            [0, 3, 0x40], [1, 3, 0x80],
+          ];
+          for (const [dx, dy, bit] of dots) {
+            const xx = x + dx;
+            const yy = y + dy;
+            if (xx >= n || yy >= n) continue;
+            const L = data[yy * n + xx] || 0;
+            sum += L;
+            cnt++;
+            if (L >= thr) bits |= bit;
+          }
+          const Lavg = cnt ? (sum / cnt) | 0 : 0;
+          const [r, g, b] = tint(Lavg);
+          ctx.fillStyle = `rgb(${r},${g},${b})`;
+          ctx.fillText(String.fromCharCode(0x2800 + bits), x * scale, y * scale);
+        }
+      }
+      return;
+    }
+
+    if (style === "blocks") {
+      ctx.fillStyle = "#050508";
+      ctx.fillRect(0, 0, W, H);
+      const gap = Math.max(1, (scale * 0.15) | 0);
+      const cell = Math.max(1, scale - gap);
+      for (let y = 0; y < n; y++) {
+        for (let x = 0; x < n; x++) {
+          const L = data[y * n + x] || 0;
+          const [r, g, b] = tint(L);
+          ctx.fillStyle = `rgb(${r},${g},${b})`;
+          ctx.fillRect(x * scale, y * scale, cell, cell);
+        }
+      }
+      return;
+    }
+
+    // matrix (1:1 LED pixels)
+    if (canvas.width !== n) canvas.width = n;
+    if (canvas.height !== n) canvas.height = n;
+    const img = ctx.createImageData(n, n);
+    const d = img.data;
+    for (let i = 0; i < n * n; i++) {
+      const L = data[i] || 0;
+      const [r, g, b] = tint(L);
       const o = i * 4;
       d[o] = r;
       d[o + 1] = g;
@@ -469,11 +676,13 @@
         type: "join",
         nick: myNick(),
         role: "grokglyph",
+        room: meshRoom,
+        geo: geoFix ? { lat: geoFix.lat, lon: geoFix.lon, heading: geoHeading } : null,
         cap: {
           class: "term-lean",
           role: "peer",
           lanes: ["glyph", "hex", "chat", "gyst"],
-          glyph_n: N,
+          glyph_n: glyphN,
           forge: false,
         },
       });
@@ -577,8 +786,8 @@
 
   function jpegB64FromLum(lum) {
     if (!jpegCtx || !sampleCtx || !els.sample) return "";
-    const img = sampleCtx.createImageData(N, N);
-    for (let i = 0; i < N * N; i++) {
+    const img = sampleCtx.createImageData(glyphN, glyphN);
+    for (let i = 0; i < glyphN * glyphN; i++) {
       const L = lum[i];
       const o = i * 4;
       img.data[o] = L;
@@ -595,9 +804,9 @@
   function sendCastFrame(lum) {
     if (!casting || !ws || ws.readyState !== WebSocket.OPEN) return;
     castSeq = (castSeq + 1) >>> 0;
-    const glyph = new Array(N * N);
-    const raw = new Uint8Array(N * N);
-    for (let i = 0; i < N * N; i++) {
+    const glyph = new Array(glyphN * glyphN);
+    const raw = new Uint8Array(glyphN * glyphN);
+    for (let i = 0; i < glyphN * glyphN; i++) {
       glyph[i] = lum[i];
       raw[i] = lum[i];
     }
@@ -615,14 +824,15 @@
       type: "gyst",
       from: myNick(),
       kind: "hexlum",
-      w: N,
-      h: N,
+      w: glyphN,
+      h: glyphN,
       seq: castSeq,
       t: t,
       b64: b64raw,
       data: glyph,
-      glyphN: N,
+      glyphN: glyphN,
       lane: "hex",
+      room: meshRoom,
       via: "grokglyph-cast",
     });
     // 2) walkie-compatible vburst (jpeg + glyph). hex_lane skips hub re-promote.
@@ -635,9 +845,10 @@
       w: 100,
       h: 100,
       glyph: glyph,
-      glyphN: N,
+      glyphN: glyphN,
       seq: castSeq,
       t: t,
+      room: meshRoom,
       hex_lane: true,
     });
   }
@@ -767,32 +978,44 @@
     return peers.find((p) => !p.self && p.nick.toLowerCase() === low);
   }
 
-  function ensureRxPeer(nick, turnOn) {
+  function ensureRxPeer(nick, turnOn, room) {
+    const r = room || meshRoom;
+    // only show peers in our mesh room (or unscoped legacy)
+    if (r && room && room !== meshRoom && room !== "global" && meshRoom !== "global") {
+      // different hard room — still track if same global overlay
+    }
     let p = findPeerByNick(nick);
+    if (p && p.room && meshRoom !== "global" && p.room !== meshRoom && p.room !== "global") {
+      // re-home if we got a frame in this room
+      if (room === meshRoom) p.room = meshRoom;
+      else return p;
+    }
     if (!p) {
       const dir = DIR_ORDER[peers.filter((x) => !x.self).length % 4];
       p = makePeer(dir, nick);
       p.source = "rx";
+      p.room = r || meshRoom;
       p.on = turnOn !== false;
       peers.push(p);
       saveState();
       layoutAndPaint();
     } else {
       p.source = "rx";
+      if (room) p.room = room;
       if (turnOn !== false) p.on = true;
     }
     return p;
   }
 
   function applyRxFrame(from, msg) {
-    const p = ensureRxPeer(from, true);
+    const p = ensureRxPeer(from, true, msg.room);
     const buf = ensureLum(p.id);
     let ok = false;
-    if (Array.isArray(msg.glyph) && msg.glyph.length >= N * N) {
-      for (let i = 0; i < N * N; i++) buf[i] = Math.max(0, Math.min(255, Number(msg.glyph[i]) | 0));
+    if (Array.isArray(msg.glyph) && msg.glyph.length >= glyphN * glyphN) {
+      for (let i = 0; i < glyphN * glyphN; i++) buf[i] = Math.max(0, Math.min(255, Number(msg.glyph[i]) | 0));
       ok = true;
-    } else if (Array.isArray(msg.data) && msg.data.length >= N * N) {
-      for (let i = 0; i < N * N; i++) buf[i] = Math.max(0, Math.min(255, Number(msg.data[i]) | 0));
+    } else if (Array.isArray(msg.data) && msg.data.length >= glyphN * glyphN) {
+      for (let i = 0; i < glyphN * glyphN; i++) buf[i] = Math.max(0, Math.min(255, Number(msg.data[i]) | 0));
       ok = true;
     } else if (msg.b64) {
       // decode jpeg async into peer lum
@@ -818,15 +1041,18 @@
   function applyHexLum(from, msg) {
     const data = msg.data || msg.glyph || msg.lum;
     if (!data) return;
-    const p = ensureRxPeer(from || msg.mark || "stream", true);
+    if (msg.room && meshRoom !== "global" && msg.room !== meshRoom && msg.room !== "global") {
+      return; // other mesh room
+    }
+    const p = ensureRxPeer(from || msg.mark || "stream", true, msg.room);
     const buf = ensureLum(p.id);
-    if (Array.isArray(data) && data.length >= N * N) {
-      for (let i = 0; i < N * N; i++) buf[i] = Math.max(0, Math.min(255, Number(data[i]) | 0));
+    if (Array.isArray(data) && data.length >= glyphN * glyphN) {
+      for (let i = 0; i < glyphN * glyphN; i++) buf[i] = Math.max(0, Math.min(255, Number(data[i]) | 0));
     } else if (typeof data === "string") {
       // base64 bytes
       try {
         const bin = atob(data);
-        const n = Math.min(N * N, bin.length);
+        const n = Math.min(glyphN * glyphN, bin.length);
         for (let i = 0; i < n; i++) buf[i] = bin.charCodeAt(i);
       } catch {
         return;
@@ -866,9 +1092,9 @@
     }
 
     let cell = best.cell;
-    if (cell >= N) {
-      const snapped = Math.floor(cell / N) * N;
-      if (snapped >= N && snapped >= cell * 0.85) cell = snapped;
+    if (cell >= glyphN) {
+      const snapped = Math.floor(cell / glyphN) * glyphN;
+      if (snapped >= glyphN && snapped >= cell * 0.85) cell = snapped;
     }
 
     gridCols = best.cols;
@@ -901,7 +1127,16 @@
 
     const drawn = peers.filter((p) => isDrawn(p)).length;
     if (els.scaleLabel) {
-      els.scaleLabel.textContent = cellPx + "px · " + gridCols + "×" + gridRows;
+      els.scaleLabel.textContent =
+        glyphN +
+        " · " +
+        renderStyle +
+        " · " +
+        cellPx +
+        "px · " +
+        gridCols +
+        "×" +
+        gridRows;
     }
     if (els.countLabel) els.countLabel.textContent = drawn + "/" + peers.length;
     if (els.capHint) {
@@ -1007,9 +1242,15 @@
     return arr;
   }
 
+  function peerInRoom(p) {
+    if (p.self) return true;
+    if (!p.room || p.room === "global" || meshRoom === "global") return true;
+    return p.room === meshRoom;
+  }
+
   function visibleOrder() {
     const self = peers.filter((p) => p.self);
-    const rest = sortPeers(peers.filter((p) => !p.self));
+    const rest = sortPeers(peers.filter((p) => !p.self && peerInRoom(p)));
     return self.concat(rest);
   }
 
@@ -1091,11 +1332,11 @@
       if (badge.textContent) tile.appendChild(badge);
 
       const c = document.createElement("canvas");
-      c.width = N;
-      c.height = N;
+      c.width = glyphN;
+      c.height = glyphN;
       c.setAttribute(
         "aria-label",
-        "Glyph 25×25 video " + p.nick + (isVideo ? " live" : "")
+        "Glyph matrix video " + p.nick + (isVideo ? " live" : "")
       );
       tile.appendChild(c);
       canvasById.set(p.id, c);
@@ -1712,10 +1953,242 @@
     });
   }
 
+
+  // ── drawer tabs · regions · geo · display ─────────────────
+  let regionCat = "regions";
+
+  function switchTab(name) {
+    document.querySelectorAll(".gg-tab").forEach((t) => {
+      const on = t.getAttribute("data-tab") === name;
+      t.classList.toggle("is-on", on);
+      t.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    document.querySelectorAll(".gg-tab-panel").forEach((panel) => {
+      const on = panel.getAttribute("data-panel") === name;
+      panel.classList.toggle("is-on", on);
+      panel.hidden = !on;
+    });
+  }
+
+  function renderRegionList() {
+    const GP = window.GrokGlyphPresets;
+    if (!els.regionList || !GP) return;
+    const list = GP.PRESETS[regionCat] || [];
+    els.regionList.innerHTML = "";
+    list.forEach((preset) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "gg-region-item" + (meshRoom === preset.id ? " is-on" : "");
+      btn.setAttribute("role", "option");
+      btn.innerHTML =
+        "<strong>" +
+        escapeHtml(preset.name) +
+        "</strong><span>" +
+        escapeHtml(preset.id) +
+        " · " +
+        preset.lat.toFixed(1) +
+        "," +
+        preset.lon.toFixed(1) +
+        "</span>";
+      btn.addEventListener("click", () => {
+        setMeshRoom(preset.id, { reconnect: true });
+        if (preset.hub && els.hubUrl) {
+          els.hubUrl.value = preset.hub;
+          saveState();
+        }
+        renderRegionList();
+        setCastLabel("room " + preset.id);
+      });
+      els.regionList.appendChild(btn);
+    });
+  }
+
+  function escapeHtml(t) {
+    return String(t)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  function updateGeoReadout() {
+    if (els.geoLat) els.geoLat.textContent = geoFix ? geoFix.lat.toFixed(5) : "—";
+    if (els.geoLon) els.geoLon.textContent = geoFix ? geoFix.lon.toFixed(5) : "—";
+    if (els.geoAcc) els.geoAcc.textContent = geoFix ? Math.round(geoFix.acc) + " m" : "—";
+    if (els.geoHeadingEl) {
+      els.geoHeadingEl.textContent =
+        geoHeading != null && !Number.isNaN(geoHeading) ? Math.round(geoHeading) + "°" : "—";
+    }
+    const GP = window.GrokGlyphPresets;
+    if (geoFix && GP) {
+      const tri = GP.triangulate(geoFix.lat, geoFix.lon, geoHeading);
+      if (els.geoNearest) {
+        els.geoNearest.textContent = tri.nearest
+          ? tri.nearest.preset.name + " (" + tri.nearest.km.toFixed(0) + " km)"
+          : "—";
+      }
+      if (els.geoFacing) {
+        els.geoFacing.textContent = tri.facing
+          ? tri.facing.preset.name + " (" + Math.round(tri.facing.bearing) + "°)"
+          : "—";
+      }
+      return tri;
+    }
+    if (els.geoNearest) els.geoNearest.textContent = "—";
+    if (els.geoFacing) els.geoFacing.textContent = "—";
+    return null;
+  }
+
+  function locateMe() {
+    if (!navigator.geolocation) {
+      if (els.geoStatus) els.geoStatus.textContent = "Geolocation not available.";
+      return;
+    }
+    if (els.geoStatus) els.geoStatus.textContent = "Locating…";
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        geoFix = {
+          lat: pos.coords.latitude,
+          lon: pos.coords.longitude,
+          acc: pos.coords.accuracy || 0,
+        };
+        if (pos.coords.heading != null && !Number.isNaN(pos.coords.heading) && pos.coords.heading >= 0) {
+          geoHeading = pos.coords.heading;
+        }
+        if (els.geoStatus) {
+          els.geoStatus.textContent =
+            "Fix ±" + Math.round(geoFix.acc) + " m · tap Auto-join or enable gyro.";
+        }
+        updateGeoReadout();
+      },
+      (err) => {
+        if (els.geoStatus) {
+          els.geoStatus.textContent = "Locate failed: " + (err && err.message ? err.message : "denied");
+        }
+      },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 10000 }
+    );
+  }
+
+  async function enableGyro() {
+    try {
+      if (
+        typeof DeviceOrientationEvent !== "undefined" &&
+        typeof DeviceOrientationEvent.requestPermission === "function"
+      ) {
+        const perm = await DeviceOrientationEvent.requestPermission();
+        if (perm !== "granted") {
+          if (els.geoStatus) els.geoStatus.textContent = "Motion permission denied.";
+          return false;
+        }
+      }
+    } catch (e) {
+      if (els.geoStatus) els.geoStatus.textContent = "Motion API unavailable.";
+      return false;
+    }
+    window.addEventListener("deviceorientationabsolute", onOrient, true);
+    window.addEventListener("deviceorientation", onOrient, true);
+    gyroOn = true;
+    if (els.gyroToggle) els.gyroToggle.setAttribute("aria-pressed", "true");
+    if (els.geoStatus) els.geoStatus.textContent = "Gyro heading on — rotate device.";
+    return true;
+  }
+
+  function disableGyro() {
+    window.removeEventListener("deviceorientationabsolute", onOrient, true);
+    window.removeEventListener("deviceorientation", onOrient, true);
+    gyroOn = false;
+    if (els.gyroToggle) els.gyroToggle.setAttribute("aria-pressed", "false");
+  }
+
+  function onOrient(ev) {
+    // webkitCompassHeading (iOS) or alpha
+    let h = null;
+    if (typeof ev.webkitCompassHeading === "number") {
+      h = ev.webkitCompassHeading;
+    } else if (typeof ev.alpha === "number") {
+      // alpha: 0 when pointing north on some devices; invert for compass-like
+      h = (360 - ev.alpha) % 360;
+    }
+    if (h == null || Number.isNaN(h)) return;
+    geoHeading = h;
+    updateGeoReadout();
+  }
+
+  function autoJoinMesh() {
+    const GP = window.GrokGlyphPresets;
+    if (!geoFix) {
+      locateMe();
+      if (els.geoStatus) els.geoStatus.textContent = "Locate first, then Auto-join.";
+      return;
+    }
+    if (!GP) return;
+    const tri = updateGeoReadout();
+    if (!tri || !tri.facing) {
+      if (els.geoStatus) els.geoStatus.textContent = "No preset match.";
+      return;
+    }
+    // prefer facing when gyro on, else nearest
+    const pick = gyroOn && tri.facing ? tri.facing.preset : tri.nearest.preset;
+    setMeshRoom(pick.id, { reconnect: true });
+    if (els.geoStatus) {
+      els.geoStatus.textContent =
+        "Joined " + pick.name + " (" + pick.id + ") via " + (gyroOn ? "facing+GPS" : "nearest GPS");
+    }
+    renderRegionList();
+    // announce geo room
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      sendJSON({
+        type: "chat",
+        from: myNick(),
+        text: "joined mesh " + pick.id + " @ " + geoFix.lat.toFixed(3) + "," + geoFix.lon.toFixed(3),
+        t: Date.now(),
+      });
+    }
+  }
+
+  function wireExtra() {
+    document.querySelectorAll(".gg-tab[data-tab]").forEach((tab) => {
+      tab.addEventListener("click", () => switchTab(tab.getAttribute("data-tab")));
+    });
+    document.querySelectorAll(".gg-chip[data-region-cat]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        regionCat = btn.getAttribute("data-region-cat") || "regions";
+        document.querySelectorAll(".gg-chip[data-region-cat]").forEach((b) => {
+          b.classList.toggle("is-on", b === btn);
+        });
+        renderRegionList();
+      });
+    });
+    document.querySelectorAll(".gg-chip[data-res]").forEach((btn) => {
+      btn.addEventListener("click", () => setGlyphResolution(btn.getAttribute("data-res")));
+    });
+    document.querySelectorAll(".gg-chip[data-style]").forEach((btn) => {
+      btn.addEventListener("click", () => setRenderStyle(btn.getAttribute("data-style")));
+    });
+    if (els.clearRoom) els.clearRoom.addEventListener("click", () => clearRoom(true));
+    if (els.clearRoomDrawer) els.clearRoomDrawer.addEventListener("click", () => clearRoom(true));
+    if (els.roomId) {
+      els.roomId.addEventListener("change", () => setMeshRoom(els.roomId.value, { reconnect: true }));
+    }
+    if (els.geoLocate) els.geoLocate.addEventListener("click", locateMe);
+    if (els.geoAutoJoin) els.geoAutoJoin.addEventListener("click", autoJoinMesh);
+    if (els.gyroToggle) {
+      els.gyroToggle.addEventListener("click", async () => {
+        if (gyroOn) disableGyro();
+        else await enableGyro();
+      });
+    }
+    renderRegionList();
+    setRenderStyle(renderStyle);
+  }
+
+
   // boot
   initPeers();
   wire();
+  wireExtra();
   setDrawer(false);
+  switchTab("room");
   layoutAndPaint();
   raf = requestAnimationFrame(tick);
   registerSW();

@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>GrokGlyph · video cast · 25×25</title>
-  <meta name="description" content="GrokGlyph PWA — cast live video as multi-user 25×25 luminance Glyph Matrices with 1px stack, mesh, and hub fan-out." />
+  <title>GrokGlyph · mesh video cast</title>
+  <meta name="description" content="GrokGlyph PWA — multi-user glyph cast, geo mesh rooms, resolution + block/braille/ascii styles." />
   <meta name="theme-color" content="#0c0c0f" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -20,7 +20,6 @@
 <body class="gg-body">
   <div class="noise" aria-hidden="true"></div>
 
-  <!-- slim header: main needs (video cast + mesh) -->
   <header class="gg-header" id="gg-header">
     <a class="gg-brand" href="./" title="GrokYtalkY home">
       <span class="brand-mark">◈</span>
@@ -29,10 +28,11 @@
 
     <div class="gg-header-main" role="toolbar" aria-label="Main controls">
       <button type="button" class="gg-hbtn" id="gg-cam" title="Camera → your glyph" aria-pressed="false">cam</button>
-      <button type="button" class="gg-hbtn primary" id="gg-cast" title="Cast video as 25×25 luminance" aria-pressed="false">cast</button>
+      <button type="button" class="gg-hbtn primary" id="gg-cast" title="Cast video as luminance" aria-pressed="false">cast</button>
       <button type="button" class="gg-hbtn" id="gg-hub" title="Connect mesh hub" aria-pressed="false">hub</button>
       <button type="button" class="gg-hbtn" id="gg-add" title="Add peer slot">+</button>
       <button type="button" class="gg-hbtn" id="gg-mesh-toggle" title="Mesh join" aria-pressed="true">mesh</button>
+      <button type="button" class="gg-hbtn danger" id="gg-clear-room" title="Clear room (delete all peers)">clear</button>
       <button type="button" class="gg-hbtn gg-hide-narrow" id="gg-nfc-add" title="NFC tap add">nfc</button>
       <span class="gg-status" id="gg-status" aria-live="polite">
         <span id="gg-cast-label">idle</span>
@@ -40,6 +40,8 @@
         <span id="gg-count-label">0</span>
         <span class="gg-status-sep">·</span>
         <span id="gg-scale-label">—</span>
+        <span class="gg-status-sep gg-hide-narrow">·</span>
+        <span id="gg-room-label" class="gg-hide-narrow">global</span>
       </span>
     </div>
 
@@ -50,23 +52,19 @@
     </button>
   </header>
 
-  <!-- hidden video elements for sampling (not displayed) -->
   <video id="gg-local-video" class="gg-hidden-media" playsinline muted autoplay></video>
   <video id="gg-file-video" class="gg-hidden-media" playsinline muted loop></video>
   <canvas id="gg-sample" class="gg-hidden-media" width="25" height="25" aria-hidden="true"></canvas>
 
-  <!-- full remaining page: side-by-side glyphs, 1px gutters -->
   <main class="gg-stage-wrap" id="gg-stage-wrap">
     <div class="gg-stage" id="gg-stage" role="list" aria-label="Glyph Matrix video cast"></div>
     <svg class="gg-mesh-svg" id="gg-mesh-svg" aria-hidden="true"></svg>
-    <!-- on-air caption from program bus / chat-bridge -->
     <div class="gg-caption-bar" id="gg-caption-bar" hidden role="status" aria-live="polite">
       <span class="gg-caption-meta" id="gg-caption-meta"></span>
       <span class="gg-caption-text" id="gg-caption-text"></span>
     </div>
   </main>
 
-  <!-- footer bar + pop-up drawer for the rest -->
   <div class="gg-drawer-root" id="gg-drawer-root">
     <div class="gg-drawer-scrim" id="gg-drawer-scrim" hidden></div>
 
@@ -78,79 +76,162 @@
       </div>
 
       <div class="gg-drawer-body">
-        <section class="gg-drawer-sec" aria-label="Identity and hub">
-          <label class="gg-nick-label">
-            You
-            <input type="text" id="gg-nick" maxlength="16" placeholder="nick" autocomplete="nickname" />
-          </label>
-          <label class="gg-hub-label">
-            Hub WS
-            <input type="text" id="gg-hub-url" placeholder="ws://127.0.0.1:9876/" autocomplete="off" spellcheck="false" />
-          </label>
-          <p class="gg-hint" id="gg-hub-hint">
-            Cam samples face → 25×25 luminance. <strong>Cast</strong> ships frames on the hub
-            (<code>vburst-frame</code> + glyph grid). Peers appear as live tiles.
-          </p>
-          <label class="gg-file-label btn ghost">
-            Video file → you
-            <input type="file" id="gg-video-file" accept="video/*" hidden />
-          </label>
-          <button type="button" class="btn ghost" id="gg-install" hidden>Install app</button>
-        </section>
+        <!-- tabs -->
+        <div class="gg-tabs" role="tablist" aria-label="Control sections">
+          <button type="button" class="gg-tab is-on" role="tab" data-tab="room" aria-selected="true">Room</button>
+          <button type="button" class="gg-tab" role="tab" data-tab="regions" aria-selected="false">Regions</button>
+          <button type="button" class="gg-tab" role="tab" data-tab="display" aria-selected="false">Display</button>
+          <button type="button" class="gg-tab" role="tab" data-tab="geo" aria-selected="false">Geo</button>
+          <button type="button" class="gg-tab" role="tab" data-tab="roster" aria-selected="false">Roster</button>
+        </div>
 
-        <section class="gg-drawer-sec" aria-label="Compass add and subtract">
-          <h2 class="gg-h2">Compass</h2>
-          <div class="gg-compass">
-            <div class="gg-compass-pad">
-              <button type="button" class="gg-cbtn" data-dir="n" title="Add north" aria-label="Add peer north">N+</button>
-              <button type="button" class="gg-cbtn" data-dir="w" title="Add west" aria-label="Add peer west">W+</button>
-              <div class="gg-compass-core" title="You">YOU</div>
-              <button type="button" class="gg-cbtn" data-dir="e" title="Add east" aria-label="Add peer east">E+</button>
-              <button type="button" class="gg-cbtn" data-dir="s" title="Add south" aria-label="Add peer south">S+</button>
+        <!-- ROOM -->
+        <div class="gg-tab-panel is-on" data-panel="room" role="tabpanel">
+          <section class="gg-drawer-sec" aria-label="Identity and hub">
+            <label class="gg-nick-label">
+              You
+              <input type="text" id="gg-nick" maxlength="16" placeholder="nick" autocomplete="nickname" />
+            </label>
+            <label class="gg-hub-label">
+              Hub WS
+              <input type="text" id="gg-hub-url" placeholder="ws://127.0.0.1:9876/" autocomplete="off" spellcheck="false" />
+            </label>
+            <label class="gg-hub-label">
+              Mesh room
+              <input type="text" id="gg-room-id" placeholder="global" autocomplete="off" spellcheck="false" />
+            </label>
+            <p class="gg-hint" id="gg-hub-hint">
+              Cam → luminance. <strong>Cast</strong> ships hexlum + vburst. Room id scopes the mesh.
+            </p>
+            <div class="gg-btn-row">
+              <button type="button" class="btn ghost danger" id="gg-clear-room-drawer">Delete / clear room</button>
+              <label class="gg-file-label btn ghost">
+                Video file → you
+                <input type="file" id="gg-video-file" accept="video/*" hidden />
+              </label>
+              <button type="button" class="btn ghost" id="gg-install" hidden>Install app</button>
             </div>
-            <div class="gg-compass-sub">
-              <button type="button" class="btn ghost gg-sub" data-sub="n" title="Remove northmost">−N</button>
-              <button type="button" class="btn ghost gg-sub" data-sub="e" title="Remove eastmost">−E</button>
-              <button type="button" class="btn ghost gg-sub" data-sub="s" title="Remove southmost">−S</button>
-              <button type="button" class="btn ghost gg-sub" data-sub="w" title="Remove westmost">−W</button>
-            </div>
-          </div>
-        </section>
+          </section>
 
-        <section class="gg-drawer-sec" aria-label="Peer roster and search">
-          <div class="gg-roster-head">
-            <h2 class="gg-h2">Roster <span id="gg-cap-hint" class="gg-muted"></span></h2>
-            <span class="gg-roster-count" id="gg-roster-count" aria-live="polite"></span>
-          </div>
-          <label class="gg-search-label">
-            <span class="gg-sr-only">Search peers</span>
-            <input type="search" id="gg-search" class="gg-search"
-              placeholder="Search nick · dir · rx · nfc…"
-              autocomplete="off" spellcheck="false"
-              enterkeyhint="search" />
-            <button type="button" class="gg-search-clear" id="gg-search-clear" title="Clear search" hidden>×</button>
-          </label>
-          <div class="gg-filter-row" role="toolbar" aria-label="Roster filters">
-            <button type="button" class="gg-chip is-on" data-filter="all">all</button>
-            <button type="button" class="gg-chip" data-filter="live">live</button>
-            <button type="button" class="gg-chip" data-filter="on">on</button>
-            <button type="button" class="gg-chip" data-filter="off">off</button>
-            <button type="button" class="gg-chip" data-filter="rx">rx</button>
-            <button type="button" class="gg-chip" data-filter="sim">sim</button>
-            <button type="button" class="gg-chip" data-filter="nfc">nfc</button>
-          </div>
-          <div class="gg-filter-row" role="toolbar" aria-label="Sort roster">
-            <span class="gg-sort-label">sort</span>
-            <button type="button" class="gg-chip is-on" data-sort="live">live</button>
-            <button type="button" class="gg-chip" data-sort="name">name</button>
-            <button type="button" class="gg-chip" data-sort="dir">dir</button>
-          </div>
-          <ul id="gg-roster" class="gg-roster-list"></ul>
-          <p class="gg-hint" id="gg-roster-empty" hidden>No peers match — clear search or add with + / compass.</p>
-          <p class="gg-hint" id="gg-nfc-hint">
-            Search filters stage + list. Tap a row to focus that glyph. <kbd>/</kbd> search · long-press tile to delete.
-          </p>
-        </section>
+          <section class="gg-drawer-sec" aria-label="Compass add and subtract">
+            <h2 class="gg-h2">Compass</h2>
+            <div class="gg-compass">
+              <div class="gg-compass-pad">
+                <button type="button" class="gg-cbtn" data-dir="n" title="Add north">N+</button>
+                <button type="button" class="gg-cbtn" data-dir="w" title="Add west">W+</button>
+                <div class="gg-compass-core" title="You">YOU</div>
+                <button type="button" class="gg-cbtn" data-dir="e" title="Add east">E+</button>
+                <button type="button" class="gg-cbtn" data-dir="s" title="Add south">S+</button>
+              </div>
+              <div class="gg-compass-sub">
+                <button type="button" class="btn ghost gg-sub" data-sub="n">−N</button>
+                <button type="button" class="btn ghost gg-sub" data-sub="e">−E</button>
+                <button type="button" class="btn ghost gg-sub" data-sub="s">−S</button>
+                <button type="button" class="btn ghost gg-sub" data-sub="w">−W</button>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <!-- REGIONS -->
+        <div class="gg-tab-panel" data-panel="regions" role="tabpanel" hidden>
+          <section class="gg-drawer-sec" aria-label="Preset regions">
+            <h2 class="gg-h2">Mesh presets</h2>
+            <p class="gg-hint">Join a geographic mesh room. Auto-detect uses lat/long + gyro heading.</p>
+            <div class="gg-region-tabs" role="tablist" aria-label="Preset categories">
+              <button type="button" class="gg-chip is-on" data-region-cat="regions">Regions</button>
+              <button type="button" class="gg-chip" data-region-cat="states">States</button>
+              <button type="button" class="gg-chip" data-region-cat="towns">Towns</button>
+              <button type="button" class="gg-chip" data-region-cat="world">World</button>
+            </div>
+            <div class="gg-region-list" id="gg-region-list" role="listbox" aria-label="Preset list"></div>
+            <p class="gg-hint" id="gg-region-hint">Select a preset or use Geo tab for auto join.</p>
+          </section>
+        </div>
+
+        <!-- DISPLAY -->
+        <div class="gg-tab-panel" data-panel="display" role="tabpanel" hidden>
+          <section class="gg-drawer-sec" aria-label="Resolution and style">
+            <h2 class="gg-h2">Resolution</h2>
+            <div class="gg-filter-row" role="toolbar" aria-label="Glyph resolution">
+              <button type="button" class="gg-chip" data-res="13">13×13</button>
+              <button type="button" class="gg-chip is-on" data-res="25">25×25</button>
+              <button type="button" class="gg-chip" data-res="37">37×37</button>
+              <button type="button" class="gg-chip" data-res="49">49×49</button>
+            </div>
+            <p class="gg-hint">Hardware Glyph is 13/25; 37/49 are terminal hi-res.</p>
+
+            <h2 class="gg-h2">Render style</h2>
+            <div class="gg-filter-row" role="toolbar" aria-label="Pixel style">
+              <button type="button" class="gg-chip is-on" data-style="matrix">matrix</button>
+              <button type="button" class="gg-chip" data-style="blocks">blocks</button>
+              <button type="button" class="gg-chip" data-style="braille">braille</button>
+              <button type="button" class="gg-chip" data-style="ascii">ascii</button>
+            </div>
+            <p class="gg-hint" id="gg-style-hint">matrix = LED luminance · blocks · braille dots · ascii ramp</p>
+          </section>
+        </div>
+
+        <!-- GEO -->
+        <div class="gg-tab-panel" data-panel="geo" role="tabpanel" hidden>
+          <section class="gg-drawer-sec" aria-label="Geolocation and gyro">
+            <h2 class="gg-h2">Locate &amp; triangulate</h2>
+            <p class="gg-hint" id="gg-geo-status">GPS + gyro heading pick nearest mesh room / facing neighbor.</p>
+            <div class="gg-btn-row">
+              <button type="button" class="btn primary" id="gg-geo-locate">Locate me</button>
+              <button type="button" class="btn ghost" id="gg-gyro-toggle" aria-pressed="false">Gyro heading</button>
+              <button type="button" class="btn ghost" id="gg-geo-autojoin">Auto-join mesh</button>
+            </div>
+            <dl class="gg-geo-readout" id="gg-geo-readout">
+              <div><dt>lat</dt><dd id="gg-geo-lat">—</dd></div>
+              <div><dt>lon</dt><dd id="gg-geo-lon">—</dd></div>
+              <div><dt>acc</dt><dd id="gg-geo-acc">—</dd></div>
+              <div><dt>heading</dt><dd id="gg-geo-heading">—</dd></div>
+              <div><dt>nearest</dt><dd id="gg-geo-nearest">—</dd></div>
+              <div><dt>facing</dt><dd id="gg-geo-facing">—</dd></div>
+            </dl>
+            <p class="gg-hint">
+              iOS may require a tap for motion permission. HTTPS required for geolocation.
+            </p>
+          </section>
+        </div>
+
+        <!-- ROSTER -->
+        <div class="gg-tab-panel" data-panel="roster" role="tabpanel" hidden>
+          <section class="gg-drawer-sec" aria-label="Peer roster and search">
+            <div class="gg-roster-head">
+              <h2 class="gg-h2">Roster <span id="gg-cap-hint" class="gg-muted"></span></h2>
+              <span class="gg-roster-count" id="gg-roster-count" aria-live="polite"></span>
+            </div>
+            <label class="gg-search-label">
+              <span class="gg-sr-only">Search peers</span>
+              <input type="search" id="gg-search" class="gg-search"
+                placeholder="Search nick · dir · rx · nfc…"
+                autocomplete="off" spellcheck="false" enterkeyhint="search" />
+              <button type="button" class="gg-search-clear" id="gg-search-clear" title="Clear search" hidden>×</button>
+            </label>
+            <div class="gg-filter-row" role="toolbar" aria-label="Roster filters">
+              <button type="button" class="gg-chip is-on" data-filter="all">all</button>
+              <button type="button" class="gg-chip" data-filter="live">live</button>
+              <button type="button" class="gg-chip" data-filter="on">on</button>
+              <button type="button" class="gg-chip" data-filter="off">off</button>
+              <button type="button" class="gg-chip" data-filter="rx">rx</button>
+              <button type="button" class="gg-chip" data-filter="sim">sim</button>
+              <button type="button" class="gg-chip" data-filter="nfc">nfc</button>
+            </div>
+            <div class="gg-filter-row" role="toolbar" aria-label="Sort roster">
+              <span class="gg-sort-label">sort</span>
+              <button type="button" class="gg-chip is-on" data-sort="live">live</button>
+              <button type="button" class="gg-chip" data-sort="name">name</button>
+              <button type="button" class="gg-chip" data-sort="dir">dir</button>
+            </div>
+            <ul id="gg-roster" class="gg-roster-list"></ul>
+            <p class="gg-hint" id="gg-roster-empty" hidden>No peers match.</p>
+            <p class="gg-hint" id="gg-nfc-hint">
+              <kbd>/</kbd> search · long-press tile to delete · clear room removes all peers.
+            </p>
+          </section>
+        </div>
 
         <section class="gg-drawer-sec gg-drawer-links" aria-label="Site">
           <a href="./">Home</a>
@@ -163,6 +244,7 @@
     </aside>
   </div>
 
+  <script src="grokglyph-presets.js"></script>
   <script src="grokglyph.js"></script>
 </body>
 </html>
