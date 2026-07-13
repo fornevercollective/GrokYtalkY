@@ -68,6 +68,11 @@ type VenueOpts struct {
 	ST2110Prof    string // 2110-20 (default) | lab
 	ST2110Payload string // lab only: mpegts|rtp
 	AudioRTP      string // ST 2110-30 companion
+	// 2110-20 tightening
+	ST2110TP       string // 2110TPN|TPNL|TPW
+	ST2110FPSExact string // 30 | 30000/1001 | 29.97
+	ST2110Sampling string // YCbCr-4:2:2|4:2:0
+	ST2110Depth    int    // 8|10
 	// Shared raster
 	Width  int
 	Height int
@@ -197,18 +202,22 @@ func runVenueCmd(args []string) error {
   --ndi-name  NDI source name (default GrokYtalkY-PGM)
   --ndi-udp   fallback MPEG-TS UDP if libndi_newtek missing
   --rtp       ST 2110-20 video RTP (default rtp://239.100.1.10:5004)
-  --audio-rtp ST 2110-30 audio RTP (default off; e.g. rtp://239.100.1.10:5006)
+  --audio-rtp ST 2110-30 audio RTP (optional)
   --sdp       path to write video SDP
   --profile   2110-20 (default) | lab
-  --width --height --fps   raster (default 1280x720@30)
+  --tp        2110TPN|2110TPNL|2110TPW  (ST 2110-21, default TPN)
+  --fps-exact 30 | 30000/1001 | 29.97
+  --sampling  YCbCr-4:2:2 (default) | YCbCr-4:2:0
+  --depth     8 (default) | 10 (v210)
+  --width --height --fps
   --json · --quiet · --dry-run
 
-PTP: ST 2059-2 required for production 2110; gy free-runs until facility GM.
+PTP: ST 2059-2 for production; gy free-runs until facility GM.
 See: gy doctor st2110 · docs/st2110-sync-cameras.md
 
 Example:
-  gy venue --sink st2110 --profile 2110-20 --audio-rtp rtp://239.100.1.10:5006
-  gy venue --sink ndi,st2110
+  gy venue --sink st2110 --tp 2110TPN --fps-exact 30000/1001
+  gy venue --sink st2110 --depth 10 --audio-rtp rtp://239.100.1.10:5006
 `)
 	}
 	hub := fs.String("hub", "ws://127.0.0.1:9876/", "DOJO hub WebSocket")
@@ -220,9 +229,13 @@ Example:
 	audioRTP := fs.String("audio-rtp", "", "ST 2110-30 audio RTP (optional)")
 	sdp := fs.String("sdp", "", "SDP output path")
 	profile := fs.String("profile", ST2110Profile211020, "st2110: 2110-20|lab")
+	tp := fs.String("tp", ST2110TPN, "ST 2110-21 TP= sender type")
+	fpsExact := fs.String("fps-exact", "", "exactframerate 30|30000/1001|29.97")
+	sampling := fs.String("sampling", "YCbCr-4:2:2", "2110-20 sampling")
+	depth := fs.Int("depth", 8, "bit depth 8|10")
 	width := fs.Int("width", VenueDefaultW, "output width")
 	height := fs.Int("height", VenueDefaultH, "output height")
-	fps := fs.Int("fps", VenueDefaultFPS, "output fps")
+	fps := fs.Int("fps", VenueDefaultFPS, "output fps (integer)")
 	quiet := fs.Bool("quiet", false, "less logging")
 	dry := fs.Bool("dry-run", false, "force log sink only")
 	jsonOut := fs.Bool("json", false, "stdout JSON lines")
@@ -240,21 +253,25 @@ Example:
 		kind = "log"
 	}
 	return RunVenue(VenueOpts{
-		HubWS:       ensureWSQuery(*hub, map[string]string{"role": "venue", "nick": *nick}),
-		Nick:        *nick,
-		Quiet:       *quiet,
-		DryRun:      *dry,
-		JSONOut:     *jsonOut,
-		SinkKind:    kind,
-		NDIName:     *ndiName,
-		NDIFallback: *ndiUDP,
-		RTP:         *rtp,
-		SDPPath:     *sdp,
-		ST2110Prof:  *profile,
-		AudioRTP:    *audioRTP,
-		Width:       *width,
-		Height:      *height,
-		FPS:         *fps,
+		HubWS:          ensureWSQuery(*hub, map[string]string{"role": "venue", "nick": *nick}),
+		Nick:           *nick,
+		Quiet:          *quiet,
+		DryRun:         *dry,
+		JSONOut:        *jsonOut,
+		SinkKind:       kind,
+		NDIName:        *ndiName,
+		NDIFallback:    *ndiUDP,
+		RTP:            *rtp,
+		SDPPath:        *sdp,
+		ST2110Prof:     *profile,
+		AudioRTP:       *audioRTP,
+		ST2110TP:       *tp,
+		ST2110FPSExact: *fpsExact,
+		ST2110Sampling: *sampling,
+		ST2110Depth:    *depth,
+		Width:          *width,
+		Height:         *height,
+		FPS:            *fps,
 	})
 }
 
@@ -564,16 +581,20 @@ func NewVenueSink(kind string, opts VenueOpts) (VenueSink, error) {
 		})
 	case "st2110", "2110", "st-2110":
 		return NewST2110VenueSink(ST2110Opts{
-			RTP:      opts.RTP,
-			SDPPath:  opts.SDPPath,
-			Width:    opts.Width,
-			Height:   opts.Height,
-			FPS:      opts.FPS,
-			Quiet:    opts.Quiet,
-			Profile:  opts.ST2110Prof,
-			Payload:  opts.ST2110Payload,
-			AudioRTP: opts.AudioRTP,
-			Sync:     DefaultSyncClockReport(),
+			RTP:         opts.RTP,
+			SDPPath:     opts.SDPPath,
+			Width:       opts.Width,
+			Height:      opts.Height,
+			FPS:         opts.FPS,
+			FPSExact:    opts.ST2110FPSExact,
+			Quiet:       opts.Quiet,
+			Profile:     opts.ST2110Prof,
+			Payload:     opts.ST2110Payload,
+			Sampling:    opts.ST2110Sampling,
+			Depth:       opts.ST2110Depth,
+			TP:          opts.ST2110TP,
+			AudioRTP:    opts.AudioRTP,
+			Sync:        DefaultSyncClockReport(),
 		})
 	case "st2110-30", "2110-30", "aes67":
 		return NewST211030Sink(ST211030Opts{

@@ -168,8 +168,8 @@ type ST2110EssenceLine struct {
 func ST2110SuiteTable() []ST2110EssenceLine {
 	return []ST2110EssenceLine{
 		{ST2110_10, "System timing & definitions", ST2059_1 + " + " + ST2059_2 + " PTP", "SDP ts-refclk; SyncClockReport; free-run default"},
-		{ST2110_20, "Uncompressed active video", ST2110_10 + " + " + ST2110_21, "raw UYVY RTP + ST2110-20 SDP fmtp (profile 2110-20)"},
-		{ST2110_21, "Traffic shaping (TPN/TPNL/TPW)", ST2110_20, "TP=2110TPN signaled; no hardware shaper"},
+		{ST2110_20, "Uncompressed active video", ST2110_10 + " + " + ST2110_21, "tightened fmtp: sampling/depth/TCS/RANGE/PAR/exactframerate; raw RTP (uyvy/v210)"},
+		{ST2110_21, "Traffic shaping (TPN/TPNL/TPW)", ST2110_20, "TP= CLI --tp; software signals TPN (no hardware shaper)"},
 		{ST2110_22, "CBR compressed video", ST2110_10, "lab profile H.264 RTP (not claiming 2110-22)"},
 		{ST2110_30, "PCM digital audio (AES67 constrained)", ST2110_10 + " + ST 2059-2 (not AES67 PTP profile)", "L24/48000 RTP + channel-order + multi-essence SDP"},
 		{ST2110_31, "AES3 transparent", ST2110_10, "not implemented (gateway facility)"},

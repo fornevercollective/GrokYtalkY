@@ -9,8 +9,8 @@ Basis coverage for venue IP (GrokYtalkY `gy venue`) and production planning.
 | **ST 2110-10** | System timing, SDP, RTP | Multi-essence SDP, `ts-refclk`, SyncClockReport |
 | **ST 2059-1** | Align essence to PTP epoch | Documented; lock is facility GM/BC |
 | **ST 2059-2** | **PTP profile required by 2110** | Signaled; not AES67 default profile |
-| **ST 2110-20** | Uncompressed video | `--profile 2110-20` raw UYVY RTP + fmtp |
-| **ST 2110-21** | Traffic shaping TPN/TPNL/TPW | `TP=2110TPN` in SDP |
+| **ST 2110-20** | Uncompressed video | Tightened fmtp: sampling, depth, TCS, RANGE, PAR, exactframerate; uyvy/v210 RTP |
+| **ST 2110-21** | Traffic shaping TPN/TPNL/TPW | `--tp 2110TPN\|TPNL\|TPW` (software signals; no HW shaper) |
 | **ST 2110-22** | CBR compressed video | Lab H.264 only (not claiming 22) |
 | **ST 2110-30** | PCM audio (AES67 constrained) | `--audio-rtp` / `--sink st2110-30` |
 | **ST 2110-31** | AES3 transparent | Facility gateway |
