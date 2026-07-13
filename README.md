@@ -30,10 +30,13 @@ git clone https://github.com/fornevercollective/GrokYtalkY.git
 cd GrokYtalkY && make install    # → ~/.local/bin/gy
 
 gy                 # companion dock
-gy burst           # Siri-sized video walkie
+gy burst           # dual Glyph Matrix walkie (auto-fits 80×24 → 13×13)
 gy serve           # mesh hub
 gy watch clip.mp4
 ```
+
+**Burst / Glyph:** dual circular LEDs (Nothing GDK layout). `[` `]` scale · `g` res · `space` PTT.
+Site: [burst.html](https://fornevercollective.github.io/GrokYtalkY/burst.html) · [docs](https://fornevercollective.github.io/GrokYtalkY/docs.html#burst).
 
 ### Install (pick one)
 

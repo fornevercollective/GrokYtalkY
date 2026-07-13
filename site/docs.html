@@ -36,6 +36,8 @@
       <a href="#modes">Modes</a>
       <a href="#video">Camera &amp; video</a>
       <a href="#vwall">VWall simulcast</a>
+      <a href="#burst">Burst / Glyph</a>
+      <a href="#streams-scale">Stream scale</a>
       <a href="#burst">Video burst / Glyph</a>
       <a href="#patterns">Patterns</a>
       <a href="#midi">MIDI</a>
@@ -137,19 +139,62 @@ ffplay -vn SRC   # audio parallel</code></pre>
       <section id="burst" class="docs-section">
         <h2>Video burst / Glyph Matrix</h2>
         <p>
-          Siri-sized short <strong>face + voice</strong> walkie. Hold to TX, release to stop —
-          same mesh as audio PTT, plus a 25×25 luminance grid for
-          <a href="https://github.com/Nothing-Developer-Programme/GlyphMatrix-Developer-Kit">Nothing Glyph Matrix</a>.
+          Dual circular Glyph Matrices (you | peer) for short <strong>face + voice</strong> walkie bursts.
+          Layout matches the official
+          <a href="https://github.com/Nothing-Developer-Programme/GlyphMatrix-Developer-Kit">Nothing Glyph Matrix Developer Kit</a>
+          LED disk (not a filled square). Full truecolor in the terminal; mesh ships device-N brightness for hardware.
         </p>
-        <pre class="code-block"><code>./bin/grokytalky burst     # terminal orb
-# press space to hold-burst
-# b toggles burst from companion dock</code></pre>
+        <pre class="code-block"><code>gy burst                 # dual ◎ circles
+# space = PTT · [ ] scale · g res · b exit
+# 80×24 → full 13×13 dual (auto-fit)
+# ~54×31+ → full 25×25 dual</code></pre>
+        <table class="docs-table">
+          <thead><tr><th>Window</th><th>Display</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td>80×24 (default)</td><td>13×13 dual</td><td>Full circles — 25×25 would half-clip</td></tr>
+            <tr><td>~54×31+</td><td>25×25 dual</td><td>Phone (3) matrix length</td></tr>
+            <tr><td>Larger</td><td>scale ×2–8 / 37 / 49</td><td><code>]</code> scale · <code>g</code> res ladder</td></tr>
+          </tbody>
+        </table>
         <ul>
           <li><a href="burst.html">Web burst orb</a> — hold the circle</li>
           <li>Android scaffold in <code>glyph/</code> — Glyph Button down/up</li>
           <li>Protocol: <code>vburst-start</code> · <code>vburst-frame</code> · <code>audio</code> · <code>vburst-end</code></li>
+          <li>Each ◎ is centered in its half of the terminal frame</li>
         </ul>
         <p>Full write-up: <code>docs/burst.md</code> in the repo.</p>
+      </section>
+
+      <section id="streams-scale" class="docs-section">
+        <h2>Simulcast scale · Cloudflare vs custom SFU</h2>
+        <p>
+          Today’s mesh is a lean WebSocket hub (hexcast-style frames + JPEG thumbs + PCM + glyph grids) —
+          perfect for DOJO terminals and Glyph LEDs, not full HD fan-out to “every user on the internet.”
+        </p>
+        <table class="docs-table">
+          <thead><tr><th>Path</th><th>Best for</th><th>Concurrency sweet spot</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>Cloudflare</strong> (Calls / SFU / Workers + R2)</td>
+              <td>Simple multi-viewer scale, global edge, TLS, less ops</td>
+              <td>Hundreds–thousands of viewers per room; product-grade SFU</td>
+            </tr>
+            <tr>
+              <td><strong>Custom</strong> Rust + Tokio + webrtc-rs SFU</td>
+              <td>Ownership, DOJO/hex low-res lanes, terminal clients</td>
+              <td>Start ~50–200 peers/node; horizontal SFUs for 1k+</td>
+            </tr>
+            <tr>
+              <td><strong>GrokYtalkY hub now</strong></td>
+              <td>Walkie bursts, lab tiles, Glyph, hex/binary streams</td>
+              <td>LAN / small sessions (~8–32 hot peers) before fan-out hurts</td>
+            </tr>
+          </tbody>
+        </table>
+        <p>
+          JAX/FFmpeg fit <em>processing</em> (depth, style, resample) off the hot path; delivery should stay
+          WebRTC SFU or Cloudflare media. Terminal/HexCast clients keep the low-res vibe — don’t push 1080p into ▀ cells.
+        </p>
       </section>
 
       <section id="patterns" class="docs-section">
