@@ -143,13 +143,43 @@ TUI launches auto-update by default (check GitHub → install → re-exec).
 
 	switch cmd {
 	case "doctor":
+		// gy doctor [st2110|cameras|sync]
+		sub := ""
+		if fs.NArg() > 0 {
+			sub = strings.ToLower(fs.Arg(0))
+		} else if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+			// when doctor is the cmd, remaining may be in args before parse
+			for _, a := range args {
+				if !strings.HasPrefix(a, "-") {
+					sub = strings.ToLower(a)
+					break
+				}
+			}
+		}
+		switch sub {
+		case "st2110", "2110", "smpte":
+			fmt.Print(FormatST2110SuiteTable())
+			fmt.Println()
+			fmt.Print(FormatPTPDependencyBasis())
+			fmt.Println()
+			fmt.Print(FormatSyncClockReport(DefaultSyncClockReport()))
+			return nil
+		case "cameras", "camera", "tether":
+			fmt.Print(FormatCameraTetherMatrix())
+			return nil
+		case "sync", "ptp":
+			fmt.Print(FormatPTPDependencyBasis())
+			fmt.Println()
+			fmt.Print(FormatSyncClockReport(DefaultSyncClockReport()))
+			return nil
+		}
 		fmt.Print(StreamDoctor())
 		fmt.Println(DepthDoctorLine())
 		fmt.Println(DepthModesList())
 		fmt.Printf("gy binary: %s\n", versionLine())
-		// capability profile (term/IoT handshake)
 		cap := DetectCapProfile(80, 24)
 		fmt.Println(cap.SummaryLine())
+		fmt.Println("doctor st2110 · doctor cameras · doctor sync")
 		if p, err := os.Executable(); err == nil {
 			fmt.Printf("path: %s\n", p)
 		}

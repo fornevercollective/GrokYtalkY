@@ -45,6 +45,12 @@ type ST2110Opts struct {
 	Sampling string
 	// Depth bits (8 default; 10 reserved for v210 paths later)
 	Depth int
+	// AudioRTP enables ST 2110-30 companion (AES67-constrained PCM).
+	AudioRTP string
+	// MultiSDP path for combined 20+30 session (default metaDir/gy-st2110-bundle.sdp)
+	MultiSDP string
+	// Sync clock report embedded in sidecars
+	Sync SyncClockReport
 }
 
 // NewST2110VenueSink builds an ST 2110 VenueSink.
@@ -108,9 +114,39 @@ func NewST2110VenueSink(opts ST2110Opts) (VenueSink, error) {
 		}
 	}
 
-	s := newFFmpegPipeSink(sinkName, "st2110", opts.Width, opts.Height, opts.FPS, args, opts.Quiet)
-	s.metaPath = metaPath
-	return s, nil
+	video := newFFmpegPipeSink(sinkName, "st2110", opts.Width, opts.Height, opts.FPS, args, opts.Quiet)
+	video.metaPath = metaPath
+
+	// Optional ST 2110-30 audio essence + multi-essence SDP
+	if opts.AudioRTP != "" && profile == ST2110Profile211020 {
+		aOpts := ST211030Opts{
+			RTP: opts.AudioRTP, Quiet: opts.Quiet, MetaDir: opts.MetaDir,
+			Rate: 48000, Channels: 2, Depth: 24, PtimeMs: 1, Level: ST211030LevelA,
+		}
+		audio, err := NewST211030Sink(aOpts)
+		if err != nil {
+			return nil, fmt.Errorf("2110-30: %w", err)
+		}
+		multiPath := opts.MultiSDP
+		if multiPath == "" {
+			multiPath = filepath.Join(opts.MetaDir, "gy-st2110-bundle.sdp")
+		}
+		aHost, aPort, _ := parseRTPURL(opts.AudioRTP)
+		sync := opts.Sync
+		if sync.MediaClockHz == 0 {
+			sync = DefaultSyncClockReport()
+		}
+		if err := writeST2110MultiEssenceSDP(multiPath, host, port, aHost, aPort,
+			opts.Width, opts.Height, opts.FPS, aOpts, sync); err != nil {
+			return nil, err
+		}
+		if !opts.Quiet {
+			log.Printf("venue · st2110 · multi-essence SDP %s (20+30)", multiPath)
+			log.Print(FormatSyncClockReport(sync))
+		}
+		return &multiVenueSink{sinks: []VenueSink{video, audio}}, nil
+	}
+	return video, nil
 }
 
 func normalizeST2110Profile(p string) string {

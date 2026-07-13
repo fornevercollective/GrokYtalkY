@@ -123,6 +123,8 @@ gy venue --sink ndi,st2110,log     # multi-sink fan-out
 # VenueSink: OnProgram / OnGlyph / OnBlack / OnHold
 # Lattice nearest-neighbor upscale — never re-stamped
 # PTP/NMOS: facility-side (SDP ts-refclk=localmac)
+# ST 2110-30: --audio-rtp · suite/PTP/cameras: gy doctor st2110|sync|cameras
+# Spec basis: docs/st2110-sync-cameras.md
 ```
 
 Scaffold: [`sfu/`](../sfu/README.md) (`make sfu-media` for webrtc-rs track + DataChannel fan-out) · [`chat/`](../chat/README.md) · site: [docs.html#streams-scale](https://fornevercollective.github.io/GrokYtalkY/docs.html#streams-scale)
