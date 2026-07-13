@@ -38,6 +38,9 @@
   color: var(--accent);
   font-style: normal;
 }
+button#ln-cast.primary {
+  box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.25);
+}
 .ln-toolbar select {
   font-family: var(--mono);
   font-size: 0.68rem;

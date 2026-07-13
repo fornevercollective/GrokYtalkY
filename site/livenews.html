@@ -51,6 +51,9 @@
       <button type="button" class="btn ghost" id="ln-theme-demo" title="Inject demo captions to show clustering">Demo themes</button>
       <button type="button" class="btn ghost" id="ln-vision-demo" title="Inject demo vision-take (SAM + pose)">Demo vision</button>
       <button type="button" class="btn ghost" id="ln-cluster" title="Re-cluster main column from captions">Cluster now</button>
+      <button type="button" class="btn primary" id="ln-cast" title="Open full-res glyph-cast with main mosaic">Cast screen</button>
+      <button type="button" class="btn ghost" id="ln-cast-tv" title="Presentation API / second display">Cast TV</button>
+      <button type="button" class="btn ghost" id="ln-cast-stop" title="Stop cast" hidden>Stop cast</button>
       <span class="ln-meta" id="ln-meta">idle · 0 tiles</span>
     </div>
 
@@ -87,12 +90,15 @@
       Refresh per section re-seeds posters + clears stale hub frames.
       AI path: hub captions + <code>type:vision-take</code> (SAM <code>segment_top</code>, pose)
       → auto theme cluster. Demo: <strong>Demo vision</strong> without a hub.
+      Cast: pin feeds → main → <strong>Cast screen</strong> opens
+      <a href="glyph-cast.html">glyph-cast.html</a> at full LED scale (manual mosaic, not auto-all).
     </p>
   </main>
 
   <script src="news-sources.js"></script>
   <script src="news-theme.js"></script>
   <script src="glyph-shared.js"></script>
+  <script src="glyph-cast-wire.js"></script>
   <script src="livenews.js"></script>
 </body>
 </html>

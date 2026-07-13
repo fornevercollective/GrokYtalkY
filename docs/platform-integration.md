@@ -29,7 +29,10 @@ GrokYtalkY is the **terminal + mesh authority**: vision takes drive style, theme
 | Export | `gy platform export` · `gy platform export -o handoff.json` |
 | Related | [`powerhouse-protocol.json`](../integrations/powerhouse-protocol.json) · [`vision.md`](vision.md) · [`streams-capacity.md`](streams-capacity.md) |
 
-## Wins (polished cascade)
+## Victory recap (export-ready)
+
+**Pipeline:**  
+`capture → encode → infer (Grok/offline + Aito) → apply (+FFmpeg/retarget/theme-vision) → mesh → Live News / glyph-cast / stage`
 
 | Version | Win |
 |---------|-----|
@@ -41,6 +44,13 @@ GrokYtalkY is the **terminal + mesh authority**: vision takes drive style, theme
 | **1.75** | **Live News** browser consumes `segment_top` + pose |
 | **1.75.1** | **Docs** site header matches all pages |
 | **1.76** | **Platform readiness** doctor + JSON export + contract |
+| **1.77** | **Cast wiring** — Live News → glyph-cast full-res (BroadcastChannel + hub) |
+
+Three bullets for external recaps:
+
+1. **Vision-first FFmpeg plane** — multimodal takes spawn/restart/retune/encode supervised pipes; SAM bbox closed-loop retarget.  
+2. **Aito sides, not TensorFlow** — SAM / pose / gsplat-depth sidecars; theme-vision paints the stage; Live News shows `segment_top` + pose.  
+3. **Demo-ready cast + platform handoff** — pin mosaic → **Cast screen** → full LED `glyph-cast`; `gy platform export` for partner stacks.
 
 ## Explicit non-goals (honest)
 
@@ -83,7 +93,7 @@ Mesh: `type:vision-take` with `theme`, `caption`, `segment_top`, `pose_hands`, `
 
 `GY_VISION_AITO_URL=http://127.0.0.1:8766`
 
-### 4. SFU + browser
+### 4. SFU + browser + cast
 
 ```bash
 export GY_SFU_TOKEN=$(gy sfu-token)
@@ -91,6 +101,16 @@ make sfu-media && ./sfu/target/release/gy-sfu --token "$GY_SFU_TOKEN"
 gy sfu-bridge --token "$GY_SFU_TOKEN"
 # site/dojo.html · site/livenews.html · site/glyph-cast.html
 ```
+
+**Live News → full-res cast (demo punch):**
+
+1. Open `site/livenews.html` → **Connect hub** (optional)  
+2. Pin feeds → **Main** (or **Fill from sort**)  
+3. **Cast screen** → `glyph-cast.html` popup streams main mosaic at integer LED scale  
+4. **Cast TV** → Presentation API when available  
+5. Direct: `glyph-cast.html?hub=ws://127.0.0.1:9876&room=news&source=livenews&cast=1`
+
+Wire: `site/glyph-cast-wire.js` · `BroadcastChannel("gy-glyph-cast")` · optional hub ingest on the cast page.
 
 ### 5. X / Spaces (optional)
 

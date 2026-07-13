@@ -304,6 +304,89 @@
     if (bc) bc.postMessage({ type: "glyph-cast-ready", t: Date.now() });
   } catch (_) {}
 
+  // ── URL params (Live News / GrokGlyph handoff) ───────────
+  const params = new URLSearchParams(location.search || "");
+  const sourceTag = params.get("source") || "";
+  if (params.get("layout") && ["grid", "focus", "dual"].includes(params.get("layout"))) {
+    layoutMode = params.get("layout");
+    if (els.layout) els.layout.value = layoutMode;
+  }
+  if (params.get("n") && [13, 25, 37, 49].includes(parseInt(params.get("n"), 10))) {
+    forceN = parseInt(params.get("n"), 10);
+    glyphN = forceN;
+    if (els.res) els.res.value = String(forceN);
+  }
+  if (params.get("style") && ["matrix", "blocks", "neon"].includes(params.get("style"))) {
+    renderStyle = params.get("style");
+    if (els.style) els.style.value = renderStyle;
+  }
+  if (params.get("led")) {
+    ledPxPref = params.get("led");
+    if (els.led) els.led.value = ledPxPref;
+  }
+
+  // optional direct hub ingest (works even without parent BroadcastChannel)
+  let hubWs = null;
+  function connectHub(url, room) {
+    if (!url) return;
+    try {
+      const u = new URL(url.replace(/^http/, "ws"));
+      if (room && !u.searchParams.get("room")) u.searchParams.set("room", room);
+      if (!u.searchParams.get("nick")) u.searchParams.set("nick", "glyph-cast");
+      if (!u.searchParams.get("role")) u.searchParams.set("role", "cast");
+      if (hubWs) try { hubWs.close(); } catch (_) {}
+      hubWs = new WebSocket(u.toString());
+      hubWs.onopen = () => {
+        hubWs.send(JSON.stringify({ type: "join", nick: "glyph-cast", role: "cast", room: room || "news" }));
+        if (els.meta) els.meta.textContent = "hub connected · waiting frames…";
+        document.body.classList.remove("is-waiting");
+      };
+      hubWs.onmessage = (ev) => {
+        let msg;
+        try {
+          msg = JSON.parse(ev.data);
+        } catch (_) {
+          return;
+        }
+        if (msg.type === "vburst-frame" || msg.type === "news-frame") {
+          const label = msg.label || msg.feed || msg.from || msg.src || "live";
+          let lum = null;
+          if (Array.isArray(msg.glyph)) {
+            lum = Uint8Array.from(msg.glyph.map((v) => (v > 1 ? v & 255 : Math.round(v * 255))));
+          } else if (msg.b64) {
+            lum = b64ToU8(msg.b64);
+          }
+          if (!lum || !lum.length) return;
+          const n = msg.glyphN || Math.round(Math.sqrt(lum.length)) || 25;
+          const id = String(label).toLowerCase().replace(/\s+/g, "-").slice(0, 24);
+          const existing = peers.find((p) => p.id === id);
+          const peer = {
+            id: id,
+            nick: String(label).slice(0, 18),
+            mode: "cast",
+            lum: lum,
+            glyphN: n,
+          };
+          if (existing) {
+            Object.assign(existing, peer);
+          } else {
+            peers.push(peer);
+            if (peers.length > 16) peers.shift();
+          }
+          lastMsgAt = performance.now();
+          document.body.classList.toggle("is-waiting", peers.length === 0);
+          paint();
+        }
+      };
+      hubWs.onclose = () => {
+        if (els.meta) els.meta.textContent = (sourceTag ? sourceTag + " · " : "") + "hub closed";
+      };
+    } catch (_) {}
+  }
+  const hubParam = params.get("hub") || "";
+  const roomParam = params.get("room") || "news";
+  if (hubParam) connectHub(hubParam, roomParam);
+
   // ── controls ─────────────────────────────────────────────
   function goFullscreen() {
     const el = document.documentElement;
@@ -414,5 +497,14 @@
   // auto-fullscreen after short delay when opened as cast target
   if (location.search.includes("fs=1") || location.search.includes("cast=1")) {
     setTimeout(goFullscreen, 400);
+  }
+
+  if (sourceTag && els.meta) {
+    els.meta.textContent = sourceTag + " · waiting for feed…";
+  }
+  // brand hint for Live News cast
+  const brand = document.querySelector(".gc-brand");
+  if (brand && sourceTag === "livenews") {
+    brand.textContent = "◈ Live News · screen";
   }
 })();

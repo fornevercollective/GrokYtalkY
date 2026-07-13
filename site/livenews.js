@@ -32,7 +32,15 @@
     clear: document.getElementById('ln-main-clear'),
     fill: document.getElementById('ln-main-fill'),
     visionBar: document.getElementById('ln-vision-bar'),
+    cast: document.getElementById('ln-cast'),
+    castTv: document.getElementById('ln-cast-tv'),
+    castStop: document.getElementById('ln-cast-stop'),
   };
+
+  // full-res screen cast of main mosaic (glyph-cast.html)
+  const WIRE = window.GY_GLYPH_CAST_WIRE;
+  let castSession = null;
+  let castTimer = 0;
 
   /** @type {Map<string, TileRec>} */
   const tileMap = new Map();
@@ -697,6 +705,138 @@
     buildSections();
   }
 
+  // ── Cast screen (main mosaic → glyph-cast full-res) ─────
+  function hubUrlForCast() {
+    let url = (el.hub && el.hub.value.trim()) || '';
+    if (!url) {
+      const host = location.hostname || '127.0.0.1';
+      url =
+        'ws://' +
+        (host === 'localhost' || host === '127.0.0.1' ? '127.0.0.1' : host) +
+        ':9876';
+    }
+    return url;
+  }
+
+  function buildCastPeers() {
+    const ids = mainIds.length ? mainIds.slice() : [];
+    if (!ids.length) {
+      // fallback: first 8 live/catalog for demo punch
+      allSources()
+        .slice(0, 8)
+        .forEach((s) => ids.push(s.id));
+    }
+    const peers = [];
+    ids.forEach((id) => {
+      const rec = tileMap.get(id);
+      const src = NS.findById(id);
+      if (!rec || !src) return;
+      let lum = rec.lum;
+      if (!lum || !lum.length) {
+        lum = G.simLum(performance.now(), rec.seed, rec.live);
+      }
+      let nick = src.label;
+      if (TH) {
+        const m = TH.getMeta(id);
+        if (m && m.segment_top) nick += ' · ' + m.segment_top;
+        else if (m && m.theme && m.theme !== 'unsorted') nick += ' · ' + m.theme;
+      }
+      peers.push({
+        id: id,
+        nick: nick.slice(0, 22),
+        mode: rec.live || rec.hubFrame ? 'cast' : 'sim',
+        lum: lum,
+        glyphN: 25,
+      });
+    });
+    return peers;
+  }
+
+  function castPayload() {
+    return {
+      peers: buildCastPeers(),
+      glyphN: 25,
+      style: 'matrix',
+      layout: mainIds.length === 1 ? 'focus' : mainIds.length === 2 ? 'dual' : 'grid',
+      ledPx: 'auto',
+      room: 'news',
+      source: 'livenews',
+      hub: hubUrlForCast(),
+    };
+  }
+
+  function ensureCastSession() {
+    if (!WIRE || !WIRE.createSession) return null;
+    if (castSession) return castSession;
+    castSession = WIRE.createSession({
+      source: 'livenews',
+      glyphN: 25,
+      layout: 'grid',
+      room: 'news',
+      hub: hubUrlForCast(),
+    });
+    castSession.on(function (ev) {
+      if (ev === 'open' || ev === 'ready') {
+        if (el.cast) el.cast.textContent = 'Casting…';
+        if (el.castStop) el.castStop.hidden = false;
+        startCastLoop();
+      }
+      if (ev === 'close') {
+        stopCastLoop();
+        if (el.cast) el.cast.textContent = 'Cast screen';
+        if (el.castStop) el.castStop.hidden = true;
+      }
+    });
+    return castSession;
+  }
+
+  function startCastLoop() {
+    stopCastLoop();
+    castTimer = window.setInterval(function () {
+      if (!castSession || !castSession.isOn()) {
+        stopCastLoop();
+        return;
+      }
+      castSession.push(castPayload, false);
+    }, 110);
+    if (castSession) castSession.push(castPayload, true);
+  }
+
+  function stopCastLoop() {
+    if (castTimer) {
+      clearInterval(castTimer);
+      castTimer = 0;
+    }
+  }
+
+  function startCast(presentation) {
+    if (!mainIds.length) fillFromSort();
+    const s = ensureCastSession();
+    if (!s) {
+      // fallback: open player with hub query only
+      const u = new URL('glyph-cast.html', location.href);
+      u.searchParams.set('source', 'livenews');
+      u.searchParams.set('cast', '1');
+      u.searchParams.set('hub', hubUrlForCast());
+      u.searchParams.set('room', 'news');
+      window.open(u.href, 'gy-glyph-cast');
+      return;
+    }
+    s.setDefaults({ hub: hubUrlForCast(), room: 'news', source: 'livenews' });
+    if (presentation) s.open({ presentation: true, fullscreen: true });
+    else s.open({ fullscreen: false });
+    startCastLoop();
+    if (el.cast) el.cast.textContent = 'Casting…';
+    if (el.castStop) el.castStop.hidden = false;
+  }
+
+  function stopCast() {
+    stopCastLoop();
+    if (castSession) castSession.close();
+    if (el.cast) el.cast.textContent = 'Cast screen';
+    if (el.castStop) el.castStop.hidden = true;
+  }
+
   // wire
   el.connect && el.connect.addEventListener('click', connect);
   el.expand &&
@@ -717,6 +857,9 @@
   el.themeDemo && el.themeDemo.addEventListener('click', demoThemes);
   el.visionDemo && el.visionDemo.addEventListener('click', demoVision);
   el.cluster && el.cluster.addEventListener('click', clusterNow);
+  el.cast && el.cast.addEventListener('click', () => startCast(false));
+  el.castTv && el.castTv.addEventListener('click', () => startCast(true));
+  el.castStop && el.castStop.addEventListener('click', stopCast);
   el.shuffle && el.shuffle.addEventListener('click', shuffleMain);
   el.cycle && el.cycle.addEventListener('click', cycleMain);
   el.clear &&

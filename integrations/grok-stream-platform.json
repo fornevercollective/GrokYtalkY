@@ -1,6 +1,6 @@
 {
   "name": "GrokYtalkY · Grok streaming platform integration",
-  "version": "1.76.0",
+  "version": "1.77.0",
   "status": "ready",
   "audience": [
     "ffmpeg pipeline operators",
@@ -108,13 +108,22 @@
     { "v": "1.74", "item": "SFU token + hub↔glyph DC bridge (bidi)" },
     { "v": "1.75", "item": "Live News browser segment_top + pose" },
     { "v": "1.75.1", "item": "Docs site header nav consistency" },
-    { "v": "1.76", "item": "Platform integration contract + readiness doctor" }
+    { "v": "1.76", "item": "Platform integration contract + readiness doctor" },
+    { "v": "1.77", "item": "Live News → glyph-cast full-res cast wire (demo punch)" }
   ],
   "out_of_scope": [
-    "Full auto-cycling screen cast of every livenews feed (manual pin/shuffle/cycle)",
+    "Full auto-cycling screen cast of every livenews feed (manual pin/shuffle/cycle only)",
     "In-process TensorFlow / SAM / MediaPipe / full 3D gsplat viewer",
     "1k+ WebRTC on gy-sfu (use Cloudflare mid-lane)"
   ],
+  "cast": {
+    "player": "site/glyph-cast.html",
+    "wire": "site/glyph-cast-wire.js",
+    "channel": "gy-glyph-cast",
+    "from_livenews": ["Cast screen", "Cast TV", "Stop cast"],
+    "hub_query": "?hub=ws://host:9876&room=news&source=livenews&cast=1",
+    "note": "Main mosaic only — not every catalog feed"
+  },
   "readiness_cmd": "gy doctor platform",
   "export_cmd": "gy platform export",
   "env_matrix": {

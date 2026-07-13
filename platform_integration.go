@@ -53,9 +53,10 @@ func SamplePlatformReadiness() PlatformReadiness {
 			"v1.75 Live News segment_top + pose",
 			"v1.75.1 docs site nav consistency",
 			"v1.76 platform readiness export",
+			"v1.77 Live News → glyph-cast full-res wire",
 		},
 		OutOfScope: []string{
-			"auto-cast every livenews feed (manual pin/shuffle)",
+			"auto-cast every livenews feed (manual pin/shuffle only)",
 			"in-process TensorFlow / full gsplat viewer",
 			"1k+ peers on gy-sfu (use CF mid-lane)",
 		},
