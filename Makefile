@@ -66,3 +66,5 @@ help:
 	@echo "  sfu            → Rust DOJO SFU sidecar (signaling)"
 	@echo "  sfu-media      → SFU + webrtc-rs (heavier)"
 	@echo "  gy watch <url> → auto yt-dlp resolve"
+	@echo "CLI also: gy update|upgrade · gy install · gy uninstall ·"
+	@echo "          gy clean install · gy install dependencies [--yes]"

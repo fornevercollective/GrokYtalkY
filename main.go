@@ -95,9 +95,11 @@ func run(args []string) error {
 			case "--check", "-c":
 				checkOnly = true
 			case "-h", "--help":
-				fmt.Println(`gy update [--check]
+				fmt.Println(`gy update | upgrade [--check]
   --check, -c   report only; exit 2 if a newer release exists
   (default)     install latest via go install / brew / make channel
+
+Also: gy install · gy uninstall · gy clean install · gy install dependencies
 
 TUI launches auto-update by default (check GitHub → install → re-exec).
   GY_NO_AUTO_UPDATE=1   disable
@@ -111,6 +113,9 @@ TUI launches auto-update by default (check GitHub → install → re-exec).
 			os.Exit(2)
 		}
 		return err
+	case "install", "uninstall", "clean-install", "reinstall",
+		"install-dependencies", "install-deps", "deps", "dependencies", "clean":
+		return runInstallCmd(cmd, args)
 	}
 	for _, a := range args {
 		switch a {
@@ -321,7 +326,9 @@ commands
   %s sfu-bridge           hub hexlum/vburst → SFU glyph|hex
   %s chat-bridge          hub → Space captions
   %s doctor [st2110|sync|cameras]
-  %s update [--check]     install channel update
+  %s update | upgrade [--check]
+  %s install | uninstall | clean-install
+  %s install dependencies [--yes]
   %s version
 
 TUI ( ? multi-page help · tab pages )
@@ -338,13 +345,19 @@ venue / 2110
   gy doctor st2110 | sync | cameras
 
 docs  https://fornevercollective.github.io/GrokYtalkY/
-      docs.html · dojo.html · chat.html · burst.html
+      docs.html · dojo · chat · burst · grokglyph (PWA)
   repo docs/streams-capacity.md · st2110-sync-cameras.md
 
 env   XAI_API_KEY · GROK_MODEL · GY_CAP · GY_ROLE
       GY_NO_AUTO_UPDATE=1 · --no-update
-install  make install → ~/.local/bin/gy
-`, Version, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd)
+install
+  gy install                  → ~/.local/bin/gy
+  gy update | gy upgrade      channel update
+  gy clean install            uninstall + install
+  gy uninstall
+  gy install dependencies     go · ffmpeg · yt-dlp (brew --yes)
+  make install                same local channel
+`, Version, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd)
 }
 
 func runHubOnly(bind string, port int) error {
@@ -411,15 +424,36 @@ func defaultNick() string {
 func findStatic() string {
 	candidates := []string{}
 	if wd, err := os.Getwd(); err == nil {
-		candidates = append(candidates, wd, filepath.Join(wd, ".."))
+		// site/ is the Pages tree (GrokGlyph PWA, docs, chat, dojo)
+		candidates = append(candidates,
+			filepath.Join(wd, "site"),
+			wd,
+			filepath.Join(wd, ".."),
+			filepath.Join(wd, "..", "site"),
+		)
+	}
+	// binary next to checkout: bin/gy → ../site
+	if exe, err := os.Executable(); err == nil {
+		if r, err2 := filepath.EvalSymlinks(exe); err2 == nil {
+			exe = r
+		}
+		dir := filepath.Dir(exe)
+		candidates = append(candidates,
+			filepath.Join(dir, "site"),
+			filepath.Join(dir, "..", "site"),
+			dir,
+		)
 	}
 	candidates = append(candidates, filepath.Join(os.Getenv("HOME"), "dev/mueee"))
 	for _, c := range candidates {
-		if _, err := os.Stat(filepath.Join(c, "walkie.html")); err == nil {
-			return c
+		if c == "" {
+			continue
 		}
-		if _, err := os.Stat(filepath.Join(c, "hexcast-send.html")); err == nil {
-			return c
+		// prefer modern site shell
+		for _, marker := range []string{"grokglyph.html", "index.html", "walkie.html", "hexcast-send.html"} {
+			if _, err := os.Stat(filepath.Join(c, marker)); err == nil {
+				return c
+			}
 		}
 	}
 	return ""

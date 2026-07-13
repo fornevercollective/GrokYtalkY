@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="GrokGlyph">
+  <rect width="512" height="512" rx="96" fill="#0c0c0f"/>
+  <circle cx="256" cy="256" r="200" fill="#12121a" stroke="#7dd3fc" stroke-width="8"/>
+  <!-- 5×5 hint of 25×25 matrix -->
+  <g fill="#7dd3fc">
+    <circle cx="176" cy="176" r="10" opacity="0.35"/>
+    <circle cx="216" cy="176" r="10" opacity="0.5"/>
+    <circle cx="256" cy="176" r="10" opacity="0.7"/>
+    <circle cx="296" cy="176" r="10" opacity="0.5"/>
+    <circle cx="336" cy="176" r="10" opacity="0.35"/>
+    <circle cx="176" cy="216" r="10" opacity="0.5"/>
+    <circle cx="216" cy="216" r="10" opacity="0.75"/>
+    <circle cx="256" cy="216" r="10" opacity="0.95"/>
+    <circle cx="296" cy="216" r="10" opacity="0.75"/>
+    <circle cx="336" cy="216" r="10" opacity="0.5"/>
+    <circle cx="176" cy="256" r="10" opacity="0.7"/>
+    <circle cx="216" cy="256" r="10" opacity="0.95"/>
+    <circle cx="256" cy="256" r="14" opacity="1"/>
+    <circle cx="296" cy="256" r="10" opacity="0.95"/>
+    <circle cx="336" cy="256" r="10" opacity="0.7"/>
+    <circle cx="176" cy="296" r="10" opacity="0.5"/>
+    <circle cx="216" cy="296" r="10" opacity="0.75"/>
+    <circle cx="256" cy="296" r="10" opacity="0.95"/>
+    <circle cx="296" cy="296" r="10" opacity="0.75"/>
+    <circle cx="336" cy="296" r="10" opacity="0.5"/>
+    <circle cx="176" cy="336" r="10" opacity="0.35"/>
+    <circle cx="216" cy="336" r="10" opacity="0.5"/>
+    <circle cx="256" cy="336" r="10" opacity="0.7"/>
+    <circle cx="296" cy="336" r="10" opacity="0.5"/>
+    <circle cx="336" cy="336" r="10" opacity="0.35"/>
+  </g>
+  <text x="256" y="455" text-anchor="middle" font-family="ui-monospace,monospace" font-size="36" fill="#8b8b9a">GrokGlyph</text>
+</svg>

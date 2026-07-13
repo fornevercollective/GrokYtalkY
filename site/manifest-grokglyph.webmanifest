@@ -1,0 +1,42 @@
+{
+  "id": "/GrokYtalkY/grokglyph",
+  "name": "GrokGlyph",
+  "short_name": "GrokGlyph",
+  "description": "Multi-user 25×25 Glyph Matrix preview with mesh join, compass add/subtract, and NFC for crowded-area chat.",
+  "start_url": "./grokglyph.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0c0c0f",
+  "theme_color": "#0c0c0f",
+  "lang": "en",
+  "categories": ["social", "utilities"],
+  "icons": [
+    {
+      "src": "icons/grokglyph.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/grokglyph-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/grokglyph-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Open GrokGlyph room",
+      "short_name": "Room",
+      "url": "./grokglyph.html",
+      "icons": [{ "src": "icons/grokglyph-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

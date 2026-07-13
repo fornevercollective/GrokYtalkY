@@ -23,6 +23,7 @@
     <nav>
       <a href="#conversation">VWall</a>
       <a href="burst.html">Burst</a>
+      <a href="grokglyph.html">GrokGlyph</a>
       <a href="chat.html">Chat</a>
       <a href="dojo.html">DOJO</a>
       <a href="#install">Install</a>
@@ -129,13 +130,18 @@
       <h2>Companion dock + mesh hub</h2>
       <div class="install">
         <pre class="code-block"><code>git clone https://github.com/fornevercollective/GrokYtalkY.git
-cd GrokYtalkY && go build -o bin/grokytalky .
-./bin/grokytalky
-./bin/grokytalky serve
-./bin/grokytalky watch clip.mp4</code></pre>
+cd GrokYtalkY
+make install                  # → ~/.local/bin/gy
+# or: gy install · gy update · gy upgrade
+#     gy clean install · gy uninstall
+#     gy install dependencies [--yes]
+gy                            # companion dock (auto-update)
+gy serve                      # hub + site/ (GrokGlyph PWA)
+gy watch clip.mp4</code></pre>
       </div>
       <div class="hero-cta">
-        <a class="btn primary" href="docs.html">Open docs page</a>
+        <a class="btn primary" href="grokglyph.html">Open GrokGlyph PWA</a>
+        <a class="btn ghost" href="docs.html">Open docs page</a>
         <a class="btn ghost" href="https://github.com/fornevercollective/GrokYtalkY">GitHub</a>
       </div>
     </section>
@@ -144,6 +150,7 @@ cd GrokYtalkY && go build -o bin/grokytalky .
   <footer class="footer">
     <div><strong>GrokYtalkY</strong><span class="c-dim"> · fornevercollective</span></div>
     <div class="footer-links">
+      <a href="grokglyph.html">GrokGlyph</a>
       <a href="docs.html">Docs</a>
       <a href="https://github.com/fornevercollective/GrokYtalkY">Source</a>
     </div>

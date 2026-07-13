@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>GrokGlyph · 25×25 luminance mesh</title>
+  <meta name="description" content="GrokGlyph PWA — multi-user 25×25 Glyph Matrix preview with mesh join, compass add/subtract, and NFC tap add/delete for crowded-area chat." />
+  <meta name="theme-color" content="#0c0c0f" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="GrokGlyph" />
+  <link rel="manifest" href="manifest-grokglyph.webmanifest" />
+  <link rel="icon" href="icons/grokglyph.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/grokglyph-192.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="grokglyph.css" />
+</head>
+<body class="gg-body">
+  <div class="noise" aria-hidden="true"></div>
+
+  <header class="nav gg-nav">
+    <a class="brand" href="./">
+      <span class="brand-mark">◈</span>
+      <span class="brand-name">GrokGlyph</span>
+    </a>
+    <nav>
+      <a href="./">Home</a>
+      <a href="burst.html">Burst</a>
+      <a href="grokglyph.html" class="nav-active">GrokGlyph</a>
+      <a href="chat.html">Chat</a>
+      <a href="docs.html">Docs</a>
+    </nav>
+  </header>
+
+  <main class="gg-main" id="gg-main">
+    <header class="gg-top">
+      <div class="gg-title-block">
+        <p class="eyebrow">PWA · 25×25 luminance · mesh join</p>
+        <h1>Glyph Matrix room</h1>
+        <p class="gg-lede">
+          Side-by-side glyphs scale to your device. Compass adds/subtracts neighbors for crowded chat.
+          NFC tap (Android Chrome) adds a peer; delete removes them.
+        </p>
+      </div>
+      <div class="gg-status" id="gg-status" aria-live="polite">
+        <span id="gg-scale-label">—</span>
+        · <span id="gg-count-label">0 on</span>
+        · <span id="gg-mesh-label">mesh off</span>
+      </div>
+    </header>
+
+    <!-- compass: directional add / subtract for crowded areas -->
+    <section class="gg-compass" aria-label="Compass add and subtract peers">
+      <div class="gg-compass-pad">
+        <button type="button" class="gg-cbtn" data-dir="n" title="Add north" aria-label="Add peer north">N+</button>
+        <button type="button" class="gg-cbtn" data-dir="w" title="Add west" aria-label="Add peer west">W+</button>
+        <div class="gg-compass-core" id="gg-compass-core" title="You">YOU</div>
+        <button type="button" class="gg-cbtn" data-dir="e" title="Add east" aria-label="Add peer east">E+</button>
+        <button type="button" class="gg-cbtn" data-dir="s" title="Add south" aria-label="Add peer south">S+</button>
+      </div>
+      <div class="gg-compass-sub">
+        <button type="button" class="btn ghost gg-sub" data-sub="n" title="Remove northmost">−N</button>
+        <button type="button" class="btn ghost gg-sub" data-sub="e" title="Remove eastmost">−E</button>
+        <button type="button" class="btn ghost gg-sub" data-sub="s" title="Remove southmost">−S</button>
+        <button type="button" class="btn ghost gg-sub" data-sub="w" title="Remove westmost">−W</button>
+      </div>
+    </section>
+
+    <section class="gg-toolbar" aria-label="Room controls">
+      <button type="button" class="btn primary" id="gg-add">+ Peer</button>
+      <button type="button" class="btn ghost" id="gg-mesh-toggle">Mesh join</button>
+      <button type="button" class="btn ghost" id="gg-nfc-add" title="Web NFC (Android Chrome)">NFC tap add</button>
+      <button type="button" class="btn ghost" id="gg-install" hidden>Install app</button>
+      <label class="gg-nick-label">
+        You
+        <input type="text" id="gg-nick" maxlength="16" placeholder="nick" autocomplete="nickname" />
+      </label>
+    </section>
+
+    <section class="gg-stage-wrap">
+      <div class="gg-stage" id="gg-stage" role="list" aria-label="Glyph Matrix users">
+        <!-- glyph tiles injected by grokglyph.js -->
+      </div>
+      <svg class="gg-mesh-svg" id="gg-mesh-svg" aria-hidden="true"></svg>
+    </section>
+
+    <section class="gg-roster" aria-label="Peer list">
+      <h2 class="gg-h2">On room <span id="gg-cap-hint" class="gg-muted"></span></h2>
+      <ul id="gg-roster" class="gg-roster-list"></ul>
+      <p class="gg-hint" id="gg-nfc-hint">
+        NFC: tap a tag or peer phone (NDEF text/url with id=…). Unsupported browsers use manual + Peer.
+      </p>
+    </section>
+  </main>
+
+  <script src="grokglyph.js"></script>
+</body>
+</html>

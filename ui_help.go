@@ -200,19 +200,22 @@ func helpBodyVenue() string {
 }
 
 func helpBodyCLI() string {
-	return `cli · env · update
+	return `cli · env · update · install
   gy                 companion dock
   gy burst · gy lab  Glyph dual · multi-feed lab
   gy serve · gy join HOST:PORT
   gy watch file|url
   gy stream-pub|colossus src
   gy agent · gy venue · gy sfu-bridge · gy chat-bridge
-  gy encode · gy decode · gy update · gy doctor
+  gy encode · gy decode · gy doctor
+  gy update | upgrade [--check]
+  gy install | uninstall | clean install
+  gy install dependencies [--yes]
   gy version
 
 env
   XAI_API_KEY · GROK_MODEL · GROK_CLI_URL
-  GY_CAP · GY_ROLE
+  GY_CAP · GY_ROLE · PREFIX
   GY_NO_AUTO_UPDATE=1 · GY_AUTO_UPDATE=0|check
   ZIPDEPTH_URL
 
@@ -231,7 +234,8 @@ func helpBodyDocs() string {
 	return fmt.Sprintf(`docs · pages · powerhouse  (gy %s)
 
   site  https://fornevercollective.github.io/GrokYtalkY/
-  docs  …/docs.html · dojo · chat · burst
+  docs  …/docs.html · dojo · chat · burst · grokglyph (PWA)
+
 
   powerhouse stack (overview · blank · grok-cli · Qbpm)
     docs/powerhouse-stack.md

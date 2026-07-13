@@ -22,6 +22,7 @@
     </a>
     <nav>
       <a href="./">Home</a>
+      <a href="grokglyph.html">GrokGlyph</a>
       <a href="chat.html">Chat</a>
       <a href="docs.html" class="nav-active">Docs</a>
       <a href="./#conversation">Stream hero</a>
@@ -39,6 +40,8 @@
       <a href="#video">Camera &amp; video</a>
       <a href="#vwall">VWall simulcast</a>
       <a href="#burst">Burst / Glyph</a>
+      <a href="#grokglyph">GrokGlyph PWA</a>
+      <a href="#install-cli">Install · update CLI</a>
       <a href="#forge">Forge multi-pcap</a>
       <a href="#program-bus">Program bus</a>
       <a href="#venue">Venue · NDI · ST 2110</a>
@@ -57,7 +60,7 @@
     </aside>
 
     <article class="docs-main">
-      <p class="eyebrow">docs · fornevercollective/GrokYtalkY · v1.32+</p>
+      <p class="eyebrow">docs · fornevercollective/GrokYtalkY · v1.38+</p>
       <h1>Documentation</h1>
       <p class="lede docs-lede">
         Companion dock, dual Glyph walkie, forge multi-pcap marks, conductor program bus,
@@ -74,8 +77,52 @@ go build -o bin/gy .
 ./bin/gy burst                # dual Glyph Matrix
 ./bin/gy watch clip.mp4
 ./bin/gy venue --sink st2110 --rtp-b rtp://…   # 2110-20 + 2022-7
-./bin/gy doctor st2110</code></pre>
-        <p>Install: <code>make install</code> → <code>~/.local/bin/gy</code> · Pages: this site deploys from <code>site/</code> on <code>main</code>.</p>
+./bin/gy doctor st2110
+./bin/gy install                  # → ~/.local/bin/gy
+./bin/gy update | upgrade
+./bin/gy install dependencies     # go · ffmpeg · yt-dlp
+./bin/gy clean install
+./bin/gy uninstall</code></pre>
+        <p>
+          Install: <code>gy install</code> or <code>make install</code> → <code>~/.local/bin/gy</code>.
+          Update: <code>gy update</code> / <code>gy upgrade</code> (TUI also auto-updates).
+          Pages: this site deploys from <code>site/</code> on <code>main</code> ·
+          <a href="grokglyph.html">GrokGlyph PWA</a>.
+        </p>
+      </section>
+
+      <section id="install-cli" class="docs-section">
+        <h2>Install · update · uninstall CLI</h2>
+        <p>All package-lifecycle commands on the terminal binary (proper spellings):</p>
+        <table class="docs-table">
+          <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td><code>gy update</code> · <code>gy upgrade</code></td><td>Channel update via go install / brew / make path</td></tr>
+            <tr><td><code>gy update --check</code></td><td>Report only; exit 2 if newer release exists</td></tr>
+            <tr><td><code>gy install</code></td><td>Install to <code>~/.local/bin</code> (or <code>PREFIX</code>)</td></tr>
+            <tr><td><code>gy clean install</code> · <code>gy clean-install</code></td><td>Uninstall then install</td></tr>
+            <tr><td><code>gy uninstall</code></td><td>Remove <code>gy</code> / <code>grokytalky</code> / <code>gy-burst</code></td></tr>
+            <tr><td><code>gy install dependencies</code> · <code>deps</code></td><td>Check go · ffmpeg · yt-dlp · cargo; <code>--yes</code> brew install</td></tr>
+          </tbody>
+        </table>
+        <p>Also: <code>make install</code> · <code>make uninstall</code> · <code>scripts/install.sh</code>.</p>
+      </section>
+
+      <section id="grokglyph" class="docs-section">
+        <h2>GrokGlyph PWA</h2>
+        <p>
+          Progressive web app for multi-user <strong>25×25 luminance</strong> Glyph Matrix previews.
+          Tiles scale to device resolution — overflow peers go off-cap until you subtract or rotate capacity.
+        </p>
+        <ul>
+          <li><strong>Side-by-side glyphs</strong> with optional <strong>mesh join</strong> lines between neighbors</li>
+          <li><strong>Compass</strong> N/E/S/W add (+) and subtract (−) for crowded-area chat</li>
+          <li><strong>NFC tap add</strong> (Web NFC on Android Chrome) + <strong>delete</strong> on tile or roster</li>
+          <li>Installable standalone: open <a href="grokglyph.html">grokglyph.html</a> → browser Install / Add to Home Screen</li>
+        </ul>
+        <pre class="code-block"><code># local: gy serve  then open
+# http://127.0.0.1:9876/grokglyph.html
+# Pages: …/GrokYtalkY/grokglyph.html</code></pre>
       </section>
 
       <section id="help-tui" class="docs-section">
@@ -373,7 +420,9 @@ export GROK_CLI_URL=http://127.0.0.1:3000   # optional notes backend</code></pre
             <tr><td><code>venue</code></td><td>NDI / ST 2110 / 2022-7 sinks</td></tr>
             <tr><td><code>sfu-bridge</code> · <code>chat-bridge</code></td><td>Hub → SFU / Space</td></tr>
             <tr><td><code>doctor st2110|sync|cameras</code></td><td>Suite · PTP · tether matrix</td></tr>
-            <tr><td><code>update</code></td><td>Channel install (TUI also auto-updates)</td></tr>
+            <tr><td><code>update</code> · <code>upgrade</code></td><td>Channel install (TUI also auto-updates)</td></tr>
+            <tr><td><code>install</code> · <code>uninstall</code> · <code>clean install</code></td><td>Local package lifecycle</td></tr>
+            <tr><td><code>install dependencies</code></td><td>go · ffmpeg · yt-dlp (brew <code>--yes</code>)</td></tr>
           </tbody>
         </table>
       </section>
