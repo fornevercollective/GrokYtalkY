@@ -97,12 +97,21 @@ type NewsTilePipe struct {
 	Frame   *FramePixels
 	Err     string
 	Style   PixelMode
+	mediaID string
+	// recovery
+	Restarts int
+	lastDie  time.Time
+	Poster   *FramePixels // last good or branded poster for soft recovery
 }
 
 // StartNewsTile opens a throttled ffmpeg rawvideo pipe from a resolved media URL.
+// Registers with Media() supervisor (backpressure + kill-on-exit).
 func StartNewsTile(label, videoURL string, style PixelMode) (*NewsTilePipe, error) {
 	if videoURL == "" {
 		return nil, fmt.Errorf("empty video url")
+	}
+	if !Media().CanSpawn(MediaKindNews) {
+		return nil, fmt.Errorf("news wall at capacity (max %d tiles)", Media().NewsMax())
 	}
 	w, h := newsTileW, newsTileH
 	if h%2 != 0 {
@@ -110,7 +119,8 @@ func StartNewsTile(label, videoURL string, style PixelMode) (*NewsTilePipe, erro
 	}
 	args := []string{
 		"-hide_banner", "-loglevel", "error",
-		"-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "5",
+		"-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "3",
+		"-rw_timeout", "15000000", // 15s I/O timeout (µs)
 		"-i", videoURL,
 		"-an",
 		"-vf", fmt.Sprintf("scale=%d:%d:flags=fast_bilinear,fps=%d,format=rgb24", w, h, newsTileFPS),
@@ -118,6 +128,7 @@ func StartNewsTile(label, videoURL string, style PixelMode) (*NewsTilePipe, erro
 		"pipe:1",
 	}
 	cmd := exec.Command("ffmpeg", args...)
+	PrepMediaCmd(cmd)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, err
@@ -125,6 +136,11 @@ func StartNewsTile(label, videoURL string, style PixelMode) (*NewsTilePipe, erro
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
+	mid, err := Media().Register(MediaKindNews, label, cmd)
+	if err != nil {
+		return nil, err
+	}
+	poster := newsPoster(label, "", 0)
 	tp := &NewsTilePipe{
 		cmd:     cmd,
 		cancel:  make(chan struct{}),
@@ -132,7 +148,9 @@ func StartNewsTile(label, videoURL string, style PixelMode) (*NewsTilePipe, erro
 		Label:   label,
 		Src:     videoURL,
 		Style:   style,
-		Frame:   &FramePixels{W: w, H: h, RGB: make([]byte, w*h*3), Source: "news:" + label, Stamp: time.Now().UnixMilli()},
+		mediaID: mid,
+		Poster:  poster,
+		Frame:   poster.Clone(),
 	}
 	go tp.readLoop(stdout, w, h)
 	return tp, nil
@@ -152,6 +170,11 @@ func (tp *NewsTilePipe) readLoop(r io.ReadCloser, w, h int) {
 			tp.mu.Lock()
 			tp.Err = err.Error()
 			tp.running = false
+			tp.lastDie = time.Now()
+			// soft recovery: keep poster / last frame visible
+			if tp.Frame == nil && tp.Poster != nil {
+				tp.Frame = tp.Poster.Clone()
+			}
 			tp.mu.Unlock()
 			return
 		}
@@ -164,24 +187,62 @@ func (tp *NewsTilePipe) readLoop(r io.ReadCloser, w, h int) {
 			Stamp:  time.Now().UnixMilli(),
 		}
 		tp.running = true
+		tp.Err = ""
+		mid := tp.mediaID
 		tp.mu.Unlock()
+		if mid != "" {
+			Media().Heartbeat(mid)
+		}
 	}
 }
 
-// Snapshot returns a clone of the latest frame (or nil).
+// Snapshot returns a clone of the latest frame (or poster).
 func (tp *NewsTilePipe) Snapshot() *FramePixels {
 	if tp == nil {
 		return nil
 	}
 	tp.mu.Lock()
 	defer tp.mu.Unlock()
-	if tp.Frame == nil {
-		return nil
+	if tp.Frame != nil {
+		return tp.Frame.Clone()
 	}
-	return tp.Frame.Clone()
+	if tp.Poster != nil {
+		return tp.Poster.Clone()
+	}
+	return nil
 }
 
-// Stop kills the capture process.
+// Healthy is true when pipe is running and recently produced frames.
+func (tp *NewsTilePipe) Healthy() bool {
+	if tp == nil {
+		return false
+	}
+	tp.mu.Lock()
+	defer tp.mu.Unlock()
+	return tp.running && tp.Err == ""
+}
+
+// NeedsRestart is true after unexpected death (soft recovery candidate).
+func (tp *NewsTilePipe) NeedsRestart() bool {
+	if tp == nil {
+		return false
+	}
+	tp.mu.Lock()
+	defer tp.mu.Unlock()
+	if tp.running || tp.Src == "" {
+		return false
+	}
+	// backoff: at least 4s since death, max 5 restarts
+	if tp.Restarts >= 5 {
+		return false
+	}
+	if tp.lastDie.IsZero() {
+		return true
+	}
+	return time.Since(tp.lastDie) > 4*time.Second
+}
+
+// Stop kills the capture process via media supervisor.
 func (tp *NewsTilePipe) Stop() {
 	if tp == nil {
 		return
@@ -194,14 +255,47 @@ func (tp *NewsTilePipe) Stop() {
 			close(tp.cancel)
 		}
 	}
+	mid := tp.mediaID
 	cmd := tp.cmd
 	tp.cmd = nil
+	tp.mediaID = ""
 	tp.running = false
 	tp.mu.Unlock()
-	if cmd != nil && cmd.Process != nil {
-		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
+	if mid != "" {
+		Media().Kill(mid)
+	} else if cmd != nil {
+		_ = killCmd(cmd)
 	}
+}
+
+// RestartNewsTile stops old and returns a new supervised pipe (soft recovery).
+func RestartNewsTile(old *NewsTilePipe) (*NewsTilePipe, error) {
+	if old == nil {
+		return nil, fmt.Errorf("nil tile")
+	}
+	old.mu.Lock()
+	label, src, style := old.Label, old.Src, old.Style
+	restarts := old.Restarts + 1
+	poster := old.Poster
+	old.mu.Unlock()
+	if src == "" {
+		return nil, fmt.Errorf("nothing to restart")
+	}
+	if restarts > 5 {
+		return nil, fmt.Errorf("%s: max restarts", label)
+	}
+	old.Stop()
+	nt, err := StartNewsTile(label, src, style)
+	if err != nil {
+		return nil, err
+	}
+	nt.mu.Lock()
+	nt.Restarts = restarts
+	if poster != nil {
+		nt.Poster = poster
+	}
+	nt.mu.Unlock()
+	return nt, nil
 }
 
 // NewsWallState orchestrates multi-agency glyph tiles inside LabState.
@@ -212,6 +306,8 @@ type NewsWallState struct {
 	// StyleBase first style; tiles get StyleBase+i for GrokGlyph variety
 	StyleBase PixelMode
 	loading   bool
+	// auto soft-restart dead tiles
+	AutoRecover bool
 }
 
 // newsPoster builds a branded placeholder until the live pipe delivers frames.

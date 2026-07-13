@@ -463,14 +463,19 @@ func (l *LabState) ControlStrip(width int) string {
 		return ""
 	}
 	l.ensureDefaults()
-	// compact always-on line
-	line := fmt.Sprintf("fps %s  scale %s  style %s  layout %s  feeds %d/%d",
+	// compact always-on line + media supervisor health
+	mh := Media().Health()
+	line := fmt.Sprintf("fps %s  scale %s  style %s  layout %s  feeds %d/%d  · %s",
 		listMark(fpsPresets, l.FPS),
 		listMark(scalePresets, l.Scale),
 		listStyles(l.Style),
 		listLayouts(l.Layout),
 		len(l.Feeds), MaxLabFeeds,
+		FormatMediaHealthChrome(mh),
 	)
+	if l.News != nil && l.News.On {
+		line += "  R restart · K kill tile"
+	}
 	return clampCells(styDim().Render(line), width)
 }
 

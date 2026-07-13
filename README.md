@@ -101,6 +101,7 @@ gy lab                 # or V inside companion
 # jam:    /duplex · /meshmidi · /overlay auto · /grok-cap · /grok-fx
 # phone:  gy serve → open http://LAN:9876/phone.html on phone (same Wi‑Fi)
 # news:   /news [us|eu|all 8]  · glyph wall of live agencies (GrokGlyph styles)
+# media:  H health · R restart tile · K kill pipe · GY_MEDIA_MAX · GY_NEWS_MAX
 # layouts: side | stack | grid | focus
 ```
 

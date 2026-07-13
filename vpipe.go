@@ -45,6 +45,10 @@ type VideoPipe struct {
 	// latest frame (RGB24)
 	frame []byte
 	seq   uint64
+
+	// media supervisor ids (kill-on-exit / health)
+	mediaID  string
+	audioMID string
 }
 
 // OpenVideoPipe starts playback from a path/URL (auto yt-dlp resolve).
@@ -164,6 +168,7 @@ func (vp *VideoPipe) startSegment(seek time.Duration, rate float64) error {
 	)
 
 	cmd := exec.Command("ffmpeg", args...)
+	PrepMediaCmd(cmd)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return err
@@ -172,10 +177,16 @@ func (vp *VideoPipe) startSegment(seek time.Duration, rate float64) error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("ffmpeg: %w", err)
 	}
+	mid, err := Media().Register(MediaKindWatch, firstNonEmptyStr(vp.Src, "watch"), cmd)
+	if err != nil {
+		_ = killCmd(cmd)
+		return err
+	}
 
 	vp.mu.Lock()
 	vp.cmd = cmd
 	vp.stdout = stdout
+	vp.mediaID = mid
 	vp.baseSeek = seek
 	vp.rate = rate
 	vp.playStart = time.Now()
@@ -202,24 +213,30 @@ func (vp *VideoPipe) startSegment(seek time.Duration, rate float64) error {
 
 func (vp *VideoPipe) killProcs() {
 	vp.mu.Lock()
+	mid := vp.mediaID
+	amid := vp.audioMID
 	cmd := vp.cmd
 	audio := vp.audio
 	stdout := vp.stdout
 	vp.cmd = nil
 	vp.audio = nil
 	vp.stdout = nil
+	vp.mediaID = ""
+	vp.audioMID = ""
 	vp.mu.Unlock()
 
+	if mid != "" {
+		Media().Kill(mid)
+	} else if cmd != nil {
+		_ = killCmd(cmd)
+	}
+	if amid != "" {
+		Media().Kill(amid)
+	} else if audio != nil {
+		_ = killCmd(audio)
+	}
 	if stdout != nil {
 		_ = stdout.Close()
-	}
-	if cmd != nil && cmd.Process != nil {
-		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
-	}
-	if audio != nil && audio.Process != nil {
-		_ = audio.Process.Kill()
-		_, _ = audio.Process.Wait()
 	}
 }
 
@@ -237,13 +254,19 @@ func (vp *VideoPipe) startAudioAt(src string, seek time.Duration, rate float64) 
 	}
 	args = append(args, src)
 	cmd := exec.Command("ffplay", args...)
+	PrepMediaCmd(cmd)
 	if err := cmd.Start(); err != nil {
+		return
+	}
+	aid, err := Media().Register(MediaKindAudio, "watch-a", cmd)
+	if err != nil {
+		_ = killCmd(cmd)
 		return
 	}
 	vp.mu.Lock()
 	vp.audio = cmd
+	vp.audioMID = aid
 	vp.mu.Unlock()
-	go func() { _ = cmd.Wait() }()
 }
 
 func formatFFtime(d time.Duration) string {
@@ -294,11 +317,16 @@ func (vp *VideoPipe) readLoop() {
 		cp := make([]byte, frameSize)
 		copy(cp, buf)
 		vp.mu.Lock()
+		mid := ""
 		if !vp.paused {
 			vp.frame = cp
 			vp.seq++
+			mid = vp.mediaID
 		}
 		vp.mu.Unlock()
+		if mid != "" {
+			Media().Heartbeat(mid)
+		}
 	}
 }
 

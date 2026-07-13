@@ -390,6 +390,8 @@ func StreamDoctor() string {
 		b.WriteString(strings.Join(names, " · "))
 		b.WriteString("\n")
 	}
+	// media supervisor
+	b.WriteString(FormatMediaHealthDetail(Media().Health()))
 	return b.String()
 }
 

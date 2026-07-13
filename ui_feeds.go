@@ -304,9 +304,10 @@ func (m *Model) tickLabSims() {
 	pw, ph := StyleSimBudget(l.Style, l.Scale)
 	t := float64(time.Now().UnixMilli())
 
-	// news wall: pull live glyph frames from tile pipes
+	// news wall: pull live glyph frames + soft-recover dead pipes
 	if l.News != nil && l.News.On {
 		m.syncNewsWallFrames()
+		m.recoverNewsWallTiles()
 	}
 
 	for i := range l.Feeds {

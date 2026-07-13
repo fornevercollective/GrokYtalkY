@@ -1089,6 +1089,31 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case "O":
 			// always PiP pop-out (even in lab)
 			return m.popOutPlayer("")
+		case "R":
+			// restart active news tile / media recovery
+			m.restartNewsTileActive()
+			return m, nil
+		case "K":
+			// kill active news tile pipe (poster remains)
+			if m.lab != nil && m.lab.News != nil && m.lab.News.On {
+				m.killNewsTileActive()
+				return m, nil
+			}
+			// kill watch pipe
+			if m.vpipe != nil {
+				m.stopWatch()
+				m.pushSys("media · watch stopped")
+				m.status = "watch off"
+			}
+			return m, nil
+		case "H":
+			// media health detail
+			h := Media().Health()
+			for _, ln := range strings.Split(strings.TrimRight(FormatMediaHealthDetail(h), "\n"), "\n") {
+				m.pushSys(ln)
+			}
+			m.status = FormatMediaHealthChrome(h)
+			return m, nil
 		case "c":
 			if m.lab != nil && m.lab.On {
 				// quick: drop camera into active/empty placeholder
@@ -1540,6 +1565,25 @@ func (m *Model) slash(line string) (tea.Model, tea.Cmd) {
 		m.stopNewsWall()
 		m.pushSys("news wall stop")
 		m.status = "news off"
+		return m, nil
+	case "media", "pipes", "ffmpeg":
+		h := Media().Health()
+		for _, ln := range strings.Split(strings.TrimRight(FormatMediaHealthDetail(h), "\n"), "\n") {
+			m.pushSys(ln)
+		}
+		m.status = FormatMediaHealthChrome(h)
+		return m, nil
+	case "media-kill", "kill-media":
+		n := Media().KillKind(MediaKindNews)
+		if m.vpipe != nil {
+			m.stopWatch()
+			n++
+		}
+		Media().Shutdown()
+		m.pushSys(fmt.Sprintf("media · killed supervised procs (+%d news)", n))
+		return m, nil
+	case "restart", "media-restart":
+		m.restartNewsTileActive()
 		return m, nil
 	case "social", "handle":
 		src := arg
@@ -3061,7 +3105,10 @@ func (m *Model) stopWatch() {
 // arg: empty|all|us|eu|me|asia|world · optional count e.g. "eu 6"
 func (m *Model) startNewsWall(arg string) (tea.Model, tea.Cmd) {
 	region := "all"
-	maxN := 8
+	maxN := Media().NewsMax()
+	if maxN < 2 {
+		maxN = 4
+	}
 	fields := strings.Fields(strings.TrimSpace(arg))
 	for _, f := range fields {
 		switch strings.ToLower(f) {
@@ -3080,8 +3127,11 @@ func (m *Model) startNewsWall(arg string) (tea.Model, tea.Cmd) {
 	if maxN > MaxNewsWallFeeds {
 		maxN = MaxNewsWallFeeds
 	}
+	if nmax := Media().NewsMax(); maxN > nmax {
+		maxN = nmax
+	}
 	if maxN < 2 {
-		maxN = 4
+		maxN = 2
 	}
 	srcs := FilterNewsSources(region, maxN)
 	if len(srcs) == 0 {
@@ -3110,12 +3160,18 @@ func (m *Model) startNewsWall(arg string) (tea.Model, tea.Cmd) {
 	m.lab.Feeds = nil
 	m.lab.uid = 0
 	m.lab.EnsurePlaceholders(len(srcs))
+	// respect supervisor news budget
+	if nmax := Media().NewsMax(); len(srcs) > nmax {
+		srcs = srcs[:nmax]
+		m.pushSys(fmt.Sprintf("news · capped to %d tiles (GY_NEWS_MAX)", nmax))
+	}
 	nw := &NewsWallState{
-		On:        true,
-		Sources:   srcs,
-		StyleBase: PixelHalf,
-		Pipes:     make([]*NewsTilePipe, len(srcs)),
-		loading:   true,
+		On:          true,
+		Sources:     srcs,
+		StyleBase:   PixelHalf,
+		Pipes:       make([]*NewsTilePipe, len(srcs)),
+		loading:     true,
+		AutoRecover: true,
 	}
 	m.lab.News = nw
 	for i, s := range srcs {
@@ -3243,6 +3299,95 @@ func (m *Model) syncNewsWallFrames() {
 	}
 }
 
+// recoverNewsWallTiles soft-restarts dead tiles (supervisor-aware, backoff).
+func (m *Model) recoverNewsWallTiles() {
+	if m.lab == nil || m.lab.News == nil || !m.lab.News.On {
+		return
+	}
+	nw := m.lab.News
+	if !nw.AutoRecover {
+		return
+	}
+	for i, tp := range nw.Pipes {
+		if tp == nil || !tp.NeedsRestart() {
+			continue
+		}
+		label := tp.Label
+		nt, err := RestartNewsTile(tp)
+		if err != nil {
+			continue
+		}
+		nw.Pipes[i] = nt
+		if i < len(m.lab.Feeds) {
+			if fr := nt.Snapshot(); fr != nil {
+				m.lab.Feeds[i].Frame = fr
+			}
+		}
+		m.pushSys(fmt.Sprintf("media · restart %s (#%d)", label, nt.Restarts))
+	}
+}
+
+// restartNewsTileActive restarts the active lab news tile (TUI R key).
+func (m *Model) restartNewsTileActive() {
+	if m.lab == nil || m.lab.News == nil || !m.lab.News.On {
+		if m.vpipe != nil {
+			// restart watch segment
+			_ = m.vpipe.SeekRel(0) // may no-op; kill+reopen via stopWatch no
+			m.pushSys("media · watch restart: /watch again or seek")
+		}
+		return
+	}
+	i := m.lab.Active
+	if i < 0 || i >= len(m.lab.News.Pipes) {
+		return
+	}
+	tp := m.lab.News.Pipes[i]
+	if tp == nil {
+		m.pushSys("media · empty tile")
+		return
+	}
+	nt, err := RestartNewsTile(tp)
+	if err != nil {
+		m.pushSys("media · restart fail: " + err.Error())
+		return
+	}
+	m.lab.News.Pipes[i] = nt
+	if i < len(m.lab.Feeds) {
+		if fr := nt.Snapshot(); fr != nil {
+			m.lab.Feeds[i].Frame = fr
+		}
+	}
+	m.status = "restart " + nt.Label
+	m.pushSys("media · restarted " + nt.Label)
+}
+
+// killNewsTileActive drops the active news pipe (keeps poster).
+func (m *Model) killNewsTileActive() {
+	if m.lab == nil || m.lab.News == nil {
+		return
+	}
+	i := m.lab.Active
+	if i < 0 || i >= len(m.lab.News.Pipes) {
+		return
+	}
+	tp := m.lab.News.Pipes[i]
+	if tp == nil {
+		return
+	}
+	label := tp.Label
+	poster := tp.Poster
+	tp.Stop()
+	m.lab.News.Pipes[i] = nil
+	if i < len(m.lab.Feeds) {
+		m.lab.Feeds[i].Kind = "news"
+		if poster != nil {
+			m.lab.Feeds[i].Frame = poster.Clone()
+		}
+	}
+	m.pushSys("media · killed " + label + " (poster held)")
+	m.status = "kill " + label
+}
+
 // stopNewsWall tears down tile pipes and clears news state.
 func (m *Model) stopNewsWall() {
 	if m.lab == nil || m.lab.News == nil {
@@ -3253,6 +3398,8 @@ func (m *Model) stopNewsWall() {
 			tp.Stop()
 		}
 	}
+	// belt: kill any leftover news kind in supervisor
+	Media().KillKind(MediaKindNews)
 	m.lab.News.On = false
 	m.lab.News.Pipes = nil
 	m.lab.News = nil
@@ -3556,6 +3703,8 @@ func (m *Model) shutdown() {
 	}
 	m.stopNewsWall()
 	m.stopWatch()
+	// kill every supervised ffmpeg/ffplay (no orphans)
+	Media().Shutdown()
 	if m.player != nil {
 		m.player.Close()
 	}
