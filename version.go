@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -20,7 +21,7 @@ import (
 // Defaults are used for plain `go build` / `go run`.
 var (
 	// Default when not set by ldflags. make install uses git describe.
-	Version = "1.24.0"
+	Version = "1.25.0"
 	Commit  = "dev"
 	Date    = "unknown"
 )
@@ -190,18 +191,46 @@ type updateResult struct {
 	Latest  string
 	URL     string
 	Channel string
-	Status  string // up-to-date | update-available | unknown | error
+	Status  string // up-to-date | update-available | unknown | error | ahead
 	Err     error
 }
 
+// Env:
+//
+//	GY_NO_AUTO_UPDATE=1 | GY_AUTO_UPDATE=0|off|false  — skip launch auto-update
+//	GY_SKIP_AUTO_UPDATE=1                             — set after re-exec (no loop)
+//	GY_JUST_UPDATED=1                                — TUI shows “updated” once
+//	GY_AUTO_UPDATE=check                             — notify only, no install
+func autoUpdateDisabled() bool {
+	if os.Getenv("GY_SKIP_AUTO_UPDATE") == "1" {
+		return true
+	}
+	if v := strings.ToLower(strings.TrimSpace(os.Getenv("GY_NO_AUTO_UPDATE"))); v == "1" || v == "true" || v == "yes" {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("GY_AUTO_UPDATE"))) {
+	case "0", "off", "false", "no", "disable", "disabled":
+		return true
+	}
+	return false
+}
+
+func autoUpdateCheckOnly() bool {
+	return strings.ToLower(strings.TrimSpace(os.Getenv("GY_AUTO_UPDATE"))) == "check"
+}
+
 func checkUpdate() updateResult {
+	return checkUpdateTimeout(8 * time.Second)
+}
+
+func checkUpdateTimeout(timeout time.Duration) updateResult {
 	exe, _ := os.Executable()
 	if r, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = r
 	}
 	ch := installChannel(exe)
 	res := updateResult{Current: Version, Channel: ch}
-	rel, err := fetchLatestRelease(8 * time.Second)
+	rel, err := fetchLatestRelease(timeout)
 	if err != nil {
 		res.Status = "error"
 		res.Err = err
@@ -219,6 +248,149 @@ func checkUpdate() updateResult {
 		res.Status = "ahead"
 	}
 	return res
+}
+
+// maybeAutoUpdateOnLaunch runs before the terminal TUI. On success with a new
+// binary it re-execs (never returns). Network/install failures are soft — TUI continues.
+func maybeAutoUpdateOnLaunch() error {
+	if autoUpdateDisabled() {
+		return nil
+	}
+	// keep launch snappy offline / firewalled
+	res := checkUpdateTimeout(4 * time.Second)
+	if res.Status != "update-available" {
+		return nil
+	}
+	if autoUpdateCheckOnly() {
+		fmt.Fprintf(os.Stderr, "gy: update available %s → %s  (gy update · or unset GY_AUTO_UPDATE=check)\n",
+			res.Current, res.Latest)
+		return nil
+	}
+	fmt.Fprintf(os.Stderr, "gy: auto-update %s → %s …\n", res.Current, res.Latest)
+	if err := applyUpdateQuiet(res); err != nil {
+		fmt.Fprintf(os.Stderr, "gy: auto-update failed (%v) — continuing with %s\n", err, Version)
+		return nil
+	}
+	fmt.Fprintf(os.Stderr, "gy: updated to %s — restarting\n", res.Latest)
+	return reexecAfterUpdate()
+}
+
+// applyUpdateQuiet installs latest via channel with muted progressive noise.
+func applyUpdateQuiet(res updateResult) error {
+	exe := mustExe()
+	ch := res.Channel
+	if ch == "" {
+		ch = installChannel(exe)
+	}
+	switch ch {
+	case "homebrew":
+		if _, err := exec.LookPath("brew"); err != nil {
+			return err
+		}
+		cmd := exec.Command("brew", "upgrade", "grokytalky")
+		cmd.Stdout = nil
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			// local formula path fallback
+			return fmt.Errorf("brew upgrade: %w", err)
+		}
+		return nil
+	case "local":
+		if _, err := exec.LookPath("go"); err != nil {
+			return fmt.Errorf("go not on PATH for local channel")
+		}
+		return goInstallLatestToQuiet(filepath.Dir(exe))
+	case "go-install":
+		if _, err := exec.LookPath("go"); err != nil {
+			return fmt.Errorf("go not on PATH")
+		}
+		return goInstallLatestQuiet()
+	default:
+		if _, err := exec.LookPath("go"); err == nil {
+			// prefer writing next to current binary when possible
+			dir := filepath.Dir(exe)
+			if dir != "" && dir != "." {
+				if err := goInstallLatestToQuiet(dir); err == nil {
+					return nil
+				}
+			}
+			return goInstallLatestQuiet()
+		}
+		return fmt.Errorf("no update channel (need go or brew)")
+	}
+}
+
+func goInstallLatestQuiet() error {
+	mod := goModule + "@latest"
+	cmd := exec.Command("go", "install", mod)
+	cmd.Stdout = nil
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("go install: %w", err)
+	}
+	return nil
+}
+
+func goInstallLatestToQuiet(dir string) error {
+	mod := goModule + "@latest"
+	cmd := exec.Command("go", "install", mod)
+	cmd.Env = append(os.Environ(), "GOBIN="+dir)
+	cmd.Stdout = nil
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("go install: %w", err)
+	}
+	full := filepath.Join(dir, "grokytalky")
+	short := filepath.Join(dir, "gy")
+	if _, err := os.Stat(full); err == nil {
+		_ = os.Remove(short)
+		_ = os.Symlink("grokytalky", short)
+	}
+	return nil
+}
+
+// reexecAfterUpdate replaces this process with the (hopefully new) binary.
+// Sets GY_SKIP_AUTO_UPDATE to prevent loops and GY_JUST_UPDATED for TUI banner.
+func reexecAfterUpdate() error {
+	exe := mustExe()
+	if exe == "" {
+		return fmt.Errorf("cannot resolve executable for re-exec")
+	}
+	args := os.Args
+	env := os.Environ()
+	// strip prior skip/just flags then set fresh
+	env = filterEnv(env, "GY_SKIP_AUTO_UPDATE", "GY_JUST_UPDATED")
+	env = append(env, "GY_SKIP_AUTO_UPDATE=1", "GY_JUST_UPDATED=1")
+	return syscallExec(exe, args, env)
+}
+
+func filterEnv(env []string, dropKeys ...string) []string {
+	drop := map[string]bool{}
+	for _, k := range dropKeys {
+		drop[k] = true
+	}
+	out := make([]string, 0, len(env))
+	for _, e := range env {
+		k := e
+		if i := strings.IndexByte(e, '='); i >= 0 {
+			k = e[:i]
+		}
+		if drop[k] {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+// syscallExec replaces the current process (Unix). On failure returns error
+// so caller can continue running the old binary.
+func syscallExec(exe string, args, env []string) error {
+	if len(args) == 0 {
+		args = []string{exe}
+	}
+	// argv[0] should be the program name
+	return syscall.Exec(exe, args, env)
 }
 
 func printUpdateCheck(res updateResult) {

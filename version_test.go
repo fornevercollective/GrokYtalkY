@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestNormalizeAndCompareSemver(t *testing.T) {
 	if normalizeVersion("v1.9.0-burst") != "1.9.0" {
@@ -26,5 +29,46 @@ func TestInstallChannel(t *testing.T) {
 	}
 	if installChannel("/Users/x/.local/bin/gy") != "local" {
 		t.Fatal("local")
+	}
+}
+
+func TestAutoUpdateDisabledEnv(t *testing.T) {
+	t.Setenv("GY_SKIP_AUTO_UPDATE", "")
+	t.Setenv("GY_NO_AUTO_UPDATE", "")
+	t.Setenv("GY_AUTO_UPDATE", "")
+	if autoUpdateDisabled() {
+		t.Fatal("default enabled")
+	}
+	t.Setenv("GY_NO_AUTO_UPDATE", "1")
+	if !autoUpdateDisabled() {
+		t.Fatal("GY_NO_AUTO_UPDATE")
+	}
+	t.Setenv("GY_NO_AUTO_UPDATE", "")
+	t.Setenv("GY_AUTO_UPDATE", "off")
+	if !autoUpdateDisabled() {
+		t.Fatal("GY_AUTO_UPDATE=off")
+	}
+	t.Setenv("GY_AUTO_UPDATE", "check")
+	if autoUpdateDisabled() {
+		t.Fatal("check is not disabled")
+	}
+	if !autoUpdateCheckOnly() {
+		t.Fatal("check only")
+	}
+	t.Setenv("GY_SKIP_AUTO_UPDATE", "1")
+	if !autoUpdateDisabled() {
+		t.Fatal("skip after re-exec")
+	}
+}
+
+func TestFilterEnv(t *testing.T) {
+	in := []string{"A=1", "GY_SKIP_AUTO_UPDATE=1", "B=2", "GY_JUST_UPDATED=1"}
+	out := filterEnv(in, "GY_SKIP_AUTO_UPDATE", "GY_JUST_UPDATED")
+	s := strings.Join(out, ",")
+	if strings.Contains(s, "GY_SKIP") || strings.Contains(s, "GY_JUST") {
+		t.Fatal(s)
+	}
+	if !strings.Contains(s, "A=1") || !strings.Contains(s, "B=2") {
+		t.Fatal(s)
 	}
 }

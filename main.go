@@ -54,6 +54,7 @@ func run(args []string) error {
 	glyphN := fs.Int("glyph", 25, "Glyph Matrix side (13|25 hardware, 37|49 terminal hi-res)")
 	glyphScale := fs.Int("glyph-scale", 0, "cells per LED pitch (0=auto, 1–8 scale-up)")
 	noAudio := fs.Bool("no-audio", false, "disable local pattern synth")
+	noUpdate := fs.Bool("no-update", false, "skip TUI launch auto-update")
 	_ = noAudio
 	fs.SetOutput(os.Stderr)
 	fs.Usage = func() { printHelp() }
@@ -94,7 +95,12 @@ func run(args []string) error {
 			case "-h", "--help":
 				fmt.Println(`gy update [--check]
   --check, -c   report only; exit 2 if a newer release exists
-  (default)     install latest via go install / brew / make channel`)
+  (default)     install latest via go install / brew / make channel
+
+TUI launches auto-update by default (check GitHub → install → re-exec).
+  GY_NO_AUTO_UPDATE=1   disable
+  GY_AUTO_UPDATE=0       disable
+  GY_AUTO_UPDATE=check   notify only, no install`)
 				return nil
 			}
 		}
@@ -117,6 +123,9 @@ func run(args []string) error {
 
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *noUpdate {
+		_ = os.Setenv("GY_NO_AUTO_UPDATE", "1")
 	}
 	if *nick == "" {
 		*nick = defaultNick()
@@ -229,11 +238,18 @@ func run(args []string) error {
 }
 
 func runWatchTUI(src, nick string, port int, bind string) error {
+	if err := maybeAutoUpdateOnLaunch(); err != nil {
+		return err
+	}
 	opts := Options{
 		Nick: nick, Host: fmt.Sprintf("127.0.0.1:%d", port),
 		MIDI: false, Translate: false, Live: false,
 	}
 	m := NewModel(opts)
+	if os.Getenv("GY_JUST_UPDATED") == "1" {
+		m.pushSys(fmt.Sprintf("◈ auto-updated · gy %s", Version))
+		_ = os.Unsetenv("GY_JUST_UPDATED")
+	}
 	m.camOn = false
 	m.videoOn = true
 	m.compact = true
@@ -290,6 +306,7 @@ func printHelp() {
   flags: --burst --glyph 13|25|37|49 --glyph-scale 0..8 --midi --cam
   keys:  [ ] scale · g res · space PTT  (matches GlyphMatrix-Developer-Kit layout)
   env:   XAI_API_KEY · GROK_MODEL · GROK_CLI_URL · GY_CAP · GY_ROLE
+         GY_NO_AUTO_UPDATE=1 · GY_AUTO_UPDATE=0|check  (TUI launch auto-update)
 `, Version, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd)
 }
 
@@ -302,6 +319,12 @@ func runHubOnly(bind string, port int) error {
 }
 
 func runTUI(opts Options, startHub bool, bind string, port int) error {
+	// every TUI launch: check GitHub + install + re-exec when newer
+	// (GY_NO_AUTO_UPDATE=1 / GY_AUTO_UPDATE=0 to skip; soft-fail offline)
+	if err := maybeAutoUpdateOnLaunch(); err != nil {
+		return err
+	}
+
 	var hub *Hub
 	if startHub {
 		addr := fmt.Sprintf("%s:%d", bind, port)
@@ -314,6 +337,10 @@ func runTUI(opts Options, startHub bool, bind string, port int) error {
 
 	m := NewModel(opts)
 	m.cancel = cancel
+	if os.Getenv("GY_JUST_UPDATED") == "1" {
+		m.pushSys(fmt.Sprintf("◈ auto-updated · gy %s", Version))
+		_ = os.Unsetenv("GY_JUST_UPDATED")
+	}
 
 	// Alt screen + FPS cap: stable redraw, no scrollback spool.
 	// Lower FPS in companion mode to stay light next to Grok terminal.

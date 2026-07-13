@@ -217,6 +217,7 @@ func helpOverlay(width, height int) string {
   forge RX → dual Glyph (auto) · dual-local left rotates slots
   peer right holds RX · left ↻sN + cgf: id
   cap handshake · GY_CAP=term-lean|glyph-iot · gy agent
+  auto-update on TUI launch · GY_NO_AUTO_UPDATE=1 · --no-update
   /hexdump          current frame as hex line
 
   scrub: k/space pause · j/l ±5s · J/L ±30s · 0 start · <> rate
