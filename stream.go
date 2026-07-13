@@ -377,7 +377,18 @@ func StreamDoctor() string {
 	if p, err := lookYtDlp(); err == nil {
 		fmt.Fprintf(&b, "  ✓ yt-dlp  %s (%s)\n", toolVersion(p), p)
 	} else {
-		b.WriteString("  ✗ yt-dlp  missing — brew install yt-dlp\n")
+		b.WriteString("  ✗ yt-dlp  missing — gy install deps -y  (brew|uv|pipx)\n")
+	}
+	// package managers summary (short)
+	ms := DetectPackageManagers()
+	if len(ms) > 0 {
+		b.WriteString("pkg managers: ")
+		var names []string
+		for _, m := range ms {
+			names = append(names, string(m.ID))
+		}
+		b.WriteString(strings.Join(names, " · "))
+		b.WriteString("\n")
 	}
 	return b.String()
 }

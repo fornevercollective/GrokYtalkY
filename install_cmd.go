@@ -25,32 +25,48 @@ func installHelp() string {
 	return `gy install | uninstall | clean-install | install-dependencies
 
   gy install                 install gy → ~/.local/bin (progress + spinner)
-  gy install dependencies    check / install go · ffmpeg · yt-dlp (brew -y)
+  gy install dependencies    multi-manager deps (brew · uv · npm · pipx · apt…)
   gy install deps            alias for install dependencies
+  gy install deps -y         install missing (auto-pick best manager)
+  gy install deps --pm uv    force package manager (brew|uv|pipx|npm|cargo|apt|…)
+  gy install deps --list     show catalog + available managers
   gy clean install           uninstall then install (fresh local channel)
   gy clean-install           same as clean install
   gy uninstall               remove gy / grokytalky / gy-burst from local + /usr/local/bin
   gy update | upgrade        GitHub check + progress install (module @vX.Y.Z)
   gy update --check          report only; exit 2 if newer release exists
 
+package managers (auto-detected)
+  brew    macOS/Linux system packages (go ffmpeg yt-dlp node rust)
+  uv      Python CLIs: uv tool install yt-dlp  (recommended for yt-dlp)
+  pipx    pipx install yt-dlp
+  pip     pip install --user …  (last resort)
+  npm     npm i -g wrangler  (mid-lane edge)
+  cargo   rust tooling / optional crates
+  go      go install …  (gy binary)
+  apt/dnf/pacman · winget · choco
+
+recommended order for tool deps
+  brew → uv → pipx → apt/dnf → npm → cargo → go
+
 new user (from scratch)
   # need Go: https://go.dev/dl/  or  brew install go
   go install github.com/fornevercollective/grokytalky@latest
   mkdir -p ~/.local/bin
   ln -sfn "$(go env GOPATH)/bin/grokytalky" ~/.local/bin/gy
-  # or clone + scripts/install.sh (progress bars, version ldflags)
+  # or: clone + ./scripts/install.sh
 
-  gy install deps -y         ffmpeg · yt-dlp
-  gy serve                   hub · phone cast URL on LAN
-  gy                         companion dock
+  gy install deps -y         ffmpeg · yt-dlp · optional node/uv
+  gy serve · gy · gy doctor
 
 env
   PREFIX=~/.local            install root (bin under PREFIX/bin)
   GOBIN=…                    used by go install channel
   GY_NO_AUTO_UPDATE=1         skip TUI launch auto-update
+  GY_PKG_MANAGER=brew|uv|…   default --pm for deps
 
 see also
-  make install · scripts/install.sh · docs @ fornevercollective.github.io/GrokYtalkY`
+  make install · scripts/install.sh · gy doctor`
 }
 
 // runInstallCmd dispatches install / clean-install / deps from CLI words.
@@ -396,67 +412,72 @@ func runUninstall(args []string) error {
 	return nil
 }
 
-// depSpec describes an optional/required runtime tool.
-type depSpec struct {
-	Name     string
-	Required bool
-	Brew     string // brew formula
-	Hint     string
-	Check    func() bool
-}
-
 func runInstallDependencies(args []string) error {
-	for _, a := range args {
-		if a == "-h" || a == "--help" {
+	auto := false
+	listOnly := false
+	var preferred PkgManager
+	// env default
+	if v := strings.TrimSpace(os.Getenv("GY_PKG_MANAGER")); v != "" {
+		preferred = PkgManager(strings.ToLower(v))
+	}
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch a {
+		case "-h", "--help", "help":
 			fmt.Println(installHelp())
 			return nil
-		}
-	}
-	auto := false
-	for _, a := range args {
-		if a == "--yes" || a == "-y" || a == "--install" {
+		case "--yes", "-y", "--install":
 			auto = true
+		case "--list", "-l", "list":
+			listOnly = true
+		case "--pm", "--manager", "-m":
+			if i+1 < len(args) {
+				i++
+				preferred = PkgManager(strings.ToLower(args[i]))
+			}
+		default:
+			if strings.HasPrefix(a, "--pm=") {
+				preferred = PkgManager(strings.ToLower(strings.TrimPrefix(a, "--pm=")))
+			}
 		}
 	}
 
-	deps := []depSpec{
-		{
-			Name: "go", Required: true, Brew: "go",
-			Hint: "https://go.dev/dl/",
-			Check: func() bool {
-				_, err := exec.LookPath("go")
-				return err == nil
-			},
-		},
-		{
-			Name: "ffmpeg", Required: false, Brew: "ffmpeg",
-			Hint: "needed for watch / cam encode",
-			Check: func() bool {
-				_, err := exec.LookPath("ffmpeg")
-				return err == nil
-			},
-		},
-		{
-			Name: "yt-dlp", Required: false, Brew: "yt-dlp",
-			Hint: "needed for gy watch <url>",
-			Check: func() bool {
-				_, err := exec.LookPath("yt-dlp")
-				return err == nil
-			},
-		},
-		{
-			Name: "cargo", Required: false, Brew: "rust",
-			Hint: "optional — gy-sfu (make sfu)",
-			Check: func() bool {
-				_, err := exec.LookPath("cargo")
-				return err == nil
-			},
-		},
+	printInstallBanner("GrokYtalkY dependencies")
+	fmt.Print(FormatPackageManagersDoctor())
+	fmt.Println()
+
+	deps := toolDepsCatalog()
+	if listOnly {
+		fmt.Println("dependency catalog (install recipes)")
+		fmt.Println()
+		for _, d := range deps {
+			req := "optional"
+			if d.Required {
+				req = "required"
+			}
+			ok := d.Check()
+			mark := "✓"
+			if !ok {
+				mark = "✗"
+			}
+			fmt.Printf("  %s  %-10s  (%s)  %s\n", mark, d.Name, req, d.Hint)
+			for _, r := range d.Recipes {
+				avail := " "
+				if HasPkgManager(r.Manager) {
+					avail = "·"
+				}
+				fmt.Printf("      %s %s\n", avail, FormatRecipe(r))
+			}
+		}
+		fmt.Println()
+		fmt.Println(PreferredUpdateChannels())
+		return nil
 	}
 
-	fmt.Println("GrokYtalkY dependencies")
-	fmt.Println()
-	var missing []depSpec
+	prog := newInstallProgress(2 + len(deps))
+	prog.Step("scan tools")
+
+	var missing []ToolDep
 	for _, d := range deps {
 		ok := d.Check()
 		mark := "✓"
@@ -468,57 +489,93 @@ func runInstallDependencies(args []string) error {
 		if d.Required {
 			req = "required"
 		}
-		fmt.Printf("  %s  %-8s  (%s)", mark, d.Name, req)
-		if !ok && d.Hint != "" {
-			fmt.Printf("  — %s", d.Hint)
+		line := fmt.Sprintf("%s  %-10s  (%s)", mark, d.Name, req)
+		if !ok {
+			if r, ok := PickRecipe(d, preferred); ok {
+				line += "  → " + FormatRecipe(r)
+			} else if d.Hint != "" {
+				line += "  — " + d.Hint
+			}
 		}
-		fmt.Println()
+		fmt.Println("   ", line)
 	}
 	fmt.Println()
 
 	if len(missing) == 0 {
-		fmt.Println("all checked tools present")
+		prog.Step("all present")
+		prog.Done("dependencies ok")
 		fmt.Print(StreamDoctor())
 		return nil
 	}
 
-	brew, brewErr := exec.LookPath("brew")
-	if brewErr != nil {
-		fmt.Println("Homebrew not found — install missing tools manually:")
-		for _, d := range missing {
-			if d.Brew != "" {
-				fmt.Printf("  %s  (%s)\n", d.Name, d.Hint)
-			}
-		}
-		return fmt.Errorf("%d dependency(ies) missing", len(missing))
+	// dry-run plan
+	prog.Step(fmt.Sprintf("plan install (%d missing)", len(missing)))
+	type planItem struct {
+		dep    ToolDep
+		recipe InstallRecipe
 	}
+	var plan []planItem
+	var unplanned []ToolDep
+	for _, d := range missing {
+		r, ok := PickRecipe(d, preferred)
+		if !ok {
+			unplanned = append(unplanned, d)
+			continue
+		}
+		plan = append(plan, planItem{d, r})
+		fmt.Printf("    · %-10s  %s\n", d.Name, FormatRecipe(r))
+	}
+	for _, d := range unplanned {
+		fmt.Printf("    ? %-10s  no manager for recipes — %s\n", d.Name, d.Hint)
+	}
+	fmt.Println()
 
 	if !auto {
-		fmt.Println("to install missing via Homebrew:")
-		var formulas []string
-		for _, d := range missing {
-			if d.Brew != "" {
-				formulas = append(formulas, d.Brew)
-			}
+		fmt.Println("  re-run with --yes to install:")
+		fmt.Println("    gy install deps -y")
+		if preferred != "" {
+			fmt.Printf("    gy install deps -y --pm %s\n", preferred)
+		} else {
+			fmt.Println("    gy install deps -y --pm uv    # force uv for Python tools")
+			fmt.Println("    gy install deps -y --pm brew")
 		}
-		fmt.Printf("  brew install %s\n", strings.Join(formulas, " "))
-		fmt.Println("or re-run:  gy install dependencies --yes")
-		return fmt.Errorf("%d dependency(ies) missing (use --yes to brew install)", len(missing))
+		return fmt.Errorf("%d dependency(ies) missing (use --yes to install)", len(missing))
 	}
 
-	var formulas []string
-	for _, d := range missing {
-		if d.Brew != "" {
-			formulas = append(formulas, d.Brew)
+	if len(plan) == 0 {
+		return fmt.Errorf("no installable recipes (install a package manager: brew / uv / npm)")
+	}
+
+	// execute with progress
+	ip := newInstallProgress(len(plan) + 1)
+	var failed []string
+	for _, p := range plan {
+		ip.Step(fmt.Sprintf("install %s via %s", p.dep.Name, p.recipe.Manager))
+		if err := RunRecipe(p.recipe); err != nil {
+			ip.Fail(p.dep.Name, err)
+			failed = append(failed, p.dep.Name)
+			continue
 		}
 	}
-	fmt.Printf("→ brew install %s\n", strings.Join(formulas, " "))
-	cmd := exec.Command(brew, append([]string{"install"}, formulas...)...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("brew install: %w", err)
+	ip.Step("re-check tools")
+	still := 0
+	for _, d := range toolDepsCatalog() {
+		if !d.Check() {
+			// only count previously missing required/planned
+			for _, m := range missing {
+				if m.Name == d.Name {
+					still++
+					fmt.Printf("    still missing: %s\n", d.Name)
+				}
+			}
+		}
 	}
-	fmt.Println("dependencies installed")
+	if len(failed) > 0 || still > 0 {
+		ip.Fail("deps", fmt.Errorf("%d failed · %d still missing", len(failed), still))
+		return fmt.Errorf("dependency install incomplete")
+	}
+	ip.Done("dependencies installed")
+	fmt.Print(StreamDoctor())
+	fmt.Print(FormatPackageManagersDoctor())
 	return nil
 }

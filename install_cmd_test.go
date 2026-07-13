@@ -16,6 +16,10 @@ func TestInstallHelpMentionsLifecycle(t *testing.T) {
 		"dependencies",
 		"gy update",
 		"upgrade",
+		"--pm",
+		"uv",
+		"brew",
+		"npm",
 	} {
 		if !strings.Contains(h, s) {
 			t.Fatalf("installHelp missing %q", s)
