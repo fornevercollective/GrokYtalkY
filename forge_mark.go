@@ -221,6 +221,37 @@ func ShortMarkID(id string) string {
 	return truncate(id, 12)
 }
 
+// FormatForgeLocalLine dual-left status: slot index + mark short id.
+func FormatForgeLocalLine(mark *ForgeMark, idx0 int, held bool) string {
+	hold := ""
+	if held {
+		hold = " hold"
+	}
+	if mark == nil {
+		return fmt.Sprintf("s%d%s", idx0+1, hold)
+	}
+	return fmt.Sprintf("s%d %s%s", idx0+1, ShortMarkID(mark.ID), hold)
+}
+
+// BurstForgeLocalLabel dual-Glyph left title while multi-slot rotate is active.
+func BurstForgeLocalLabel(you string, mark *ForgeMark, idx0 int, rotating bool) string {
+	base := you
+	if base == "" {
+		base = "you"
+	}
+	if mark == nil || mark.ID == "" {
+		if rotating {
+			return truncate(fmt.Sprintf("%s s%d", base, idx0+1), 18)
+		}
+		return truncate(base, 18)
+	}
+	tag := "s"
+	if rotating {
+		tag = "↻s"
+	}
+	return truncate(fmt.Sprintf("%s%d %s", tag, idx0+1, ShortMarkID(mark.ID)), 18)
+}
+
 // BurstForgePeerLabel dual-Glyph peer title: nick + short cgf id.
 func BurstForgePeerLabel(from string, mark *ForgeMark) string {
 	if mark == nil || mark.ID == "" {

@@ -59,10 +59,14 @@ func (m *Model) renderBurstOrb(w, h int) string {
 	if rx == "" {
 		rx = m.remoteTX
 	}
-	// Cursor-Grok Forge dual Glyph: peer title carries short cgf id
+	// Cursor-Grok Forge dual Glyph: peer title + local multi-slot left chrome
 	rxLabel := rx
 	if m.forgeRX != nil {
 		rxLabel = BurstForgePeerLabel(rx, m.forgeRX)
+	}
+	youLabel := m.nick
+	if m.forgeLocal != nil || m.forgeRotateOn {
+		youLabel = BurstForgeLocalLabel(m.nick, m.forgeLocal, m.forgeLocalIdx, m.forgeRotateOn && !m.forgeHoldLeft)
 	}
 	local := m.burstLocalFrame
 	if local == nil {
@@ -72,14 +76,21 @@ func (m *Model) renderBurstOrb(w, h int) string {
 
 	var parts []string
 	parts = append(parts, clampCells(m.headerLine(cols), cols))
-	if m.forgeRX != nil {
+	switch {
+	case m.forgeRX != nil:
 		parts = append(parts, clampCells(BurstForgeStatusLine(cols, tx, rx, m.nick, len(m.peers), m.forgeRX), cols))
-	} else {
+	case m.forgeRotateOn && m.forgeLocal != nil:
+		parts = append(parts, clampCells(
+			styDim().Render("◈ dual-local ")+styTitle().Render(FormatForgeLocalLine(m.forgeLocal, m.forgeLocalIdx, m.forgeHoldLeft))+
+				styDim().Render(" · peer right holds RX · /forge next|hold"),
+			cols,
+		))
+	default:
 		parts = append(parts, clampCells(BurstStatusLine(cols, tx, rx, m.nick, len(m.peers)), cols))
 	}
 
 	// panelH is exact remaining rows for title+matrix — dual must not exceed it
-	dual := RenderBurstDualGlyphScaled(panelCols, panelH, local, peer, tx, rxLabel, m.nick, displayN, displayScale)
+	dual := RenderBurstDualGlyphScaled(panelCols, panelH, local, peer, tx, rxLabel, youLabel, displayN, displayScale)
 	dualLines := strings.Split(dual, "\n")
 	// hard-cap panel so we never steal vu/hint or clip mid-circle
 	if len(dualLines) > panelH {

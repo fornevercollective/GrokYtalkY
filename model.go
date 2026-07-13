@@ -96,6 +96,11 @@ type Model struct {
 	forgeRX     *ForgeMark // latest peer mark (dual right chrome)
 	forgeRXFrom string     // peer nick that owns forgeRX
 	forgeLocal  *ForgeMark // local multi-pcap mark for dual left chrome
+	// Dual-local multi-slot rotate: cycle lab pcap tiles into burstLocalFrame
+	forgeRotateOn  bool // true when multi-pcap forge active (2+ slots or forced)
+	forgeHoldLeft  bool // pause rotate; stick current left slot
+	forgeLocalIdx  int  // index into marked pcap slots (0-based)
+	forgeRotateEvery int // ticks between slot hops (0 → ForgeDualRotateTicks)
 
 	// Live depth + gsplat (ZipDepth sidecar / zip-lite / overview-style stack)
 	depth *depthSession
@@ -386,6 +391,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.live != nil && m.live.Playing() {
 			pulseSpectrum(m.bands, 0.08+m.peak*0.2, m.spin)
 		}
+		// forge multi-pcap: advance slot frames + dual-local left rotate
+		// (burst view skips renderLab, so tick must drive pcap + left pane)
+		if m.lab != nil && m.lab.On {
+			m.tickLabSims()
+		}
+		m.tickForgeDualLocal()
 		var cmds []tea.Cmd
 		// binary/hex/pcap packet player
 		if m.pktPlayer != nil && m.pktPlayer.Playing() {
@@ -1429,7 +1440,7 @@ func (m *Model) slash(line string) (tea.Model, tea.Cmd) {
 		return m.startColossusIngest(src)
 	case "forge":
 		// /forge a.pcap b.pcap …  — multi-pcap NFT-style forge marks
-		// /forge status | /forge stop
+		// /forge status | stop | next | hold | rotate
 		arg = strings.TrimSpace(arg)
 		if arg == "stop" || arg == "off" {
 			m.stopStreamPub()
@@ -1443,12 +1454,38 @@ func (m *Model) slash(line string) (tea.Model, tea.Cmd) {
 				}
 			}
 			m.forgeLocal = nil
+			m.forgeRotateOn = false
+			m.forgeHoldLeft = false
+			m.forgeLocalIdx = 0
 			// keep forgeRX / peer frame so dual still shows last remote mark
 			m.pushSys("■ forge multi-pcap stop")
 			return m, nil
 		}
 		if arg == "status" || arg == "" {
 			m.pushForgeStatus()
+			return m, nil
+		}
+		if arg == "next" || arg == "n" {
+			m.forgeHoldLeft = true
+			m.stepForgeDualLocal(+1)
+			m.pushSys(fmt.Sprintf("◈ forge left → %s", FormatForgeLocalLine(m.forgeLocal, m.forgeLocalIdx, true)))
+			return m, nil
+		}
+		if arg == "prev" || arg == "p" {
+			m.forgeHoldLeft = true
+			m.stepForgeDualLocal(-1)
+			m.pushSys(fmt.Sprintf("◈ forge left → %s", FormatForgeLocalLine(m.forgeLocal, m.forgeLocalIdx, true)))
+			return m, nil
+		}
+		if arg == "hold" {
+			m.forgeHoldLeft = true
+			m.pushSys("◈ forge left hold · /forge rotate to resume")
+			return m, nil
+		}
+		if arg == "rotate" || arg == "rot" {
+			m.forgeHoldLeft = false
+			m.forgeRotateOn = true
+			m.pushSys("◈ forge left rotate · dual local multi-slot")
 			return m, nil
 		}
 		paths := strings.Fields(arg)
@@ -1693,6 +1730,9 @@ func (m *Model) stopStreamPub() {
 	m.streamPubSrc = ""
 }
 
+// ForgeDualRotateTicks — dwell per left slot at 20Hz tick (~1s).
+const ForgeDualRotateTicks = 20
+
 // startMultiPcapForge loads each path into a lab slot with Cursor-Grok Forge watermarks
 // and publishes watermarked hexlum + forge-mark meta to the hub when connected.
 func (m *Model) startMultiPcapForge(paths []string) (tea.Model, tea.Cmd) {
@@ -1731,23 +1771,20 @@ func (m *Model) startMultiPcapForge(paths []string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// set primary frame from active slot + dual Glyph local tile
-	if af := m.lab.ActiveFeed(); af != nil && af.Frame != nil {
-		m.frame = af.Frame
-		m.videoOn = true
-		m.burstLocalFrame = af.Frame
-		if af.Forge != nil {
-			cp := *af.Forge
-			m.forgeLocal = &cp
-			// hexlum glyph for Nothing path
-			if af.Frame.W == af.Frame.H && af.Frame.W <= 49 {
-				m.pixelMode = PixelHex
-			}
-		}
-	} else if len(marks) > 0 {
-		cp := marks[0]
-		m.forgeLocal = &cp
+	// dual-local multi-slot rotate on left Glyph pane
+	m.forgeLocalIdx = 0
+	m.forgeHoldLeft = false
+	m.forgeRotateOn = n >= 1
+	if m.forgeRotateEvery <= 0 {
+		m.forgeRotateEvery = ForgeDualRotateTicks
 	}
+	// multi-slot → open dual Glyph so left rotate is visible (peer right free for RX)
+	if n >= 2 && !m.burstMode {
+		m.burstMode = true
+		m.videoOn = true
+		m.pushSys("◈ forge dual-local rotate · left slots · peer RX holds right · /forge hold|next")
+	}
+	m.applyForgeDualLocalSlot(0)
 
 	// hub publish: rotate slots, stamp forge mark + frames
 	if m.client != nil {
@@ -1758,10 +1795,109 @@ func (m *Model) startMultiPcapForge(paths []string) (tea.Model, tea.Cmd) {
 		go m.publishForgeMulti(ctx, pathsCopy, marks)
 		m.pushSys(fmt.Sprintf("◈ forge multi-pcap ×%d → hub · Cursor-Grok Forge marks · /forge stop", n))
 	} else {
-		m.pushSys(fmt.Sprintf("◈ forge multi-pcap ×%d local lab · connect hub to publish watermarks", n))
+		m.pushSys(fmt.Sprintf("◈ forge multi-pcap ×%d local lab · dual-left rotate · /forge stop", n))
 	}
 	m.status = fmt.Sprintf("forge ×%d", n)
 	return m, nil
+}
+
+// forgePcapSlots returns marked pcap lab feeds in slot order (for dual-left rotate).
+func (m *Model) forgePcapSlots() []*FeedSlot {
+	if m.lab == nil {
+		return nil
+	}
+	var out []*FeedSlot
+	for i := range m.lab.Feeds {
+		f := &m.lab.Feeds[i]
+		if f.Kind == "pcap" && f.Forge != nil {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// tickForgeDualLocal cycles burstLocalFrame among forge pcap slots.
+// Does not touch burstPeerFrame / forgeRX (peer right holds).
+func (m *Model) tickForgeDualLocal() {
+	if !m.forgeRotateOn || m.lab == nil {
+		return
+	}
+	// during PTT TX, leave cam on left
+	if m.talking {
+		return
+	}
+	slots := m.forgePcapSlots()
+	if len(slots) == 0 {
+		return
+	}
+	every := m.forgeRotateEvery
+	if every <= 0 {
+		every = ForgeDualRotateTicks
+	}
+	if !m.forgeHoldLeft && len(slots) > 1 {
+		m.forgeLocalIdx = (m.spin / every) % len(slots)
+	}
+	if m.forgeLocalIdx < 0 {
+		m.forgeLocalIdx = 0
+	}
+	m.applyForgeDualLocalSlot(m.forgeLocalIdx % len(slots))
+}
+
+// stepForgeDualLocal moves left slot by delta (hold mode).
+func (m *Model) stepForgeDualLocal(delta int) {
+	slots := m.forgePcapSlots()
+	if len(slots) == 0 {
+		return
+	}
+	m.forgeLocalIdx = (m.forgeLocalIdx + delta) % len(slots)
+	if m.forgeLocalIdx < 0 {
+		m.forgeLocalIdx += len(slots)
+	}
+	m.applyForgeDualLocalSlot(m.forgeLocalIdx)
+}
+
+// applyForgeDualLocalSlot paints lab slot i into dual left + primary frame.
+func (m *Model) applyForgeDualLocalSlot(i int) {
+	slots := m.forgePcapSlots()
+	if len(slots) == 0 {
+		return
+	}
+	if i < 0 || i >= len(slots) {
+		i = 0
+	}
+	m.forgeLocalIdx = i
+	f := slots[i]
+	// ensure frame stamped for this slot (tickLabSims may have refreshed)
+	if f.Frame == nil && len(f.PcapPkts) > 0 {
+		p := f.PcapPkts[f.PcapIdx%len(f.PcapPkts)]
+		if fr, err := FrameFromPacket(&p); err == nil && fr != nil {
+			if f.Forge != nil {
+				StampFrame(fr, *f.Forge)
+			}
+			f.Frame = fr
+		}
+	}
+	if f.Frame != nil {
+		m.burstLocalFrame = f.Frame
+		m.frame = f.Frame
+		m.videoOn = true
+		if f.Frame.W == f.Frame.H && f.Frame.W <= 49 {
+			m.pixelMode = PixelHex
+		}
+	}
+	if f.Forge != nil {
+		cp := *f.Forge
+		m.forgeLocal = &cp
+	}
+	// active lab highlight follows left dual
+	if m.lab != nil {
+		for j := range m.lab.Feeds {
+			if &m.lab.Feeds[j] == f {
+				m.lab.Active = j
+				break
+			}
+		}
+	}
 }
 
 // acceptForgeRX stores peer forge mark for dual Glyph chrome. True when ID/from is new.
@@ -1808,7 +1944,17 @@ func (m *Model) pushForgeStatus() {
 	if n == 0 {
 		m.pushSys("forge: no marked pcap slots · /forge a.pcap b.pcap")
 	} else {
-		m.pushSys(fmt.Sprintf("forge: %d marked slots · %s", n, ForgeName))
+		rot := "hold"
+		if m.forgeRotateOn && !m.forgeHoldLeft {
+			rot = "rotate"
+		} else if m.forgeRotateOn && m.forgeHoldLeft {
+			rot = "hold"
+		}
+		left := FormatForgeLocalLine(m.forgeLocal, m.forgeLocalIdx, m.forgeHoldLeft)
+		m.pushSys(fmt.Sprintf("forge: %d marked slots · %s · left %s · %s", n, ForgeName, left, rot))
+		if m.forgeRX != nil {
+			m.pushSys(fmt.Sprintf("forge RX peer: %s · dual right holds", FormatMarkLine(*m.forgeRX)))
+		}
 	}
 }
 

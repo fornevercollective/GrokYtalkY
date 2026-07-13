@@ -213,8 +213,9 @@ func helpOverlay(width, height int) string {
   /colossus pcap|sim live TUI ingest + hub gyst publish
   /colossus stop    stop loop + publish
   /forge a.pcap b…  multi-pcap lab + Cursor-Grok Forge marks
-  /forge status|stop
-  forge RX → dual Glyph (auto) · cgf: marks on peer pane
+  /forge status|stop|next|hold|rotate
+  forge RX → dual Glyph (auto) · dual-local left rotates slots
+  peer right holds RX · left ↻sN + cgf: id
   /hexdump          current frame as hex line
 
   scrub: k/space pause · j/l ±5s · J/L ±30s · 0 start · <> rate
