@@ -43,15 +43,20 @@ var scalePresets = []int{32, 48, 64, 80, 96, 112, 128}
 // FPS presets for cam/lab redraw.
 var fpsPresets = []int{4, 6, 8, 12, 15, 20, 24, 30}
 
-// FeedSlot is one simulcast tile (sim / camera / watch / remote / empty).
+// FeedSlot is one simulcast tile (sim / camera / watch / remote / pcap / empty).
 type FeedSlot struct {
 	ID    string
 	Label string
-	Kind  string // empty | sim | cam | watch | remote | burst
+	Kind  string // empty | sim | cam | watch | remote | burst | pcap
 	Frame *FramePixels
 	Seed  int
 	// WatchSrc keeps original path/URL for re-open / capacity accounting
 	WatchSrc string
+	// Pcap loop (multi-pcap orchestration)
+	PcapPkts []StreamPacket
+	PcapIdx  int
+	// Forge watermark (Cursor-Grok Forge NFT-style marker)
+	Forge *ForgeMark
 }
 
 // IsEmpty placeholder waiting for cam/video.
@@ -160,7 +165,78 @@ fill:
 	if frame != nil {
 		f.Frame = frame
 	}
+	if kind != "pcap" {
+		f.PcapPkts = nil
+		f.PcapIdx = 0
+	}
 	return f
+}
+
+// FillPcapIntoSlot loads a stream file into slot (1-based) for multi-pcap orchestration.
+// Applies Cursor-Grok Forge watermark identity per slot.
+func (l *LabState) FillPcapIntoSlot(slot1 int, path string) (*FeedSlot, error) {
+	if l == nil {
+		return nil, fmt.Errorf("no lab")
+	}
+	l.ensureDefaults()
+	pkts, err := LoadStreamFile(expandPath(path))
+	if err != nil {
+		return nil, err
+	}
+	video := make([]StreamPacket, 0, len(pkts))
+	for _, p := range pkts {
+		if p.Kind == KindRGB24 || p.Kind == KindJPEG || p.Kind == KindHexLum {
+			video = append(video, p)
+		}
+	}
+	if len(video) == 0 {
+		return nil, fmt.Errorf("no video packets in %s", path)
+	}
+	// ensure slot exists
+	for len(l.Feeds) < slot1 {
+		l.EnsurePlaceholders(len(l.Feeds) + 1)
+	}
+	if slot1 < 1 || slot1 > MaxLabFeeds {
+		return nil, fmt.Errorf("slot 1–%d", MaxLabFeeds)
+	}
+	idx := slot1 - 1
+	l.Active = idx
+	f := &l.Feeds[idx]
+	base := path
+	if i := strings.LastIndex(path, "/"); i >= 0 {
+		base = path[i+1:]
+	}
+	// content commitment from first payload
+	var content []byte
+	if len(video[0].Payload) > 0 {
+		content = video[0].Payload
+		if len(content) > 256 {
+			content = content[:256]
+		}
+	}
+	mark := NewForgeMark(slot1, base, content)
+	f.Kind = "pcap"
+	f.Label = truncate(base, 12)
+	f.WatchSrc = path
+	f.PcapPkts = video
+	f.PcapIdx = 0
+	f.Forge = &mark
+	// prime first frame with watermark
+	if fr, err := FrameFromPacket(&video[0]); err == nil && fr != nil {
+		StampFrame(fr, mark)
+		f.Frame = fr
+	}
+	return f, nil
+}
+
+// ClearPcapFields when clearing slot
+func (l *LabState) clearSlotMedia(i int) {
+	if i < 0 || i >= len(l.Feeds) {
+		return
+	}
+	l.Feeds[i].PcapPkts = nil
+	l.Feeds[i].PcapIdx = 0
+	l.Feeds[i].Forge = nil
 }
 
 // FillCamIntoActive drops camera into active/empty placeholder.
@@ -201,6 +277,7 @@ func (l *LabState) ClearActive() {
 	l.Feeds[i].Label = fmt.Sprintf("·%d", i+1)
 	l.Feeds[i].Frame = nil
 	l.Feeds[i].WatchSrc = ""
+	l.clearSlotMedia(i)
 }
 
 // BudgetLine human-readable live data budget for current lab settings.

@@ -212,6 +212,8 @@ func helpOverlay(width, height int) string {
   /load stream.gyst binary-level load & play
   /colossus pcap|sim live TUI ingest + hub gyst publish
   /colossus stop    stop loop + publish
+  /forge a.pcap b…  multi-pcap lab + Cursor-Grok Forge marks
+  /forge status|stop
   /hexdump          current frame as hex line
 
   scrub: k/space pause · j/l ±5s · J/L ±30s · 0 start · <> rate

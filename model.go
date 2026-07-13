@@ -1378,6 +1378,7 @@ func (m *Model) slash(line string) (tea.Model, tea.Cmd) {
 	case "colossus", "stream-pub", "pcap-loop", "gyst-pub":
 		// Live TUI ingest: local loop + optional hub publish (Colossus/DOJO)
 		// /colossus [path|sim]   /colossus stop
+		// /colossus multi a.pcap b.pcap …  → multi-pcap lab + forge marks
 		arg = strings.TrimSpace(arg)
 		if arg == "stop" || arg == "off" || arg == "0" {
 			m.stopStreamPub()
@@ -1387,6 +1388,18 @@ func (m *Model) slash(line string) (tea.Model, tea.Cmd) {
 			m.pushSys("■ colossus / stream-pub stop")
 			m.status = "stream stop"
 			return m, nil
+		}
+		if strings.HasPrefix(arg, "multi ") || arg == "multi" || strings.HasPrefix(arg, "forge ") {
+			rest := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(arg, "multi"), "forge"))
+			rest = strings.TrimSpace(rest)
+			paths := strings.Fields(rest)
+			if len(paths) == 0 {
+				// default sample in all empty slots
+				if _, err := os.Stat("examples/dojo.pcap"); err == nil {
+					paths = []string{"examples/dojo.pcap"}
+				}
+			}
+			return m.startMultiPcapForge(paths)
 		}
 		src := arg
 		if src == "" {
@@ -1400,6 +1413,30 @@ func (m *Model) slash(line string) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m.startColossusIngest(src)
+	case "forge":
+		// /forge a.pcap b.pcap …  — multi-pcap NFT-style forge marks
+		// /forge status | /forge stop
+		arg = strings.TrimSpace(arg)
+		if arg == "stop" || arg == "off" {
+			m.stopStreamPub()
+			if m.lab != nil {
+				for i := range m.lab.Feeds {
+					if m.lab.Feeds[i].Kind == "pcap" {
+						m.lab.Feeds[i].Kind = "empty"
+						m.lab.Feeds[i].Frame = nil
+						m.lab.clearSlotMedia(i)
+					}
+				}
+			}
+			m.pushSys("■ forge multi-pcap stop")
+			return m, nil
+		}
+		if arg == "status" || arg == "" {
+			m.pushForgeStatus()
+			return m, nil
+		}
+		paths := strings.Fields(arg)
+		return m.startMultiPcapForge(paths)
 	case "stream-stop":
 		m.stopStreamPub()
 		if m.pktPlayer != nil {
@@ -1638,6 +1675,172 @@ func (m *Model) stopStreamPub() {
 		m.streamPubCancel = nil
 	}
 	m.streamPubSrc = ""
+}
+
+// startMultiPcapForge loads each path into a lab slot with Cursor-Grok Forge watermarks
+// and publishes watermarked hexlum + forge-mark meta to the hub when connected.
+func (m *Model) startMultiPcapForge(paths []string) (tea.Model, tea.Cmd) {
+	if len(paths) == 0 {
+		m.pushSys("usage: /forge a.pcap b.pcap …  or /colossus multi a.pcap b.pcap")
+		return m, nil
+	}
+	if m.lab == nil {
+		m.lab = newLabState()
+	}
+	m.lab.On = true
+	m.compact = false
+	m.stopStreamPub()
+
+	var marks []ForgeMark
+	n := 0
+	for i, p := range paths {
+		if i >= MaxLabFeeds {
+			m.pushSys(fmt.Sprintf("forge: max %d slots — truncated", MaxLabFeeds))
+			break
+		}
+		slot := i + 1
+		f, err := m.lab.FillPcapIntoSlot(slot, p)
+		if err != nil {
+			m.pushSys(fmt.Sprintf("forge slot %d: %s", slot, err.Error()))
+			continue
+		}
+		n++
+		if f.Forge != nil {
+			marks = append(marks, *f.Forge)
+			m.pushSys(FormatMarkLine(*f.Forge))
+		}
+	}
+	if n == 0 {
+		m.pushSys("forge: no pcaps loaded")
+		return m, nil
+	}
+
+	// set primary frame from active slot
+	if af := m.lab.ActiveFeed(); af != nil && af.Frame != nil {
+		m.frame = af.Frame
+		m.videoOn = true
+		if af.Forge != nil {
+			// hexlum glyph for Nothing path
+			if af.Frame.W == af.Frame.H && af.Frame.W <= 49 {
+				m.pixelMode = PixelHex
+			}
+		}
+	}
+
+	// hub publish: rotate slots, stamp forge mark + frames
+	if m.client != nil {
+		ctx, cancel := context.WithCancel(context.Background())
+		m.streamPubCancel = cancel
+		m.streamPubSrc = "forge-multi"
+		pathsCopy := append([]string{}, paths...)
+		go m.publishForgeMulti(ctx, pathsCopy, marks)
+		m.pushSys(fmt.Sprintf("◈ forge multi-pcap ×%d → hub · Cursor-Grok Forge marks · /forge stop", n))
+	} else {
+		m.pushSys(fmt.Sprintf("◈ forge multi-pcap ×%d local lab · connect hub to publish watermarks", n))
+	}
+	m.status = fmt.Sprintf("forge ×%d", n)
+	return m, nil
+}
+
+func (m *Model) pushForgeStatus() {
+	if m.lab == nil {
+		m.pushSys("forge: lab off")
+		return
+	}
+	n := 0
+	for _, f := range m.lab.Feeds {
+		if f.Kind == "pcap" && f.Forge != nil {
+			n++
+			m.pushSys(FormatMarkLine(*f.Forge))
+		}
+	}
+	if n == 0 {
+		m.pushSys("forge: no marked pcap slots · /forge a.pcap b.pcap")
+	} else {
+		m.pushSys(fmt.Sprintf("forge: %d marked slots · %s", n, ForgeName))
+	}
+}
+
+// publishForgeMulti cycles watermarked packets from each path to the hub.
+func (m *Model) publishForgeMulti(ctx context.Context, paths []string, marks []ForgeMark) {
+	type lane struct {
+		pkts []StreamPacket
+		mark ForgeMark
+		idx  int
+	}
+	var lanes []lane
+	for i, path := range paths {
+		pkts, err := LoadStreamFile(expandPath(path))
+		if err != nil {
+			continue
+		}
+		var video []StreamPacket
+		for _, p := range pkts {
+			if p.Kind == KindRGB24 || p.Kind == KindJPEG || p.Kind == KindHexLum {
+				video = append(video, p)
+			}
+		}
+		if len(video) == 0 {
+			continue
+		}
+		mark := ForgeMark{}
+		if i < len(marks) {
+			mark = marks[i]
+		} else {
+			mark = NewForgeMark(i+1, filepath.Base(path), video[0].Payload)
+		}
+		lanes = append(lanes, lane{pkts: video, mark: mark})
+	}
+	if len(lanes) == 0 || m.client == nil {
+		return
+	}
+
+	// emit forge-mark meta once per lane
+	for _, ln := range lanes {
+		_ = m.client.SendJSON(ln.mark.MeshJSON(m.nick))
+	}
+
+	tick := time.NewTicker(time.Second / 12)
+	defer tick.Stop()
+	var seq uint32
+	laneI := 0
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			ln := &lanes[laneI%len(lanes)]
+			laneI++
+			p := ln.pkts[ln.idx%len(ln.pkts)]
+			ln.idx++
+			seq++
+			// convert to hexlum for compact watermarked glyph lane
+			var out StreamPacket
+			if p.Kind == KindHexLum {
+				out = p
+				StampHexLum(out.Payload, int(out.Width), ln.mark)
+			} else if fp, err := FrameFromPacket(&p); err == nil && fp != nil {
+				StampFrame(fp, ln.mark)
+				// prefer 25 hexlum for forge watermark broadcast
+				n := 25
+				if m.glyphN == 13 {
+					n = 13
+				}
+				lum := RGBToHexLum(fp.RGB, fp.W, fp.H, n)
+				StampHexLum(lum, n, ln.mark)
+				out = PacketFromHexLum(lum, n, seq)
+			} else {
+				continue
+			}
+			out.Seq = seq
+			out.TimeMS = uint64(time.Now().UnixMilli())
+			_ = m.client.SendGystPacket(out)
+			// occasionally re-assert mark
+			if seq%36 == 1 {
+				_ = m.client.SendJSON(ln.mark.MeshJSON(m.nick))
+			}
+		}
+	}
 }
 
 func (m *Model) publishViaMeshClient(ctx context.Context, opts StreamPubOpts) error {
@@ -2124,8 +2327,26 @@ func (m *Model) handleWS(raw []byte) (tea.Model, tea.Cmd) {
 		if from == m.nick {
 			return m, nil
 		}
+		// Cursor-Grok Forge NFT-style mark
+		if mark, ok := ParseForgeFromMesh(msg); ok {
+			m.pushSys(FormatMarkLine(mark))
+			// meta-only mark packets may lack frame payload
+			if b64, _ := msg["b64"].(string); b64 == "" && msg["kind"] == "meta" {
+				return m, nil
+			}
+		}
 		pkt, err := MeshToPacket(msg)
 		if err != nil || pkt == nil {
+			// still try meta payload
+			if kind, _ := msg["kind"].(string); kind == "meta" {
+				return m, nil
+			}
+			return m, nil
+		}
+		if pkt.Kind == KindMeta {
+			if mark, ok := ParseForgeMark(pkt.Payload); ok {
+				m.pushSys(FormatMarkLine(mark))
+			}
 			return m, nil
 		}
 		// hexlum also feeds glyph consumers

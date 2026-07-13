@@ -137,7 +137,35 @@ Inside companion (`gy`), with hub connected:
 /colossus stop                 # stop both
 ```
 
-Local-only (no mesh): still loops pcap via the packet player. Multi-pcap orchestration (lab slots × sources) is the follow-on.
+Local-only (no mesh): still loops pcap via the packet player.
+
+## Multi-pcap + Cursor-Grok Forge watermark
+
+NFT-style provenance marks for DOJO multi-feed data:
+
+```text
+/forge examples/dojo.pcap examples/dojo.pcap
+# or:
+/colossus multi a.pcap b.pcap c.pcap
+/forge status
+/forge stop
+```
+
+| Layer | Behavior |
+|-------|----------|
+| Lab slots | Each pcap → slot 1..N, loops in the wall |
+| Forge mark | `cgf:<16 hex>` from forge name + slot + source + content hash |
+| Visual stamp | 4×4 corner lattice on hexlum/RGB (Cursor-Grok Forge watermark) |
+| Mesh | `type:gyst` frames stamped + periodic `forge-mark` meta |
+
+First test target:
+
+```bash
+gy serve
+gy   # open lab if needed (V)
+/forge examples/dojo.pcap examples/dojo.pcap
+# slot 1 + 2 show forge IDs · hub peers receive watermarked hexlum
+```
 
 Mesh envelope (`type: gyst`):
 

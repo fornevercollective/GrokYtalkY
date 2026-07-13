@@ -84,6 +84,8 @@ gy serve
 gy stream-pub sim --kind hexlum --hex 25 --nick colossus
 gy colossus examples/dojo.pcap        # pcap loop (ts pace, default loop)
 # other terminal: gy  (renders type:gyst frames)
+# multi-pcap + Cursor-Grok Forge watermarks (lab):
+#   /forge examples/dojo.pcap examples/dojo.pcap
 ```
 
 **Video lab:** multi-feed wall next to chat with listed **FPS / scale / style / layout** controls:

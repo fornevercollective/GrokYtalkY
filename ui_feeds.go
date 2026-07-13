@@ -309,6 +309,9 @@ func (m *Model) tickLabSims() {
 		switch f.Kind {
 		case "sim":
 			f.Frame = genSimFrame(pw, ph, t, f.Seed)
+			if f.Forge != nil {
+				StampFrame(f.Frame, *f.Forge)
+			}
 		case "cam":
 			// shared cam frame if available
 			if m.frame != nil && m.camOn {
@@ -317,6 +320,22 @@ func (m *Model) tickLabSims() {
 		case "watch":
 			if m.vpipe != nil && m.frame != nil && (f.Frame == nil || f.Label == m.watchPath || strings.Contains(m.watchPath, f.Label)) {
 				f.Frame = m.frame
+			}
+		case "pcap":
+			// multi-pcap orchestration: advance per lab FPS
+			if len(f.PcapPkts) == 0 {
+				continue
+			}
+			// step index ~ every render at lab FPS (renderLab is called each view)
+			// use spin from model for phase
+			step := m.spin / max(1, 20/max(1, l.FPS))
+			f.PcapIdx = (step + f.Seed) % len(f.PcapPkts)
+			p := f.PcapPkts[f.PcapIdx]
+			if fr, err := FrameFromPacket(&p); err == nil && fr != nil {
+				if f.Forge != nil {
+					StampFrame(fr, *f.Forge)
+				}
+				f.Frame = fr
 			}
 		}
 	}
