@@ -1,7 +1,9 @@
-# Vision-first backbone + FFmpeg + Aito + closed-loop retarget (v1.72)
+# Vision-first backbone + FFmpeg + Aito + retarget + platform (v1.76)
 
-**Vision first. Full media control + Aito sides + SAM→crop retarget.**  
-Structured take path drives the orchestrator, **FFmpeg control plane**, **Aito** SAM / pose / gsplat / depth, and **closed-loop retarget** (bbox → crop+retune focus encode).
+**Vision first. Full media control + Aito sides + SAM→crop retarget + platform handoff.**  
+Structured take path drives the orchestrator, **FFmpeg control plane**, **Aito** SAM / pose / gsplat / depth, **closed-loop retarget**, **theme-vision**, Live News mesh consumers, and **`gy platform`** readiness export.
+
+See also: [`platform-integration.md`](platform-integration.md) · `integrations/grok-stream-platform.json`
 
 ## Pipeline
 

@@ -1,6 +1,6 @@
 {
   "name": "GrokYtalkY powerhouse protocol",
-  "version": "1.48.0",
+  "version": "1.76.0",
   "hub": {
     "default": "ws://127.0.0.1:9876/",
     "env": "GY_HUB",
@@ -57,7 +57,23 @@
     },
     "chat": {
       "consumers": ["gy TUI", "Space chat-bridge", "blank thread"]
+    },
+    "vision-take": {
+      "owner": "gy Vision() pipeline",
+      "note": "Grok/offline take + Aito side channels; may include MEDIA control-plane ops",
+      "fields": ["feed", "theme", "caption", "style", "mute_hint", "segment_top", "segments", "pose", "pose_hands", "pose_joints", "depth", "media_ops", "provider", "latency_ms"],
+      "consumers": ["site/livenews.html", "theme-vision plugin", "hub peers", "sfu-bridge optional"]
+    },
+    "news-caption": {
+      "owner": "vision/orch apply",
+      "fields": ["text", "theme", "feed", "source"],
+      "consumers": ["site/livenews.html theme cluster"]
     }
+  },
+  "platform": {
+    "contract": "integrations/grok-stream-platform.json",
+    "doctor": "gy doctor platform · gy platform export",
+    "docs": "docs/platform-integration.md"
   },
   "caption_meta": {
     "fields": ["text", "lang", "role", "speaker", "source"],
@@ -96,6 +112,14 @@
     "grokglyph": {
       "path": "site/grokglyph.html",
       "hook": "PWA · cam/cast/hub · roster search · caption bar"
+    },
+    "livenews": {
+      "path": "site/livenews.html",
+      "hook": "vision-take segment_top · pose_hands · theme cluster"
+    },
+    "glyph-cast": {
+      "path": "site/glyph-cast.html",
+      "hook": "full-res LED cast (not auto-all-feeds)"
     }
   },
   "ports": {
@@ -103,6 +127,7 @@
     "blank": 5173,
     "qbpm": 8796,
     "grok_notes": 3000,
-    "sfu": 9880
+    "sfu": 9880,
+    "aito": 8766
   }
 }

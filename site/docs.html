@@ -69,6 +69,7 @@
       <a href="#server">Server / mesh</a>
       <a href="#cli">CLI map</a>
       <a href="#powerhouse">Powerhouse stack</a>
+      <a href="#platform">Platform integration</a>
       <a href="#env">Environment</a>
       <a href="#keys">Keys</a>
       <a href="#stack">Stack &amp; lineage</a>
@@ -459,6 +460,27 @@ export GROK_CLI_URL=http://127.0.0.1:3000   # optional notes backend</code></pre
             <tr><td><code>install dependencies</code></td><td>go · ffmpeg · yt-dlp (brew <code>--yes</code>)</td></tr>
           </tbody>
         </table>
+      </section>
+
+      <section id="platform" class="docs-section">
+        <h2>Platform integration (FFmpeg · Grok · streaming)</h2>
+        <p>
+          Partner handoff for a <strong>Grok streaming platform</strong> built on supervised FFmpeg,
+          multimodal vision takes, Aito side channels, SFU glyph DCs, and Live News mesh consumers.
+        </p>
+        <pre class="code-block"><code>gy doctor platform
+gy platform export -o handoff.json
+gy platform contract   # integrations/grok-stream-platform.json</code></pre>
+        <ul>
+          <li><strong>v1.70–1.76 wins</strong> — FFmpeg control plane · Aito SAM/pose/gsplat · retarget · theme-vision · SFU token+DC · Live News segment_top/pose · readiness export</li>
+          <li><strong>Not in-process</strong> — TensorFlow / full gsplat viewer (Aito only)</li>
+          <li><strong>Not auto-all-cast</strong> — glyph-cast / GrokGlyph for full-res; Live News pin/shuffle</li>
+        </ul>
+        <p>
+          Docs: <code>docs/platform-integration.md</code> ·
+          contract: <code>integrations/grok-stream-platform.json</code> ·
+          powerhouse: <code>integrations/powerhouse-protocol.json</code>.
+        </p>
       </section>
 
       <section id="powerhouse" class="docs-section">

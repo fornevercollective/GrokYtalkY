@@ -100,6 +100,8 @@ func run(args []string) error {
 		return runSfuBridgeCmd(args)
 	case "sfu-token", "sfu-tok", "mint-sfu-token":
 		return runSfuTokenCmd(args)
+	case "platform", "integrate", "handoff":
+		return runPlatformCmd(args)
 	case "mid-lane", "midlane", "edge-pub", "edge-hook":
 		return runMidLaneCmd(args)
 	case "agent", "glyph-agent", "iot":
@@ -236,6 +238,9 @@ TUI launches auto-update by default (check GitHub → install → re-exec).
 		case "sfu", "sfu-bridge", "webrtc":
 			fmt.Print(FormatSfuDoctor())
 			return nil
+		case "platform", "integrate", "handoff", "stream-platform":
+			fmt.Print(FormatPlatformDoctor(SamplePlatformReadiness()))
+			return nil
 		}
 		fmt.Print(StreamDoctor())
 		fmt.Print(FormatPackageManagersDoctor())
@@ -243,12 +248,13 @@ TUI launches auto-update by default (check GitHub → install → re-exec).
 		fmt.Print(Plugins().FormatPluginList())
 		fmt.Print(FormatSpaceDoctor(Spaces()))
 		fmt.Print(FormatSfuDoctor())
+		fmt.Print(FormatPlatformDoctor(SamplePlatformReadiness()))
 		fmt.Println(DepthDoctorLine())
 		fmt.Println(DepthModesList())
 		fmt.Printf("gy binary: %s\n", versionLine())
 		cap := DetectCapProfile(80, 24)
 		fmt.Println(cap.SummaryLine())
-		fmt.Println("doctor st2110 · sync · cameras · nmos · packages · reliability · plugins · space · vision · sfu")
+		fmt.Println("doctor st2110 · sync · cameras · nmos · packages · reliability · plugins · space · vision · sfu · platform")
 		fmt.Println("deps: gy install deps -y · gy install deps --list")
 		if p, err := os.Executable(); err == nil {
 			fmt.Printf("path: %s\n", p)
@@ -388,9 +394,10 @@ commands
   %s venue                NDI · ST 2110-20/30 · 2022-7
   %s sfu-bridge           hub ↔ SFU glyph|hex DC + token
   %s sfu-token            mint GY_SFU_TOKEN for dojo + bridge
+  %s platform             FFmpeg/Grok streaming platform readiness
   %s chat-bridge          hub → Space captions
   %s mid-lane             edge mid-lane hook (program/hex → HTTP)
-  %s doctor [st2110|sync|cameras|nmos]
+  %s doctor [st2110|sync|…|platform]
   %s update | upgrade [--check]
   %s install | uninstall | clean-install
   %s install dependencies [--yes]
@@ -426,7 +433,7 @@ install
   gy uninstall
   gy install dependencies     go · ffmpeg · yt-dlp (brew --yes)
   make install                same local channel
-`, Version, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd)
+`, Version, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd)
 }
 
 func runHubOnly(bind string, port int) error {

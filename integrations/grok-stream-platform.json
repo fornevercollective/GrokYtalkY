@@ -1,0 +1,161 @@
+{
+  "name": "GrokYtalkY · Grok streaming platform integration",
+  "version": "1.76.0",
+  "status": "ready",
+  "audience": [
+    "ffmpeg pipeline operators",
+    "Grok / xAI multimodal stage control",
+    "hybrid web + terminal streaming platforms",
+    "partner / capital demo stacks"
+  ],
+  "summary": "Vision-first terminal mesh: FFmpeg under Media() supervisor, Grok vision takes, Aito side channels, SFU glyph DCs, Live News browser consumers — no TensorFlow in-process.",
+  "authority": {
+    "on_air_program": "gy program bus (per hub room)",
+    "media_children": "Media() supervisor (ffmpeg/ffplay)",
+    "vision_takes": "Vision() bus + applyGrokTake + ApplyVisionMediaControl",
+    "heavy_ml": "Aito sidecars only (SAM / pose / gsplat / ZipDepth)",
+    "public_1k": "Cloudflare mid-lane / Calls — not gy-sfu",
+    "jam_private": "gy-sfu WebRTC + glyph|hex|chat DCs"
+  },
+  "planes": {
+    "ffmpeg": {
+      "role": "capture · decode · scale · crop · encode · RTMP/ST2110",
+      "supervisor": "Media() · PrepMediaCmd · StartRegistered · Kill/KillKind",
+      "env": ["GY_MEDIA_MAX", "GY_NEWS_MAX"],
+      "vision_control": {
+        "ops": ["restart", "kill", "spawn", "retune", "retarget", "encode", "recover"],
+        "env": ["GY_VISION_MEDIA", "GY_VISION_MEDIA_MAX", "GY_VISION_MEDIA_AUTO", "GY_VISION_RETARGET"]
+      },
+      "news_tiles": "StartNewsTileOpts · crop=floor(iw*W/2)*2… · RetuneNewsTile",
+      "publish": ["gy stream-pub", "gy stream-x", "gy space-rtmp", "gy venue --sink st2110|ndi"]
+    },
+    "grok_vision": {
+      "role": "multimodal take → STYLE/CAPTION/THEME/MUTE_HINT/MEDIA",
+      "env": ["XAI_API_KEY", "GY_VISION", "GY_VISION_PROVIDER", "GY_VISION_MODEL", "GY_VISION_INTERVAL_MS"],
+      "providers": ["grok", "offline", "aito-sam", "aito-pose", "aito-gsplat", "aito-depth", "depth-proxy"],
+      "plugin": "theme-vision (VisionHook + StylePainter)",
+      "mesh_type": "vision-take"
+    },
+    "aito": {
+      "base_env": "GY_VISION_AITO_URL",
+      "mock_env": "GY_VISION_AITO_MOCK",
+      "endpoints": {
+        "health": "GET /health",
+        "segment": "POST /segment → segments[].label|bbox",
+        "pose": "POST /pose → joints|hands",
+        "gsplat": "POST /gsplat|/booth → depth mean/preview",
+        "depth": "POST /depth binary RGB → ZipDepth JSON"
+      },
+      "note": "Heavy ML stays external. gy never embeds TensorFlow/SAM/MediaPipe."
+    },
+    "hub_mesh": {
+      "default": "ws://127.0.0.1:9876/",
+      "env": ["GY_HUB", "GY_ROOM", "GY_ROOM_MAX"],
+      "types_for_platform": [
+        "vision-take",
+        "news-caption",
+        "vburst-frame",
+        "gyst",
+        "program",
+        "chat",
+        "caption"
+      ]
+    },
+    "sfu": {
+      "bind": "127.0.0.1:9880",
+      "token_env": "GY_SFU_TOKEN",
+      "bridge": "gy sfu-bridge --token …",
+      "lanes": ["glyph", "hex", "chat"],
+      "doctor": "gy doctor sfu · gy sfu-token"
+    },
+    "browser": {
+      "livenews": "site/livenews.html · vision-take segment_top + pose_hands",
+      "glyph_cast": "site/glyph-cast.html · full-res cast (not auto-all-feeds)",
+      "grokglyph": "site/grokglyph.html · PWA LED player",
+      "dojo": "site/dojo.html · WebRTC e2e + token"
+    },
+    "stream_x": {
+      "role": "X Media Studio / Spaces RTMP asset",
+      "cmds": ["gy stream-x", "gy space-rtmp", "gy space"],
+      "env": ["GY_X_STREAM_KEY", "GY_X_STREAM_KEY_FILE", "GY_X_RTMP_URL"]
+    }
+  },
+  "mesh_vision_take": {
+    "type": "vision-take",
+    "fields": {
+      "feed": "string",
+      "theme": "breaking|politics|…|earthcam|unsorted",
+      "caption": "string",
+      "style": "pixel style name",
+      "mute_hint": "none|suggest-mute|quiet|talking",
+      "segment_top": "SAM top label",
+      "segments": "count",
+      "pose": "bool",
+      "pose_hands": "int",
+      "pose_joints": "int",
+      "depth": { "backend": "string", "mean": "float" },
+      "media_ops": "count of MEDIA actions applied",
+      "provider": "grok|offline|…",
+      "latency_ms": "int"
+    },
+    "consumers": ["site/livenews.html", "theme-vision plugin", "hub peers", "mid-lane optional"]
+  },
+  "wins": [
+    { "v": "1.70", "item": "Vision FFmpeg control plane (MEDIA spawn/restart/retune/encode)" },
+    { "v": "1.71", "item": "Aito SAM / pose / gsplat / depth providers" },
+    { "v": "1.72", "item": "Closed-loop SAM bbox → crop+retune focus encode" },
+    { "v": "1.73", "item": "theme-vision VisionPlugin (theme-reactive painter)" },
+    { "v": "1.74", "item": "SFU token + hub↔glyph DC bridge (bidi)" },
+    { "v": "1.75", "item": "Live News browser segment_top + pose" },
+    { "v": "1.75.1", "item": "Docs site header nav consistency" },
+    { "v": "1.76", "item": "Platform integration contract + readiness doctor" }
+  ],
+  "out_of_scope": [
+    "Full auto-cycling screen cast of every livenews feed (manual pin/shuffle/cycle)",
+    "In-process TensorFlow / SAM / MediaPipe / full 3D gsplat viewer",
+    "1k+ WebRTC on gy-sfu (use Cloudflare mid-lane)"
+  ],
+  "readiness_cmd": "gy doctor platform",
+  "export_cmd": "gy platform export",
+  "env_matrix": {
+    "required_for_live_vision": ["XAI_API_KEY", "GY_VISION=1"],
+    "ffmpeg": ["PATH has ffmpeg/ffplay", "GY_MEDIA_MAX", "GY_NEWS_MAX"],
+    "control_plane": ["GY_VISION_MEDIA=1", "GY_VISION_RETARGET=1"],
+    "aito_optional": ["GY_VISION_AITO_URL", "GY_VISION_AITO_MOCK=1"],
+    "sfu_optional": ["GY_SFU_TOKEN", "GY_SFU_HOST"],
+    "x_stream_optional": ["GY_X_STREAM_KEY", "GY_X_RTMP_URL"]
+  },
+  "launch_recipe": {
+    "core": [
+      "export XAI_API_KEY=…",
+      "export GY_VISION=1 GY_VISION_MEDIA=1 GY_VISION_RETARGET=1",
+      "export GY_VISION_THEME_STYLE=1 GY_VISION_THEME_PIXEL=1",
+      "gy serve",
+      "gy lab   # /news wall · /vision"
+    ],
+    "aito_mock": ["export GY_VISION_AITO_MOCK=1"],
+    "aito_live": ["export GY_VISION_AITO_URL=http://127.0.0.1:8766"],
+    "sfu": [
+      "export GY_SFU_TOKEN=$(gy sfu-token)",
+      "make sfu-media && ./sfu/target/release/gy-sfu --token \"$GY_SFU_TOKEN\"",
+      "gy sfu-bridge --token \"$GY_SFU_TOKEN\""
+    ],
+    "browser": [
+      "open site/livenews.html  # Connect hub",
+      "open site/dojo.html      # token field",
+      "open site/glyph-cast.html"
+    ],
+    "publish": [
+      "gy stream-x init|start",
+      "gy space-rtmp",
+      "gy venue --sink st2110 --rtp …"
+    ]
+  },
+  "related": {
+    "powerhouse": "integrations/powerhouse-protocol.json",
+    "vision_docs": "docs/vision.md",
+    "capacity": "docs/streams-capacity.md",
+    "stream_x": "docs/stream-x.md",
+    "platform_docs": "docs/platform-integration.md"
+  }
+}
