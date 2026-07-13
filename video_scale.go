@@ -20,9 +20,9 @@ type videoScale struct {
 
 // chromeLines: fixed UI above/below the video pane.
 func (m *Model) chromeLines() (above, below int) {
-	// above: unix clock line + brand header + viz (+ optional pattern)
-	// headerLine is now 2 rows (unix+drift, then ◈ gy …)
-	above = 3
+	// above: unix clock + brand + tab keys + viz (+ optional pattern)
+	// headerLine is 3 rows (unix · brand/tabs · fast keys)
+	above = 4
 	if m.showPatternLine() {
 		above++
 	}

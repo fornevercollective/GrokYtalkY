@@ -194,8 +194,8 @@ func (m *Model) renderVideoChrome(w, h int, sc videoScale) string {
 	parts = append(parts, clampCells(m.footerPrompt(w), w))
 
 	if len(parts) > h {
-		// keep unix+brand header (2 lines) + video head + prompt
-		hdrN := 2
+		// keep unix+brand+keys header (3 lines) + video head + prompt
+		hdrN := 3
 		if hdrN > len(parts)-1 {
 			hdrN = max(1, len(parts)-1)
 		}
@@ -266,6 +266,15 @@ func (m *Model) headerLine(w int) string {
 	if m.midiOn {
 		flags = append(flags, "midi")
 	}
+	// fixed Glyph phone vertical / square label
+	if m.burstMode || m.glyphAspect == GlyphAspectPhoneV || m.promptMode == ModePhone || m.promptMode == ModeBurst {
+		gw, gh := GlyphVertSize(m.glyphN, m.glyphAspect)
+		if m.glyphAspect == GlyphAspectPhoneV {
+			flags = append(flags, fmt.Sprintf("◎%d×%d", gw, gh))
+		} else {
+			flags = append(flags, fmt.Sprintf("◎%d", gw))
+		}
+	}
 	if m.depth != nil && m.depth.Mode() != DepthOff {
 		flags = append(flags, m.depth.Mode().String())
 	}
@@ -304,7 +313,9 @@ func (m *Model) headerLine(w int) string {
 			line = left + mid + strings.Repeat(" ", gap) + styDim().Render(wall)
 		}
 	}
-	return clockLine + "\n" + clampCells(line, w)
+	// fast keys under TABS (when terminal is wide enough)
+	keyLine := modeKeyHintsLine(w)
+	return clockLine + "\n" + clampCells(line, w) + "\n" + keyLine
 }
 
 func (m *Model) statusCrumb() string {
@@ -325,7 +336,15 @@ func (m *Model) vizLine(w int) string {
 			styDim().Render("j/l pkt · k pause · 0 start"), w)
 	}
 	if m.vpipe != nil && (m.vpipe.Alive() || m.vpipe.Paused() || m.vpipe.Running()) {
-		return clampCells(m.scrubLine(w), w)
+		line := m.scrubLine(w)
+		// hint PiP when room
+		if w > 48 && PopOutSupported() {
+			hint := styDim().Render(" · O PiP")
+			if cellWidth(stripANSI(line))+cellWidth(stripANSI(hint)) <= w {
+				line = line + hint
+			}
+		}
+		return clampCells(line, w)
 	}
 
 	fixed := 2

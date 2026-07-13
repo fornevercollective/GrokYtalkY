@@ -5,6 +5,35 @@ import (
 	"testing"
 )
 
+func TestPromptModesAndKeys(t *testing.T) {
+	if ModeCount != 7 {
+		t.Fatalf("modes %d", ModeCount)
+	}
+	for _, m := range AllPromptModes() {
+		if m.ModeFastKey() == "" || m.String() == "?" {
+			t.Fatalf("%v", m)
+		}
+	}
+	if mode, ok := ModeFromFastKey("5"); !ok || mode != ModeLab {
+		t.Fatal("5 lab")
+	}
+	if mode, ok := ModeFromFastKey("7"); !ok || mode != ModePhone {
+		t.Fatal("7 phone")
+	}
+	w, h := GlyphVertSize(25, GlyphAspectPhoneV)
+	if w != 25 || h != 50 {
+		t.Fatalf("phone-v %dx%d", w, h)
+	}
+	w, h = GlyphVertSize(13, GlyphAspectPhoneV)
+	if w != 13 || h != 26 {
+		t.Fatalf("4a-v %dx%d", w, h)
+	}
+	s := FormatModeHelp()
+	if !strings.Contains(s, "lab") || !strings.Contains(s, "phone") {
+		t.Fatal(s)
+	}
+}
+
 func TestHelpPageTitles(t *testing.T) {
 	if HelpPageCount != 6 {
 		t.Fatal(HelpPageCount)

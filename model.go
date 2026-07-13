@@ -95,6 +95,7 @@ type Model struct {
 	burstPeerFrame  *FramePixels
 	glyphN          int // display matrix N (13/25 hardware, 37/49 terminal hi-res)
 	glyphScale      int // cells per LED pitch; 0 = auto-fit terminal
+	glyphAspect     GlyphAspect // square | phone-v double-stack
 	lastGlyph       []int // last brightness grid for debug / Android bridge
 
 	// Cursor-Grok Forge dual Glyph receive (live hub meta + stamped hexlum)
@@ -226,8 +227,9 @@ func NewModel(opts Options) *Model {
 		camOn:      opts.Cam || opts.Burst,
 		compact:    !opts.Full,
 		burstMode:  opts.Burst,
-		glyphN:     glyphN,
-		glyphScale: opts.GlyphScale,
+		glyphN:      glyphN,
+		glyphScale:  opts.GlyphScale,
+		glyphAspect: GlyphAspectSquare,
 		cap:        cap,
 		peerCaps:   make(map[string]CapProfile),
 		program:    NewProgramBus(),
@@ -684,6 +686,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case statusSysMsg:
+		m.pushSys(string(msg))
+		m.status = truncate(string(msg), 28)
+		return m, nil
+
 	case errMsg:
 		m.err = string(msg)
 		m.pushSys(string(msg))
@@ -812,23 +819,24 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		m.promptMode = (m.promptMode + 1) % ModeCount
-		m.liveMode = m.promptMode == ModeLive
-		m.status = m.promptMode.String()
-		return m, nil
+		return m.applyPromptMode((m.promptMode + 1) % ModeCount)
 	case "shift+tab":
 		if m.showHelp {
 			m.helpPage = (m.helpPage + HelpPageCount - 1) % HelpPageCount
 			m.status = "help · " + HelpPageTitle(m.helpPage)
 			return m, nil
 		}
-		m.promptMode = (m.promptMode + ModeCount - 1) % ModeCount
-		m.liveMode = m.promptMode == ModeLive
-		m.status = m.promptMode.String()
-		return m, nil
+		return m.applyPromptMode((m.promptMode + ModeCount - 1) % ModeCount)
 	}
 
 	if m.input == "" {
+		// TABS fast keys: 1–7 (lab slots 1–6 win when lab on); letters V/b/P always
+		if mode, ok := ModeFromFastKey(k); ok {
+			labSlots := m.lab != nil && m.lab.On && len(k) == 1 && k[0] >= '1' && k[0] <= '6'
+			if !labSlots {
+				return m.applyPromptMode(mode)
+			}
+		}
 		switch k {
 		case " ":
 			// packet / video scrub pause
@@ -1053,8 +1061,16 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			if m.lab != nil && m.lab.On {
 				m.lab.ShowList = !m.lab.ShowList
 				m.status = map[bool]string{true: "list on", false: "list off"}[m.lab.ShowList]
+				return m, nil
+			}
+			// empty-input o: PiP pop-out to macOS QuickTime (when watching)
+			if m.vpipe != nil || m.watchPath != "" {
+				return m.popOutPlayer("")
 			}
 			return m, nil
+		case "O":
+			// always PiP pop-out (even in lab)
+			return m.popOutPlayer("")
 		case "c":
 			if m.lab != nil && m.lab.On {
 				// quick: drop camera into active/empty placeholder
@@ -1122,13 +1138,28 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 			m.status = fmt.Sprintf("midi %v", m.midiOn)
 			return m, nil
+		case "G":
+			// toggle square ↔ phone vertical double-stack Glyph aspect
+			m.glyphAspect = cycleGlyphAspect(m.glyphAspect)
+			if m.glyphAspect == GlyphAspectPhoneV {
+				// snap to hardware phone sizes only
+				if m.glyphN != GlyphPhone4a && m.glyphN != GlyphPhone3 {
+					m.glyphN = GlyphPhone3
+				}
+			}
+			m.status = FormatGlyphResLabel(m.glyphN, m.glyphAspect)
+			m.pushSys(m.status + " · G toggle aspect · g cycle N")
+			return m, nil
 		case "g":
-			// burst: cycle matrix resolution (13/25/37/49); else open Grok prompt
-			if m.burstMode {
-				m.glyphN = cycleGlyphRes(m.glyphN)
-				m.status = fmt.Sprintf("glyph %d×%d · device %d · LEDs %d",
-					m.glyphN, m.glyphN, GlyphDeviceN(m.glyphN), glyphActiveCount(m.glyphN))
-				m.pushSys(m.status)
+			// burst or phone-v: cycle matrix resolution; else open Grok prompt
+			if m.burstMode || m.glyphAspect == GlyphAspectPhoneV || m.promptMode == ModeBurst || m.promptMode == ModePhone {
+				if m.glyphAspect == GlyphAspectPhoneV {
+					m.glyphN = cycleGlyphResPhoneV(m.glyphN)
+				} else {
+					m.glyphN = cycleGlyphRes(m.glyphN)
+				}
+				m.status = FormatGlyphResLabel(m.glyphN, m.glyphAspect)
+				m.pushSys(m.status + " · LEDs " + itoa(glyphActiveCount(GlyphDeviceN(m.glyphN))))
 				return m, nil
 			}
 			m.promptMode = ModeGrok
@@ -1216,6 +1247,32 @@ func (m *Model) dispatchPrompt(line string) (tea.Model, tea.Cmd) {
 		return m.startWatch(line, true)
 	case ModeGrok:
 		return m.askGrok(line)
+	case ModeLab:
+		// lab: paths fill active slot; else chat
+		if isVideoPath(line) || looksLikeVideoArg(line) || ParseSocialQuery(line) != nil {
+			return m.startWatch(line, true)
+		}
+		if m.client != nil {
+			m.client.SendChat(line)
+		}
+		m.chat = append(m.chat, chatLine{From: m.nick, Text: line})
+		m.trimChat()
+		return m, nil
+	case ModePhone:
+		// phone tab: treat line as hub host or social/watch
+		if strings.Contains(line, ":") || strings.HasPrefix(line, "ws") || ParseSocialQuery(line) != nil {
+			return m.startWatch(line, true)
+		}
+		m.pushSys(FormatModeHelp())
+		return m, nil
+	case ModeBurst:
+		// burst: chat still works while dual Glyph open
+		if m.client != nil {
+			m.client.SendChat(line)
+		}
+		m.chat = append(m.chat, chatLine{From: m.nick, Text: line})
+		m.trimChat()
+		return m, nil
 	default:
 		if looksLikePattern(line) {
 			return m.evalLive(line, true)
@@ -1230,6 +1287,79 @@ func (m *Model) dispatchPrompt(line string) (tea.Model, tea.Cmd) {
 		m.trimChat()
 		return m, nil
 	}
+}
+
+// applyPromptMode switches TAB strip mode and arms related views.
+func (m *Model) applyPromptMode(mode PromptMode) (tea.Model, tea.Cmd) {
+	if mode < 0 || mode >= ModeCount {
+		mode = ModeChat
+	}
+	m.promptMode = mode
+	m.liveMode = mode == ModeLive
+	switch mode {
+	case ModeLab:
+		if m.lab == nil {
+			m.lab = newLabState()
+		}
+		m.lab.On = true
+		m.burstMode = false
+		m.compact = false
+		m.lab.EnsurePlaceholders(4)
+		m.status = "lab · " + m.lab.Layout.String()
+		m.pushSys("tab lab · 1-6 slots · V toggle · m style · L layout")
+	case ModeBurst:
+		m.burstMode = true
+		if m.lab != nil {
+			m.lab.On = false
+		}
+		m.camOn = true
+		m.videoOn = true
+		m.status = "burst · " + FormatGlyphResLabel(m.glyphN, m.glyphAspect)
+		m.pushSys("tab burst · g res · G phone-v · [ ] scale · space PTT")
+	case ModePhone:
+		m.burstMode = false
+		if m.lab != nil {
+			m.lab.On = false
+		}
+		// prefer fixed phone vertical glyph for cast UX
+		m.glyphAspect = GlyphAspectPhoneV
+		if m.glyphN != GlyphPhone4a && m.glyphN != GlyphPhone3 {
+			m.glyphN = GlyphPhone3
+		}
+		m.status = "phone · " + FormatGlyphResLabel(m.glyphN, m.glyphAspect)
+		port := 9876
+		if m.host != "" {
+			port = ParseHubPort(m.host)
+		}
+		info := BuildLanInfo(port, "")
+		m.pushSys("phone cast · " + info.Phone)
+		m.pushSys(FormatGlyphResLabel(m.glyphN, m.glyphAspect) + " · g cycle 13/25 · G aspect")
+	case ModeLive:
+		if m.lab != nil {
+			m.lab.On = false
+		}
+		m.burstMode = false
+		m.status = "live"
+	case ModeGrok:
+		if m.lab != nil {
+			m.lab.On = false
+		}
+		m.burstMode = false
+		m.status = "grok"
+	case ModeWatch:
+		if m.lab != nil {
+			m.lab.On = false
+		}
+		m.burstMode = false
+		m.status = "watch"
+	default: // chat
+		if m.lab != nil {
+			m.lab.On = false
+		}
+		m.burstMode = false
+		m.status = "chat"
+	}
+	return m, nil
 }
 
 func (m *Model) askGrok(line string) (tea.Model, tea.Cmd) {
@@ -1738,6 +1868,8 @@ func (m *Model) slash(line string) (tea.Model, tea.Cmd) {
 			m.pushSys("vpipe idle — /watch movie.mp4")
 		}
 		return m, nil
+	case "pip", "popout", "pop-out", "qt", "quicktime":
+		return m.popOutPlayer(arg)
 	case "eval", "s":
 		code := arg
 		if code == "" {
@@ -2899,6 +3031,56 @@ func (m *Model) stopWatch() {
 	m.watchLive = false
 	m.watchSocial = ""
 }
+
+// popOutPlayer opens current (or arg) media in macOS QuickTime Player + PiP.
+func (m *Model) popOutPlayer(arg string) (tea.Model, tea.Cmd) {
+	if !PopOutSupported() {
+		m.pushSys("PiP: " + PopOutPlayerName() + " only on macOS")
+		return m, nil
+	}
+	src := strings.TrimSpace(arg)
+	videoURL := ""
+	title := ""
+	if src == "" {
+		// prefer active vpipe stream
+		if m.vpipe != nil {
+			videoURL = m.vpipe.VideoURL
+			src = m.vpipe.Input
+			if src == "" {
+				src = m.vpipe.Src
+			}
+			title = m.vpipe.Src
+		}
+		if src == "" {
+			src = m.watchPath
+		}
+		// lab active watch slot
+		if src == "" && m.lab != nil && m.lab.On {
+			if af := m.lab.ActiveFeed(); af != nil && af.WatchSrc != "" {
+				src = af.WatchSrc
+				title = af.Label
+			}
+		}
+	}
+	if src == "" && videoURL == "" {
+		m.pushSys("PiP: nothing playing — /watch file|url first · O pop-out")
+		return m, nil
+	}
+	m.status = "PiP…"
+	m.pushSys("PiP → " + PopOutPlayerName() + " · " + truncate(firstNonEmptyStr(title, src), 40))
+	// resolve can block on yt-dlp — run async
+	s, v, t := src, videoURL, title
+	return m, func() tea.Msg {
+		msg, err := PopOutMacPlayer(s, v, t)
+		if err != nil {
+			return errMsg("PiP: " + err.Error())
+		}
+		return statusSysMsg(msg)
+	}
+}
+
+// statusSysMsg pushes a system line + status (used by async PiP).
+type statusSysMsg string
 
 func looksLikePattern(line string) bool {
 	low := strings.ToLower(line)

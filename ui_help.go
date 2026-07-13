@@ -96,7 +96,9 @@ func helpPageBody(page int) string {
 
 func helpBodyKeys() string {
 	return `keys · navigation
-  tab / ⇧tab     cycle modes (chat·live·grok·watch)
+  tab / ⇧tab     cycle tabs
+  1–7            chat live grok watch lab burst phone
+  V lab · b burst · P phone · g glyph N · G phone-v
                  · in help: next/prev help page
                  · in lab: next feed
   enter          send chat · eval live · watch path · grok ask
@@ -123,6 +125,7 @@ modes (prompt bar)
 func helpBodyStream() string {
 	return `stream · binary · colossus
   /watch url|file|@u ffmpeg (+ yt-dlp · live first)
+  /pip · /popout · O  macOS QuickTime PiP pop-out
   /social @user      social handle · lazy lab fill
   /duplex            open-mic full duplex (RX duck)
   /meshmidi          Strudel/walkie → hub type:midi

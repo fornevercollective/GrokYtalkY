@@ -30,6 +30,45 @@ const (
 // GlyphResLadder is matrix N options: hardware first, then terminal resolution increases.
 var GlyphResLadder = []int{GlyphPhone4a, GlyphPhone3, GlyphRes37, GlyphRes49}
 
+// GlyphAspect selects square hardware face vs phone vertical (double-stack) display.
+// Mesh always ships device N×N; vertical is a terminal/phone-cast presentation mode.
+type GlyphAspect int
+
+const (
+	GlyphAspectSquare GlyphAspect = iota // N×N (Nothing face)
+	GlyphAspectPhoneV                    // N×2N double-stack portrait (phone cast / 9:16-ish)
+	GlyphAspectCount
+)
+
+func (a GlyphAspect) String() string {
+	switch a {
+	case GlyphAspectPhoneV:
+		return "phone-v"
+	default:
+		return "square"
+	}
+}
+
+// GlyphPhoneVerticalLadder fixed phone-cast vertical capabilities (device N → display H).
+// Square mesh N stays 13|25; vertical paint uses height = 2×N (double glyph stack).
+var GlyphPhoneVerticalLadder = []int{GlyphPhone4a, GlyphPhone3} // 13→26h, 25→50h
+
+// GlyphVertSize returns paint width×height for aspect (mesh device N is still square).
+func GlyphVertSize(n int, aspect GlyphAspect) (w, h int) {
+	n = NormalizeGlyphN(n)
+	// phone vertical only uses hardware N (13/25), not 37/49
+	if aspect == GlyphAspectPhoneV {
+		if n > GlyphPhone3 {
+			n = GlyphPhone3
+		}
+		if n != GlyphPhone4a && n != GlyphPhone3 {
+			n = GlyphPhone3
+		}
+		return n, n * 2 // double-stack
+	}
+	return n, n
+}
+
 // NormalizeGlyphN clamps user preference to a ladder size (13/25/37/49).
 func NormalizeGlyphN(n int) int {
 	switch n {
@@ -247,6 +286,29 @@ func cycleGlyphRes(n int) int {
 		}
 	}
 	return GlyphPhone3
+}
+
+// cycleGlyphResPhoneV steps only fixed phone vertical-capable sizes (13 ↔ 25).
+func cycleGlyphResPhoneV(n int) int {
+	n = NormalizeGlyphN(n)
+	if n <= GlyphPhone4a {
+		return GlyphPhone3
+	}
+	return GlyphPhone4a
+}
+
+// cycleGlyphAspect toggles square ↔ phone vertical.
+func cycleGlyphAspect(a GlyphAspect) GlyphAspect {
+	return (a + 1) % GlyphAspectCount
+}
+
+// FormatGlyphResLabel status crumb e.g. "◎25×25" or "◎25×50 phone-v".
+func FormatGlyphResLabel(n int, aspect GlyphAspect) string {
+	w, h := GlyphVertSize(n, aspect)
+	if aspect == GlyphAspectPhoneV {
+		return fmt.Sprintf("◎%d×%d phone-v · mesh %d²", w, h, GlyphDeviceN(n))
+	}
+	return fmt.Sprintf("◎%d×%d · device %d", w, h, GlyphDeviceN(n))
 }
 
 // nudgeGlyphScale adjusts display scale. From auto (0), first nudge locks to fit±1.

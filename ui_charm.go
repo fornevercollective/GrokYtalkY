@@ -1,19 +1,23 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 
 	"charm.land/lipgloss/v2"
 )
 
-// PromptMode is the Grok-style input mode (like modality bar).
+// PromptMode is the Grok-style input / view mode (TAB strip).
 type PromptMode int
 
 const (
-	ModeChat PromptMode = iota // mesh chat / walkie
-	ModeLive                   // strudel eval
-	ModeGrok                   // Grok prompt
-	ModeWatch                  // path paste → video
+	ModeChat  PromptMode = iota // mesh chat / walkie
+	ModeLive                    // strudel eval
+	ModeGrok                    // Grok prompt
+	ModeWatch                   // path paste → video
+	ModeLab                     // multi-feed video lab
+	ModeBurst                   // dual Glyph Matrix walkie
+	ModePhone                   // same-WiFi phone cast focus
 	ModeCount
 )
 
@@ -27,6 +31,12 @@ func (m PromptMode) String() string {
 		return "grok"
 	case ModeWatch:
 		return "watch"
+	case ModeLab:
+		return "lab"
+	case ModeBurst:
+		return "burst"
+	case ModePhone:
+		return "phone"
 	default:
 		return "?"
 	}
@@ -42,8 +52,60 @@ func (m PromptMode) Glyph() string {
 		return "✦"
 	case ModeWatch:
 		return "▶"
+	case ModeLab:
+		return "▦"
+	case ModeBurst:
+		return "◉"
+	case ModePhone:
+		return "▣"
 	default:
 		return ">"
+	}
+}
+
+// ModeFastKey is the digit (and optional letter) for empty-input jump.
+func (m PromptMode) ModeFastKey() string {
+	switch m {
+	case ModeChat:
+		return "1"
+	case ModeLive:
+		return "2"
+	case ModeGrok:
+		return "3"
+	case ModeWatch:
+		return "4"
+	case ModeLab:
+		return "5" // also V
+	case ModeBurst:
+		return "6" // also b
+	case ModePhone:
+		return "7" // also /lan
+	default:
+		return ""
+	}
+}
+
+// ModeFastKeyAlt secondary letter key shown in help (empty-input).
+func (m PromptMode) ModeFastKeyAlt() string {
+	switch m {
+	case ModeLab:
+		return "V"
+	case ModeBurst:
+		return "b"
+	case ModePhone:
+		return "P"
+	case ModeGrok:
+		return "g"
+	default:
+		return ""
+	}
+}
+
+// AllPromptModes ordered for the TAB strip.
+func AllPromptModes() []PromptMode {
+	return []PromptMode{
+		ModeChat, ModeLive, ModeGrok, ModeWatch,
+		ModeLab, ModeBurst, ModePhone,
 	}
 }
 
@@ -71,13 +133,12 @@ func styKey() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(cKeyFG).Background(cKeyBG).Padding(0, 1)
 }
 
-// modePills — compact tab strip (no help text, no lipgloss Width wrap).
+// modePills — compact tab strip.
 func modePills(active PromptMode) string {
-	modes := []PromptMode{ModeChat, ModeLive, ModeGrok, ModeWatch}
+	modes := AllPromptModes()
 	var parts []string
 	for _, m := range modes {
 		if m == active {
-			// no Padding — padding + background can mis-measure on narrow ttys
 			parts = append(parts, lipgloss.NewStyle().Bold(true).
 				Foreground(lipgloss.ANSIColor(0)).
 				Background(cTitle).
@@ -91,7 +152,7 @@ func modePills(active PromptMode) string {
 
 // modePillsCompact — glyph-only for narrow terminals.
 func modePillsCompact(active PromptMode) string {
-	modes := []PromptMode{ModeChat, ModeLive, ModeGrok, ModeWatch}
+	modes := AllPromptModes()
 	var parts []string
 	for _, m := range modes {
 		g := m.Glyph()
@@ -107,9 +168,67 @@ func modePillsCompact(active PromptMode) string {
 	return strings.Join(parts, styDim().Render(" "))
 }
 
+// modeKeyHintsLine — fast keys aligned under tab names (shown under brand row when wide enough).
+// Example:  1     2     3     4     5/V   6/b   7/P
+func modeKeyHintsLine(width int) string {
+	if width < 48 {
+		// compact: single line of digits
+		return styDim().Render("tab  1 chat · 2 live · 3 grok · 4 watch · 5 lab · 6 burst · 7 phone")
+	}
+	// mirror pill order with keys under
+	var keys []string
+	for _, m := range AllPromptModes() {
+		k := m.ModeFastKey()
+		if alt := m.ModeFastKeyAlt(); alt != "" {
+			k = k + "/" + alt
+		}
+		// pad roughly to mode name width for visual under-align
+		name := m.String()
+		pad := len(name) - len(k)
+		if pad < 0 {
+			pad = 0
+		}
+		// center key under name
+		left := pad / 2
+		right := pad - left
+		cell := strings.Repeat(" ", left) + k + strings.Repeat(" ", right)
+		keys = append(keys, cell)
+	}
+	line := styDim().Render(strings.Join(keys, " · "))
+	// prefix to roughly sit under mode pills (after "◈ gy ●  ")
+	prefix := styDim().Render("       ")
+	out := prefix + line
+	if cellWidth(stripANSI(out)) > width {
+		return clampCells(styDim().Render("1·2·3·4·5·6·7  tab cycle · empty-input"), width)
+	}
+	return clampCells(out, width)
+}
+
 // modeTabs kept for callers.
 func modeTabs(active PromptMode, width int) string {
 	return clampCells(modePills(active), width)
+}
+
+// ModeFromFastKey maps digit / letter to a prompt mode (empty-input).
+func ModeFromFastKey(k string) (PromptMode, bool) {
+	switch k {
+	case "1":
+		return ModeChat, true
+	case "2":
+		return ModeLive, true
+	case "3":
+		return ModeGrok, true
+	case "4":
+		return ModeWatch, true
+	case "5", "V":
+		return ModeLab, true
+	case "6", "b":
+		return ModeBurst, true
+	case "7", "P":
+		return ModePhone, true
+	default:
+		return 0, false
+	}
 }
 
 func panel(title, body string, width int) string {
@@ -168,6 +287,12 @@ func promptLine(mode PromptMode, nick, input string, thinking bool, width int) s
 		prefix = styLive().Render("◎") + styDim().Render(" live › ")
 	case ModeWatch:
 		prefix = styAccent().Render("▶") + styDim().Render(" watch › ")
+	case ModeLab:
+		prefix = styAccent().Render("▦") + styDim().Render(" lab › ")
+	case ModeBurst:
+		prefix = styLive().Render("◉") + styDim().Render(" burst › ")
+	case ModePhone:
+		prefix = styTitle().Render("▣") + styDim().Render(" phone › ")
 	default:
 		prefix = styTitle().Render(truncate(nick, 12)) + styDim().Render(" › ")
 	}
@@ -187,7 +312,6 @@ func promptLine(mode PromptMode, nick, input string, thinking bool, width int) s
 		in = string(r[len(r)-(room-1):])
 	}
 	line := prefix + styText().Render(in) + cursor
-	// no lipgloss Width/MaxWidth — those can wrap into extra lines
 	return clampCells(line, width)
 }
 
@@ -200,7 +324,6 @@ func renderChatViewport(lines []chatLine, nick string, height, width int) string
 	if height < 1 {
 		height = 1
 	}
-	// take last N real lines (skip nothing — sys already filtered at source)
 	start := 0
 	if len(lines) > height {
 		start = len(lines) - height
@@ -222,9 +345,25 @@ func renderChatViewport(lines []chatLine, nick string, height, width int) string
 		}
 		out = append(out, clampCells(row, width))
 	}
-	// bottom-align: pad empty lines above
 	for len(out) < height {
 		out = append([]string{""}, out...)
 	}
 	return strings.Join(out, "\n")
+}
+
+// FormatModeHelp one-liner for help / status.
+func FormatModeHelp() string {
+	var b strings.Builder
+	b.WriteString("tabs  ")
+	for i, m := range AllPromptModes() {
+		if i > 0 {
+			b.WriteString(" · ")
+		}
+		fmt.Fprintf(&b, "%s=%s", m.ModeFastKey(), m.String())
+		if alt := m.ModeFastKeyAlt(); alt != "" {
+			fmt.Fprintf(&b, "/%s", alt)
+		}
+	}
+	b.WriteString("  (tab cycle)")
+	return b.String()
 }
