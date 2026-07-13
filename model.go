@@ -199,6 +199,8 @@ type (
 		Mode    OverlayMode // caption|effect|prompt
 		// Orchestrate true → parse STYLE/CAPTION/PATTERN/… take lines
 		Orchestrate bool
+		Vision      bool   // vision-sourced take
+		Feed        string // focus feed label
 	}
 )
 
@@ -385,10 +387,12 @@ func NewModel(opts Options) *Model {
 }
 
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(
-		m.connectCmd(),
-		tickCmd(),
-	)
+	cmds := []tea.Cmd{m.connectCmd(), tickCmd()}
+	// vision auto-loop when GY_VISION=1
+	if Vision().Enabled() {
+		cmds = append(cmds, m.visionLoopCmd())
+	}
+	return tea.Batch(cmds...)
 }
 
 func tickCmd() tea.Cmd {
@@ -542,7 +546,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.applyGrokOverlayReply(msg.Text, msg.Mode)
 		}
 		if msg.Orchestrate {
-			return m.applyGrokTake(ParseGrokTake(msg.Text))
+			take := ParseGrokTake(msg.Text)
+			if msg.Vision {
+				take.Vision = true
+			}
+			mod, cmd := m.applyGrokTake(take)
+			// re-arm auto vision loop when enabled
+			if Vision().Enabled() {
+				return mod, tea.Batch(cmd, m.visionLoopCmd())
+			}
+			return mod, cmd
 		}
 		m.chat = append(m.chat, chatLine{From: "grok", Text: msg.Text})
 		m.trimChat()
@@ -556,6 +569,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.evalLive(pat, true)
 		}
 		return m, nil
+
+	case visionTickMsg:
+		if !Vision().Enabled() {
+			return m, nil
+		}
+		// skip when media supervisor is saturated
+		h := Media().Health()
+		if h.Max > 0 && h.Alive >= h.Max {
+			return m, m.visionLoopCmd()
+		}
+		mod, cmd := m.startVisionTake("auto")
+		return mod, tea.Batch(cmd, m.visionLoopCmd())
 
 	case wsStatusMsg:
 		s := string(msg)
@@ -1587,6 +1612,8 @@ func (m *Model) slash(line string) (tea.Model, tea.Cmd) {
 		return m.handleOverlayCmd(cmd, arg)
 	case "orch", "orchestrate", "take-grok", "gtake", "grok-take":
 		return m.startGrokOrchestrate(arg)
+	case "vision", "see", "gv", "vision-take":
+		return m.startVisionTake(arg)
 	case "newswall", "news-wall", "news", "vwall", "agencies":
 		return m.startNewsWall(arg)
 	case "newswall-stop", "news-stop", "stopnews":
@@ -4596,6 +4623,100 @@ func (m *Model) feedOrchestrateContext(hint string) FeedOrchestrateContext {
 	return ctx
 }
 
+// startVisionTake runs focus-feed vision take (GY_VISION budgets · backpressure).
+func (m *Model) startVisionTake(hint string) (tea.Model, tea.Cmd) {
+	v := Vision()
+	// /vision on|off|status
+	switch strings.ToLower(strings.TrimSpace(hint)) {
+	case "on", "enable", "1":
+		v.SetEnabled(true)
+		m.pushSys("vision ON · " + FormatVisionDoctor(v))
+		m.status = "vision on"
+		return m, m.visionLoopCmd()
+	case "off", "disable", "0":
+		v.SetEnabled(false)
+		m.pushSys("vision OFF")
+		m.status = "vision off"
+		return m, nil
+	case "status", "doctor", "show", "":
+		if hint == "" {
+			// empty → one-shot take if possible, else status
+			break
+		}
+		for _, ln := range strings.Split(strings.TrimRight(FormatVisionDoctor(v), "\n"), "\n") {
+			m.pushSys(ln)
+		}
+		m.status = "vision"
+		return m, nil
+	case "status!", "doc":
+		for _, ln := range strings.Split(strings.TrimRight(FormatVisionDoctor(v), "\n"), "\n") {
+			m.pushSys(ln)
+		}
+		return m, nil
+	}
+	if !m.grokCfg.Available() || m.grokCfg.APIKey == "" {
+		m.pushSys("vision: requires XAI_API_KEY (multimodal) · " + v.Config().Model)
+		return m, nil
+	}
+	frame, label, kind := FocusFrameFromModel(m)
+	if frame == nil {
+		m.pushSys("vision: no focus frame · open lab/news/watch first")
+		for _, ln := range strings.Split(strings.TrimRight(FormatVisionDoctor(v), "\n"), "\n") {
+			m.pushSys(ln)
+		}
+		return m, nil
+	}
+	if !v.TryBegin() {
+		m.pushSys(fmt.Sprintf("vision drop · backpressure (inflight/interval) · drops=%d", v.Snapshot().Drops))
+		m.status = "vision drop"
+		return m, nil
+	}
+	cfg := m.grokCfg
+	ctx := m.feedOrchestrateContext(hint)
+	ctx.Active = label
+	if kind != "" {
+		ctx.Kind = kind
+	}
+	ctx.Live = true
+	cfgVision := v.Config()
+	m.grokThinking = true
+	m.status = "vision…"
+	m.pushSys("✦ vision " + truncate(label, 28) + " · " + cfgVision.Model)
+	return m, func() tea.Msg {
+		defer v.End()
+		dataURL, nB, err := FrameToJPEGBase64(frame, cfgVision.MaxW, cfgVision.MaxH, cfgVision.JPEGQ)
+		if err != nil {
+			v.RecordError(err.Error())
+			return grokReplyMsg{Err: "vision jpeg: " + err.Error(), Orchestrate: true}
+		}
+		take, err := AskGrokVisionOrchestrate(cfg, ctx, dataURL)
+		if err != nil {
+			v.RecordError(err.Error())
+			return grokReplyMsg{Err: err.Error(), Orchestrate: true}
+		}
+		take.Vision = true
+		v.RecordSuccess(label, take, nB)
+		return grokReplyMsg{Text: take.Raw, Orchestrate: true, Vision: true, Feed: label}
+	}
+}
+
+// visionLoopCmd schedules next auto vision take when GY_VISION enabled.
+func (m *Model) visionLoopCmd() tea.Cmd {
+	v := Vision()
+	if !v.Enabled() {
+		return nil
+	}
+	iv := v.Config().Interval
+	if iv < time.Second {
+		iv = 8 * time.Second
+	}
+	return tea.Tick(iv, func(t time.Time) tea.Msg {
+		return visionTickMsg{At: t}
+	})
+}
+
+type visionTickMsg struct{ At time.Time }
+
 // startGrokOrchestrate asks Grok for a structured take and applies it.
 func (m *Model) startGrokOrchestrate(hint string) (tea.Model, tea.Cmd) {
 	if !m.grokCfg.Available() {
@@ -4623,18 +4744,65 @@ func (m *Model) startGrokOrchestrate(hint string) (tea.Model, tea.Cmd) {
 
 // note: MetricIncr("orch_takes") applied in applyGrokTake
 
-// applyGrokTake applies STYLE/CAPTION/PATTERN/GLYPH/DEPTH/EFFECT to the dock.
+// applyGrokTake applies STYLE/CAPTION/PATTERN/GLYPH/DEPTH/EFFECT/THEME/MUTE_HINT.
 func (m *Model) applyGrokTake(take GrokTake) (tea.Model, tea.Cmd) {
 	m.grokThinking = false
 	if m.overlay != nil {
 		m.overlay.MarkBusy(false)
 	}
 	if take.Raw != "" {
-		m.chat = append(m.chat, chatLine{From: "grok", Text: truncate(take.Raw, 200)})
+		from := "grok"
+		if take.Vision {
+			from = "vision"
+		}
+		m.chat = append(m.chat, chatLine{From: from, Text: truncate(take.Raw, 200)})
 		m.trimChat()
 	}
 	var applied []string
 	var cmd tea.Cmd
+
+	if take.Theme != "" {
+		feed := ""
+		if af := m.lab; af != nil && af.On {
+			if a := af.ActiveFeed(); a != nil {
+				feed = a.Label
+				// stamp plugin-style theme as lab plugin style name optional
+			}
+		}
+		Vision().mu.Lock()
+		Vision().lastTheme = take.Theme
+		if feed != "" {
+			Vision().themes[feed] = take.Theme
+		}
+		Vision().mu.Unlock()
+		applied = append(applied, "theme="+take.Theme)
+		// mesh for Live News browser cluster + chat-bridge
+		if m.client != nil {
+			_ = m.client.SendJSON(map[string]any{
+				"type": "news-caption", "from": m.nick,
+				"text": take.Caption, "theme": take.Theme,
+				"feed": feed, "source": "vision",
+				"t": time.Now().UnixMilli(),
+			})
+		}
+	}
+
+	if take.MuteHint != "" && take.MuteHint != "none" {
+		applied = append(applied, "mute="+take.MuteHint)
+		switch take.MuteHint {
+		case "suggest-mute", "quiet":
+			// soft: only auto-mute when vision auto loop + Spaces stage has cohosts
+			if take.Vision && Vision().Enabled() && take.MuteHint == "suggest-mute" {
+				// host-confirm style: push sys, don't force mute-all
+				m.pushSys("vision mute_hint=suggest-mute · /space mute all to apply")
+			}
+			if take.MuteHint == "quiet" {
+				m.status = "vision quiet"
+			}
+		case "talking":
+			m.status = "vision talking"
+		}
+	}
 
 	if take.Style != "" {
 		if st, ok := ParsePixelStyleName(take.Style); ok {
@@ -4701,7 +4869,11 @@ func (m *Model) applyGrokTake(take GrokTake) (tea.Model, tea.Cmd) {
 	}
 
 	if take.Caption != "" {
-		cap := OverlayReplyToCaption(take.Caption, "grok")
+		src := "grok-orch"
+		if take.Vision {
+			src = "vision"
+		}
+		cap := OverlayReplyToCaption(take.Caption, src)
 		if m.conductor {
 			m.program.SetCaptionRich(cap, m.nick)
 			m.publishProgramBus()
@@ -4709,14 +4881,19 @@ func (m *Model) applyGrokTake(take GrokTake) (tea.Model, tea.Cmd) {
 		} else if m.client != nil {
 			_ = m.client.SendJSON(map[string]any{
 				"type": "caption", "from": m.nick, "text": cap.Text,
-				"source": "grok-orch", "t": time.Now().UnixMilli(),
+				"source": src, "theme": take.Theme,
+				"t": time.Now().UnixMilli(),
 			})
 			applied = append(applied, "caption=soft")
 		} else {
 			applied = append(applied, "caption")
 		}
 		if m.overlay != nil {
-			m.overlay.Record(cap.Text, "grok")
+			m.overlay.Record(cap.Text, src)
+		}
+		// optional vision → overlay always when GY_VISION_OVERLAY
+		if take.Vision && Vision().Config().Overlay && m.overlay != nil {
+			applied = append(applied, "overlay")
 		}
 		m.pushSys("◈ " + truncate(cap.Text, 60))
 	}

@@ -133,13 +133,15 @@ func helpBodyStream() string {
   /media · H           ffmpeg supervisor health
   R restart tile · K kill pipe (lab/news)
   /orch [hint] · *     Grok take: STYLE/CAPTION/PATTERN/GLYPH
+  /vision [on|off|auto]  focus-feed Grok vision → THEME/MUTE_HINT/STYLE
+  GY_VISION=1 · INTERVAL_MS · MAX_W/H · MODEL  vision budgets
   /plugin list|on|off|reload|style   in-process style + mesh hooks
   /space mute|listeners|key --pull   X Spaces host controls + key pull
   /space offer · guest <nick>        gy as X.com stream asset
   gy stream-x init|start|offer       reusable Media Studio publisher
   gy space · gy space-rtmp           ca.pscp.tv RTMP/RTMPS
   gy doctor reliability · metrics   process health / prom text
-  gy doctor plugins · space         registry + Spaces/RTMP status
+  gy doctor plugins · space · vision registry + Spaces + vision bus
   /social @user      social handle · lazy lab fill
   /duplex            open-mic full duplex (RX duck)
   /meshmidi          Strudel/walkie → hub type:midi

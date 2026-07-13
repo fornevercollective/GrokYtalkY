@@ -11,14 +11,18 @@ import (
 
 // GrokTake is a parsed set of orchestration actions from a Grok reply.
 type GrokTake struct {
-	Style   string // pixel style name (neon, hex, scan…)
-	Caption string // on-air / soft chyron
-	Pattern string // strudel mini-notation
-	Glyph   string // square | phone-v | 13 | 25 | 37 | 49
-	Effect  string // freeform effect line (soft caption source=fx)
-	Depth   string // off | zip-lite | gsplat
-	Note    string // optional operator note (chat only)
-	Raw     string // original reply
+	Style    string // pixel style name (neon, hex, scan…)
+	Caption  string // on-air / soft chyron
+	Pattern  string // strudel mini-notation
+	Glyph    string // square | phone-v | 13 | 25 | 37 | 49
+	Effect   string // freeform effect line (soft caption source=fx)
+	Depth    string // off | zip-lite | gsplat
+	Theme    string // breaking|politics|…|earthcam|unsorted (vision/news cluster)
+	MuteHint string // none|suggest-mute|quiet|talking
+	Note     string // optional operator note (chat only)
+	Raw      string // original reply
+	// Vision marks take as vision-sourced (metrics / mesh)
+	Vision bool
 }
 
 // FeedOrchestrateContext is a compact snapshot of what Grok should reason about.
@@ -48,8 +52,12 @@ DEPTH <off|zip-lite|gsplat>
 EFFECT <max 12 words visual/audio cue>
 NOTE <optional operator tip, max 60 chars>
 
+THEME <breaking|politics|conflict|markets|weather|health|science|local|culture|earthcam|unsorted>
+MUTE_HINT <none|suggest-mute|quiet|talking>
+
 Rules: no markdown fences unless PATTERN needs them; no preamble; prefer STYLE+CAPTION always when video is live.
-For news walls pick STYLE that reads well at small tile size (hex, braille, scan, dither, neon).`
+For news walls pick STYLE that reads well at small tile size (hex, braille, scan, dither, neon).
+THEME/MUTE_HINT optional unless vision frame is attached (then THEME required).`
 }
 
 // BuildOrchestrateUserPrompt packages context for the model.
@@ -98,6 +106,12 @@ func ParseGrokTake(text string) GrokTake {
 			t.Effect = strings.TrimSpace(line[7:])
 		case strings.HasPrefix(up, "NOTE "):
 			t.Note = strings.TrimSpace(line[5:])
+		case strings.HasPrefix(up, "THEME "):
+			t.Theme = normalizeThemeToken(strings.TrimSpace(line[6:]))
+		case strings.HasPrefix(up, "MUTE_HINT "):
+			t.MuteHint = normalizeMuteHint(strings.TrimSpace(line[len("MUTE_HINT "):]))
+		case strings.HasPrefix(up, "MUTE ") && !strings.HasPrefix(up, "MUTE_"):
+			t.MuteHint = normalizeMuteHint(strings.TrimSpace(line[5:]))
 		default:
 			// fenced pattern fallback
 			if p := extractPattern(line); p != "" && t.Pattern == "" {
@@ -177,11 +191,20 @@ func AskGrokOrchestrate(cfg GrokConfig, ctx FeedOrchestrateContext) (GrokTake, e
 // TakeSummary one-line for status bar.
 func (t GrokTake) TakeSummary() string {
 	var parts []string
+	if t.Vision {
+		parts = append(parts, "vision")
+	}
 	if t.Style != "" {
 		parts = append(parts, "style="+t.Style)
 	}
 	if t.Caption != "" {
 		parts = append(parts, "cap")
+	}
+	if t.Theme != "" {
+		parts = append(parts, "theme="+t.Theme)
+	}
+	if t.MuteHint != "" && t.MuteHint != "none" {
+		parts = append(parts, "mute="+t.MuteHint)
 	}
 	if t.Pattern != "" {
 		parts = append(parts, "pat")
@@ -196,6 +219,47 @@ func (t GrokTake) TakeSummary() string {
 		return "take (empty)"
 	}
 	return "take " + strings.Join(parts, " · ")
+}
+
+var knownThemes = map[string]bool{
+	"breaking": true, "politics": true, "conflict": true, "markets": true,
+	"weather": true, "health": true, "science": true, "local": true,
+	"culture": true, "earthcam": true, "unsorted": true, "scenic": true,
+}
+
+func normalizeThemeToken(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	s = strings.Trim(s, ".,;:")
+	if s == "scenic" || s == "cam" || s == "landmark" {
+		return "earthcam"
+	}
+	if knownThemes[s] {
+		return s
+	}
+	// first token only
+	if i := strings.IndexAny(s, " \t/"); i > 0 {
+		s = s[:i]
+	}
+	if knownThemes[s] {
+		return s
+	}
+	return "unsorted"
+}
+
+func normalizeMuteHint(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	switch s {
+	case "none", "off", "no", "0":
+		return "none"
+	case "suggest-mute", "suggest", "mute", "muted":
+		return "suggest-mute"
+	case "quiet", "silent", "still":
+		return "quiet"
+	case "talking", "speak", "active", "hot":
+		return "talking"
+	default:
+		return s
+	}
 }
 
 // MediaHealthyEnough gates orchestration so we don't burn API on dead pipes.

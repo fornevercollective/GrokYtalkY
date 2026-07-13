@@ -477,8 +477,15 @@
       }
       if (TH) {
         const m = TH.applyMesh(msg);
-        if (m && el.sort && el.sort.value === 'theme') {
-          // re-cluster main when captions arrive
+        // vision/orch mesh: type news-caption with theme
+        if (msg.type === 'news-caption' && msg.theme && msg.feed) {
+          TH.setCaption(String(msg.feed).toLowerCase().replace(/\s+/g, ''), msg.text || msg.theme, {});
+          // also try label match
+          if (NS.findById) {
+            /* theme stored by applyMesh if id resolves */
+          }
+        }
+        if ((m || (msg.theme && msg.type === 'news-caption')) && el.sort && el.sort.value === 'theme') {
           if (mainIds.length) {
             mainIds = TH.sortIds(mainIds);
             renderMain();
