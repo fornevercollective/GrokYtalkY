@@ -112,15 +112,17 @@ conductor TUI ──type:program──► hub ──► gy agent (JSON program e
                               └──► gy venue (VenueSink: log-stub → NDI/2110 later)
 ```
 
-### Venue adapter (v1.27+ stub, v1.28+ NDI / ST 2110)
+### Venue adapter (v1.27+ stub, v1.28+ NDI / ST 2110, v1.29+ 2110-20)
 
 ```bash
 gy venue --json                    # log-stub
 gy venue --sink ndi                # NDI via FFmpeg libndi_newtek (else MPEG-TS fallback)
-gy venue --sink st2110 --sdp /tmp/gy.sdp
+gy venue --sink st2110 --profile 2110-20 --sdp /tmp/gy.sdp   # default: raw 4:2:2 RTP + ST2110-20 SDP
+gy venue --sink st2110 --profile lab                         # H.264 gateway
 gy venue --sink ndi,st2110,log     # multi-sink fan-out
 # VenueSink: OnProgram / OnGlyph / OnBlack / OnHold
 # Lattice nearest-neighbor upscale — never re-stamped
+# PTP/NMOS: facility-side (SDP ts-refclk=localmac)
 ```
 
 Scaffold: [`sfu/`](../sfu/README.md) (`make sfu-media` for webrtc-rs track + DataChannel fan-out) · [`chat/`](../chat/README.md) · site: [docs.html#streams-scale](https://fornevercollective.github.io/GrokYtalkY/docs.html#streams-scale)

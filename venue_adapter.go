@@ -63,8 +63,10 @@ type VenueOpts struct {
 	NDIName     string
 	NDIFallback string // udp/mpegts when libndi missing
 	// ST 2110
-	RTP     string
-	SDPPath string
+	RTP         string
+	SDPPath     string
+	ST2110Prof  string // 2110-20 (default) | lab
+	ST2110Payload string // lab only: mpegts|rtp
 	// Shared raster
 	Width  int
 	Height int
@@ -193,8 +195,9 @@ func runVenueCmd(args []string) error {
   --sink      log|ndi|st2110|comma-list  (default log)
   --ndi-name  NDI source name (default GrokYtalkY-PGM)
   --ndi-udp   fallback MPEG-TS UDP if libndi_newtek missing
-  --rtp       ST 2110 lab RTP URL (default rtp://239.100.1.10:5004)
-  --sdp       path to write SDP (default $TMPDIR/gy-venue/gy-st2110.sdp)
+  --rtp       ST 2110 RTP URL (default rtp://239.100.1.10:5004)
+  --sdp       path to write SDP
+  --profile   2110-20 (default, uncompressed) | lab (H.264 gateway)
   --width --height --fps   raster (default 1280x720@30)
   --json      also emit program/glyph JSON on stdout
   --quiet
@@ -207,7 +210,8 @@ Example:
   gy serve
   # conductor: /forge … · /conductor claim · /take 1
   gy venue --sink ndi
-  gy venue --sink st2110 --sdp /tmp/gy.sdp
+  gy venue --sink st2110 --profile 2110-20 --sdp /tmp/gy.sdp
+  gy venue --sink st2110 --profile lab
   gy venue --sink ndi,st2110,log --json
 `)
 	}
@@ -216,8 +220,9 @@ Example:
 	sinkKind := fs.String("sink", "log", "log|ndi|st2110|comma-list")
 	ndiName := fs.String("ndi-name", "GrokYtalkY-PGM", "NDI source name")
 	ndiUDP := fs.String("ndi-udp", "udp://127.0.0.1:13000?pkt_size=1316", "NDI fallback MPEG-TS")
-	rtp := fs.String("rtp", "rtp://239.100.1.10:5004", "ST 2110 lab RTP URL")
+	rtp := fs.String("rtp", "rtp://239.100.1.10:5004", "ST 2110 RTP URL")
 	sdp := fs.String("sdp", "", "SDP output path")
+	profile := fs.String("profile", ST2110Profile211020, "st2110: 2110-20|lab")
 	width := fs.Int("width", VenueDefaultW, "output width")
 	height := fs.Int("height", VenueDefaultH, "output height")
 	fps := fs.Int("fps", VenueDefaultFPS, "output fps")
@@ -238,19 +243,20 @@ Example:
 		kind = "log"
 	}
 	return RunVenue(VenueOpts{
-		HubWS:       ensureWSQuery(*hub, map[string]string{"role": "venue", "nick": *nick}),
-		Nick:        *nick,
-		Quiet:       *quiet,
-		DryRun:      *dry,
-		JSONOut:     *jsonOut,
-		SinkKind:    kind,
-		NDIName:     *ndiName,
-		NDIFallback: *ndiUDP,
-		RTP:         *rtp,
-		SDPPath:     *sdp,
-		Width:       *width,
-		Height:      *height,
-		FPS:         *fps,
+		HubWS:        ensureWSQuery(*hub, map[string]string{"role": "venue", "nick": *nick}),
+		Nick:         *nick,
+		Quiet:        *quiet,
+		DryRun:       *dry,
+		JSONOut:      *jsonOut,
+		SinkKind:     kind,
+		NDIName:      *ndiName,
+		NDIFallback:  *ndiUDP,
+		RTP:          *rtp,
+		SDPPath:      *sdp,
+		ST2110Prof:   *profile,
+		Width:        *width,
+		Height:       *height,
+		FPS:          *fps,
 	})
 }
 
@@ -566,6 +572,8 @@ func NewVenueSink(kind string, opts VenueOpts) (VenueSink, error) {
 			Height:  opts.Height,
 			FPS:     opts.FPS,
 			Quiet:   opts.Quiet,
+			Profile: opts.ST2110Prof,
+			Payload: opts.ST2110Payload,
 		})
 	case "spout":
 		return nil, fmt.Errorf("spout sink not built (mac/win GPU IPC) — use ndi or st2110")

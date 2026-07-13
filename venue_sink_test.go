@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -59,21 +60,80 @@ func TestBuildVenueSinkST2110(t *testing.T) {
 		SinkKind: "st2110", Quiet: true,
 		RTP: "rtp://127.0.0.1:5004", SDPPath: sdp,
 		Width: 64, Height: 36, FPS: 15,
+		ST2110Prof: ST2110Profile211020,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Name() != "st2110" {
+	if s.Name() != "st2110-20" {
 		t.Fatal(s.Name())
 	}
 	b, err := os.ReadFile(sdp)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(b) < 20 || string(b[0:2]) != "v=" {
-		t.Fatalf("sdp %q", b[:min(40, len(b))])
+	body := string(b)
+	if !strings.HasPrefix(body, "v=") {
+		t.Fatalf("sdp %q", body[:min(40, len(body))])
+	}
+	for _, want := range []string{
+		"SSN=ST2110-20:2017",
+		"sampling=YCbCr-4:2:2",
+		"raw/90000",
+		"x-gy-profile:2110-20",
+		"ts-refclk:localmac",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("sdp missing %q", want)
+		}
 	}
 	_ = s.Close()
+}
+
+func TestST211020SDPFmtp(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "20.sdp")
+	if err := writeST211020SDP(p, "239.1.1.1", 5004, 1920, 1080, 30, "YCbCr-4:2:2", 8); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(p)
+	s := string(b)
+	if !strings.Contains(s, "width=1920") || !strings.Contains(s, "height=1080") {
+		t.Fatal(s)
+	}
+	if !strings.Contains(s, "PM=2110GPM") || !strings.Contains(s, "TP=2110TPN") {
+		t.Fatal(s)
+	}
+}
+
+func TestST2110LabProfile(t *testing.T) {
+	dir := t.TempDir()
+	sdp := filepath.Join(dir, "lab.sdp")
+	s, err := NewST2110VenueSink(ST2110Opts{
+		RTP: "rtp://127.0.0.1:5007", SDPPath: sdp,
+		Width: 64, Height: 36, FPS: 15, Quiet: true,
+		Profile: ST2110ProfileLab,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Name() != "st2110-lab" {
+		t.Fatal(s.Name())
+	}
+	b, _ := os.ReadFile(sdp)
+	if !strings.Contains(string(b), "H264/90000") {
+		t.Fatal(string(b))
+	}
+	_ = s.Close()
+}
+
+func TestNormalizeST2110Profile(t *testing.T) {
+	if normalizeST2110Profile("") != ST2110Profile211020 {
+		t.Fatal("default")
+	}
+	if normalizeST2110Profile("lab") != ST2110ProfileLab {
+		t.Fatal("lab")
+	}
 }
 
 func TestBuildVenueSinkMulti(t *testing.T) {
@@ -82,11 +142,12 @@ func TestBuildVenueSinkMulti(t *testing.T) {
 		SinkKind: "log,st2110", Quiet: true,
 		RTP: "rtp://127.0.0.1:5005", SDPPath: filepath.Join(dir, "m.sdp"),
 		Width: 32, Height: 18, FPS: 10,
+		ST2110Prof: ST2110Profile211020,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Name() != "log-stub+st2110" {
+	if s.Name() != "log-stub+st2110-20" {
 		t.Fatal(s.Name())
 	}
 	_ = s.Close()
@@ -127,6 +188,7 @@ func TestST2110OnGlyphSoft(t *testing.T) {
 	s, err := NewST2110VenueSink(ST2110Opts{
 		RTP: "rtp://127.0.0.1:5006", SDPPath: filepath.Join(dir, "x.sdp"),
 		Width: 32, Height: 18, FPS: 5, Quiet: true,
+		Profile: ST2110Profile211020,
 	})
 	if err != nil {
 		t.Fatal(err)
