@@ -1,3 +1,9 @@
+<img width="570" height="344" alt="Screenshot 2026-07-12 at 1 05 17 pm" src="https://github.com/user-attachments/assets/4b46a448-7078-4c72-b517-115193150952" />
+<img width="570" height="344" alt="Screenshot 2026-07-12 at 1 01 58 pm" src="https://github.com/user-attachments/assets/6e9fd64f-6123-45ee-a383-9cf1a722b127" />
+<img width="570" height="344" alt="Screenshot 2026-07-12 at 1 06 12 pm" src="https://github.com/user-attachments/assets/0d0d62e9-2fa5-4f41-8cfa-e34239f547db" />
+<img width="568" height="352" alt="Screenshot 2026-07-12 at 12 57 19 pm" src="https://github.com/user-attachments/assets/f1185bc0-e08d-4918-a527-5eaf4917a7e6" />
+<img width="568" height="352" alt="Screenshot 2026-07-12 at 12 57 40 pm" src="https://github.com/user-attachments/assets/0cb48ac6-f97c-4c32-8249-c399f995b407" />
+
 # GrokYtalkY
 
 **Grok terminal companion** — walkie talk / live Strudel patterns / hex video / MIDI, built with [Charm Bubble Tea v2](https://github.com/charmbracelet/bubbletea) + Lip Gloss (same lineage as [cliamp](https://github.com/bjarneo/cliamp)).
