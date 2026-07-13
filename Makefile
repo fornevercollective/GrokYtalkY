@@ -49,6 +49,10 @@ sfu-media:
 	cd sfu && cargo build --release --features media
 	@echo "→ sfu/target/release/gy-sfu  (+webrtc-rs media)"
 
+# Two-peer glyph+chat fan-out against media SFU (spawns binary)
+sfu-e2e:
+	cd sfu && cargo test --features media --test e2e_media -- --nocapture
+
 version:
 	@echo "VERSION=$(VERSION)"
 	@echo "COMMIT=$(COMMIT)"

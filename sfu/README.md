@@ -117,9 +117,12 @@ Signaling-only still works without the feature (WS relay of SDP for pure mesh te
 ### E2E validate (A/V + glyph)
 
 ```bash
+# Automated (two webrtc-rs peers, glyph+chat fan-out)
+make sfu-e2e
+
+# Browser (two tabs)
 make sfu-media
 ./sfu/target/release/gy-sfu --bind 0.0.0.0:9880
-# two browser tabs:
 open site/dojo.html   # Join · allow cam · Send glyph pulse · chat
 ```
 

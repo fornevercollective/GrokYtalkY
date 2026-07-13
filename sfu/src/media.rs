@@ -54,6 +54,8 @@ struct PeerMedia {
     outbound: Mutex<HashMap<String, Arc<TrackLocalStaticRTP>>>,
     /// DataChannels by label (SFU-created outbound + any client-created)
     dcs: Mutex<HashMap<String, Arc<RTCDataChannel>>>,
+    /// ICE arrived before set_remote_description (trickle race)
+    pending_ice: Mutex<Vec<RTCIceCandidateInit>>,
 }
 
 impl MediaHub {
@@ -125,6 +127,7 @@ impl MediaHub {
             signal: signal.clone(),
             outbound: Mutex::new(HashMap::new()),
             dcs: Mutex::new(HashMap::new()),
+            pending_ice: Mutex::new(Vec::new()),
         });
 
         // ICE → client
@@ -234,6 +237,16 @@ impl MediaHub {
             .await
             .map_err(|e| e.to_string())?;
 
+        // Flush trickle ICE that arrived before remote description
+        {
+            let pending: Vec<_> = sess.pending_ice.lock().await.drain(..).collect();
+            for init in pending {
+                if let Err(e) = sess.pc.add_ice_candidate(init).await {
+                    warn!(%peer_id, "flush ice: {e}");
+                }
+            }
+        }
+
         let answer = sess
             .pc
             .create_answer(None)
@@ -308,6 +321,11 @@ impl MediaHub {
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_owned()),
         };
+        // Buffer until offer is applied (common trickle race)
+        if sess.pc.remote_description().await.is_none() {
+            sess.pending_ice.lock().await.push(init);
+            return Ok(());
+        }
         sess.pc
             .add_ice_candidate(init)
             .await
