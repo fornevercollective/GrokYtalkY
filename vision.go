@@ -468,7 +468,7 @@ STYLE <half|hex|braille|ascii|blocks|scan|neon|dither|poster|edges|points|halfto
 CAPTION <one chyron line, max 80 chars — describe what you see>
 THEME <breaking|politics|conflict|markets|weather|health|science|local|culture|earthcam|unsorted>
 MUTE_HINT <none|suggest-mute|quiet|talking>  (stage audio/visual activity)
-MEDIA <restart|kill|spawn|retune|encode|recover> [focus|all|news|watch|label] [WxH@fps|scale=…] [source|path]
+MEDIA <restart|kill|spawn|retune|retarget|encode|recover> [focus|…] [crop=x,y,w,h] [WxH@fps] [source|path]
 GLYPH <square|phone-v|13|25|37|49>
 DEPTH <off|zip-lite|gsplat>
 EFFECT <max 12 words visual cue>
@@ -479,7 +479,8 @@ Rules: no markdown fences; no preamble; always prefer STYLE+CAPTION+THEME when t
 For news/earthcam pick STYLE readable at small tiles (hex, braille, scan, dither, neon).
 THEME must be one token from the list. MUTE_HINT=talking if faces/mouths/activity; quiet if static scenic.
 MEDIA is the FFmpeg control plane: restart dead tiles, retune scale/fps, spawn catalog sources, encode snapshots.
-When the frame is frozen/black or the feed looks dead, emit MEDIA recover focus (or MEDIA restart focus).`
+When the frame is frozen/black or the feed looks dead, emit MEDIA recover focus (or MEDIA restart focus).
+When a clear subject/person is visible, SAM auto-retargets (MEDIA retarget crop=…); you may also emit MEDIA retarget focus crop=x,y,w,h.`
 }
 
 // BuildVisionUserPrompt text part (image attached separately).

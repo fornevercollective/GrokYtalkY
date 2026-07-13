@@ -125,11 +125,16 @@ func NewsWallStyleName(m PixelMode) string {
 	}
 }
 
-// NewsTileOpts is optional geometry/rate for StartNewsTile (vision retune path).
+// NewsTileOpts is optional geometry/rate/crop for StartNewsTile (vision retune/retarget).
 type NewsTileOpts struct {
 	W   int // pixels; 0 = default newsTileW
 	H   int
 	FPS int // 0 = default newsTileFPS
+	// SAM closed-loop crop (normalized 0–1). HasCrop enables ffmpeg crop filter.
+	HasCrop          bool
+	CropX, CropY     float64
+	CropW, CropH     float64
+	CropLabel        string
 }
 
 // NewsTilePipe is a lightweight per-broadcaster RGB capture (low FPS, small frame).
@@ -148,6 +153,11 @@ type NewsTilePipe struct {
 	W   int
 	H   int
 	FPS int
+	// closed-loop SAM crop (normalized)
+	HasCrop          bool
+	CropX, CropY     float64
+	CropW, CropH     float64
+	CropLabel        string
 	// recovery
 	Restarts int
 	lastDie  time.Time
@@ -199,13 +209,20 @@ func StartNewsTileOpts(label, videoURL string, style PixelMode, opts NewsTileOpt
 	if fps > 15 {
 		fps = 15
 	}
+	// vf: optional SAM crop then scale (closed-loop retarget)
+	vf := fmt.Sprintf("scale=%d:%d:flags=fast_bilinear,fps=%d,format=rgb24", w, h, fps)
+	hasCrop := opts.HasCrop && opts.CropW > 0.02 && opts.CropH > 0.02
+	if hasCrop {
+		crop := VisionCrop{X: opts.CropX, Y: opts.CropY, W: opts.CropW, H: opts.CropH}
+		vf = crop.FFmpegCropFilter(w, h, fps)
+	}
 	args := []string{
 		"-hide_banner", "-loglevel", "error",
 		"-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "3",
 		"-rw_timeout", "15000000", // 15s I/O timeout (µs)
 		"-i", videoURL,
 		"-an",
-		"-vf", fmt.Sprintf("scale=%d:%d:flags=fast_bilinear,fps=%d,format=rgb24", w, h, fps),
+		"-vf", vf,
 		"-f", "rawvideo", "-pix_fmt", "rgb24",
 		"pipe:1",
 	}
@@ -236,6 +253,12 @@ func StartNewsTileOpts(label, videoURL string, style PixelMode, opts NewsTileOpt
 		FPS:     fps,
 		Poster:  poster,
 		Frame:   poster.Clone(),
+	}
+	if hasCrop {
+		tp.HasCrop = true
+		tp.CropX, tp.CropY = opts.CropX, opts.CropY
+		tp.CropW, tp.CropH = opts.CropW, opts.CropH
+		tp.CropLabel = opts.CropLabel
 	}
 	go tp.readLoop(stdout, w, h)
 	return tp, nil
@@ -360,7 +383,11 @@ func RestartNewsTile(old *NewsTilePipe) (*NewsTilePipe, error) {
 	}
 	old.mu.Lock()
 	label, src, style := old.Label, old.Src, old.Style
-	opts := NewsTileOpts{W: old.W, H: old.H, FPS: old.FPS}
+	opts := NewsTileOpts{
+		W: old.W, H: old.H, FPS: old.FPS,
+		HasCrop: old.HasCrop, CropX: old.CropX, CropY: old.CropY,
+		CropW: old.CropW, CropH: old.CropH, CropLabel: old.CropLabel,
+	}
 	restarts := old.Restarts + 1
 	poster := old.Poster
 	old.mu.Unlock()
@@ -384,7 +411,7 @@ func RestartNewsTile(old *NewsTilePipe) (*NewsTilePipe, error) {
 	return nt, nil
 }
 
-// RetuneNewsTile restarts the tile with new ffmpeg scale/fps (vision control plane).
+// RetuneNewsTile restarts the tile with new ffmpeg scale/fps/crop (vision control plane).
 func RetuneNewsTile(old *NewsTilePipe, opts NewsTileOpts) (*NewsTilePipe, error) {
 	if old == nil {
 		return nil, fmt.Errorf("nil tile")
@@ -399,6 +426,13 @@ func RetuneNewsTile(old *NewsTilePipe, opts NewsTileOpts) (*NewsTilePipe, error)
 	}
 	if opts.FPS <= 0 {
 		opts.FPS = old.FPS
+	}
+	// preserve prior crop unless caller sets HasCrop or explicit crop dims
+	if !opts.HasCrop && opts.CropW <= 0 && old.HasCrop {
+		opts.HasCrop = true
+		opts.CropX, opts.CropY = old.CropX, old.CropY
+		opts.CropW, opts.CropH = old.CropW, old.CropH
+		opts.CropLabel = old.CropLabel
 	}
 	restarts := old.Restarts + 1
 	poster := old.Poster

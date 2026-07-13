@@ -1,7 +1,7 @@
-# Vision-first backbone + FFmpeg control plane + Aito sides (v1.71)
+# Vision-first backbone + FFmpeg + Aito + closed-loop retarget (v1.72)
 
-**Vision first. Full media control + Aito side channels.**  
-Structured take path drives the orchestrator, **FFmpeg control plane**, and **Aito** SAM / pose / gsplat / depth sidecars.
+**Vision first. Full media control + Aito sides + SAM→crop retarget.**  
+Structured take path drives the orchestrator, **FFmpeg control plane**, **Aito** SAM / pose / gsplat / depth, and **closed-loop retarget** (bbox → crop+retune focus encode).
 
 ## Pipeline
 
@@ -32,6 +32,7 @@ Vision is a first-class client of `Media()`:
 | `retune` | `RetuneNewsTile` — new `scale=W:H,fps=N` rawvideo pipe |
 | `spawn` | resolve catalog/URL → `StartNewsTile` (budgeted) |
 | `encode` | frame JPEG dump **or** one-shot `ffmpeg` under `MediaKindEncode` |
+| `retarget` | **SAM bbox → ffmpeg crop+scale** on focus news tile (closed loop) |
 
 ```
 MEDIA restart focus
@@ -39,12 +40,33 @@ MEDIA recover all
 MEDIA kill news
 MEDIA retune focus 96x54@5
 MEDIA retune focus scale=128x72 fps=6
+MEDIA retarget focus crop=0.2,0.1,0.5,0.7
 MEDIA spawn aje
 MEDIA encode focus jpeg
 MEDIA encode jpeg /tmp/snap.jpg
 ```
 
 Auto (when `GY_VISION_MEDIA_AUTO=1`): unhealthy focus news/watch after a vision take → `MEDIA recover focus`.
+
+### Closed-loop retarget (SAM → crop)
+
+```
+capture → encode → infer take → SAM /segment
+       → select person/face bbox (pad + 16:9 fit)
+       → MEDIA retarget crop=x,y,w,h
+       → apply: RetuneNewsTile with crop=…,scale=…,fps
+       → focus encode now follows subject
+```
+
+| Env | Default | Role |
+|-----|---------|------|
+| `GY_VISION_RETARGET` | on | auto attach MEDIA retarget from SAM |
+| `GY_VISION_RETARGET_PAD` | 0.08 | expand bbox |
+| `GY_VISION_RETARGET_MIN` | 0.45 | min segment score |
+| `GY_VISION_RETARGET_LABEL` | person,face,human,… | preferred labels |
+| `GY_VISION_RETARGET_IOU` | 0.82 | skip if crop ≈ current |
+
+FFmpeg filter shape: `crop=floor(iw*W/2)*2:…,scale=W:H,fps=N,format=rgb24`.
 
 ## Providers (backbone)
 

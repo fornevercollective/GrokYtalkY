@@ -467,6 +467,8 @@ func RunVisionPipeline(m *Model, hint string) (VisionResult, error) {
 
 	// enrich take from side channels when model omitted lines
 	enrichTakeFromSideChannels(&res)
+	// closed-loop: SAM bbox → MEDIA retarget (crop+retune focus encode)
+	AttachRetargetToTake(m, &res)
 
 	res.Latency = time.Since(t0)
 	bus.RecordSuccessFull(label, res.Take, nB, res.Provider, res.Latency.Milliseconds())

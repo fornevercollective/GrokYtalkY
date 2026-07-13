@@ -56,7 +56,7 @@ NOTE <optional operator tip, max 60 chars>
 
 THEME <breaking|politics|conflict|markets|weather|health|science|local|culture|earthcam|unsorted>
 MUTE_HINT <none|suggest-mute|quiet|talking>
-MEDIA <restart|kill|spawn|retune|encode|recover> [focus|all|news|watch|label] [scale=WxH fps=N | WxH@fps] [source|path]
+MEDIA <restart|kill|spawn|retune|retarget|encode|recover> [focus|all|news|watch|label] [crop=x,y,w,h] [scale=WxH|WxH@fps] [source|path]
 
 Rules: no markdown fences unless PATTERN needs them; no preamble; prefer STYLE+CAPTION always when video is live.
 For news walls pick STYLE that reads well at small tile size (hex, braille, scan, dither, neon).

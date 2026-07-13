@@ -26,12 +26,13 @@ import (
 //	GY_VISION_MEDIA_AUTO=1  auto-recover unhealthy focus tile after vision take
 
 const (
-	VisionMediaRestart = "restart"
-	VisionMediaKill    = "kill"
-	VisionMediaSpawn   = "spawn"
-	VisionMediaRetune  = "retune"
-	VisionMediaEncode  = "encode"
-	VisionMediaRecover = "recover"
+	VisionMediaRestart  = "restart"
+	VisionMediaKill     = "kill"
+	VisionMediaSpawn    = "spawn"
+	VisionMediaRetune   = "retune"
+	VisionMediaEncode   = "encode"
+	VisionMediaRecover  = "recover"
+	// VisionMediaRetarget defined in vision_retarget.go (= "retarget")
 )
 
 // MediaKindEncode one-shot encode jobs under the supervisor.
@@ -39,14 +40,17 @@ const MediaKindEncode = "encode"
 
 // VisionMediaAction is one FFmpeg control-plane op from a vision/orch take.
 type VisionMediaAction struct {
-	Op     string // restart|kill|spawn|retune|encode|recover
+	Op     string // restart|kill|spawn|retune|encode|recover|retarget
 	Target string // focus|all|news|watch|<label>
 	// retune encode geometry
 	ScaleW int
 	ScaleH int
 	FPS    int
-	// spawn / retarget
-	Source string // news source id or URL
+	// SAM closed-loop crop (normalized 0–1)
+	CropX, CropY float64
+	CropW, CropH float64
+	// spawn / retarget label
+	Source string // news source id, URL, or SAM label
 	// encode
 	Format string // jpeg|png|gyst|raw
 	Out    string // optional output path
@@ -249,6 +253,8 @@ func ParseMediaLine(line string) (VisionMediaAction, bool) {
 		a.Op = VisionMediaSpawn
 	case "retune", "tune", "scale", "fps":
 		a.Op = VisionMediaRetune
+	case "retarget", "crop", "sam", "follow":
+		a.Op = VisionMediaRetarget
 	case "encode", "snap", "snapshot", "export":
 		a.Op = VisionMediaEncode
 	case "recover", "heal", "fix":
@@ -285,6 +291,12 @@ func ParseMediaLine(line string) (VisionMediaAction, bool) {
 		if strings.HasPrefix(low, "fps=") {
 			if n, err := strconv.Atoi(strings.TrimPrefix(low, "fps=")); err == nil && n > 0 {
 				a.FPS = n
+			}
+			continue
+		}
+		if strings.HasPrefix(low, "crop=") {
+			if c, ok := parseCropToken(tok); ok {
+				a.CropX, a.CropY, a.CropW, a.CropH = c.X, c.Y, c.W, c.H
 			}
 			continue
 		}
@@ -378,7 +390,7 @@ func ParseGrokTakeMedia(text string) []VisionMediaAction {
 	return out
 }
 
-// DeriveVisionMediaActions adds auto recover when focus pipe is dead.
+// DeriveVisionMediaActions adds auto recover / SAM retarget when no explicit MEDIA.
 func DeriveVisionMediaActions(m *Model, take GrokTake) []VisionMediaAction {
 	cfg := VisionMedia().Config()
 	if !cfg.Enabled || !cfg.Auto {
@@ -407,6 +419,10 @@ func DeriveVisionMediaActions(m *Model, take GrokTake) []VisionMediaAction {
 	// dead watch pipe
 	if m.vpipe != nil && !m.vpipe.Alive() && m.vpipe.VideoURL != "" {
 		return []VisionMediaAction{{Op: VisionMediaRecover, Target: "watch", Raw: "MEDIA recover watch (auto)"}}
+	}
+	// SAM closed-loop retarget from bus segments (pipeline may already attach)
+	if snap := Vision().Snapshot(); snap.LastSegN > 0 {
+		// segments only stored as counts on bus — retarget attached in pipeline
 	}
 	return nil
 }
@@ -480,6 +496,8 @@ func execVisionMediaAction(m *Model, a VisionMediaAction) (string, error) {
 		return visionMediaKill(m, target)
 	case VisionMediaRetune:
 		return visionMediaRetune(m, target, a)
+	case VisionMediaRetarget:
+		return visionMediaRetarget(m, target, a)
 	case VisionMediaSpawn:
 		return visionMediaSpawn(m, a)
 	case VisionMediaEncode:
@@ -487,6 +505,94 @@ func execVisionMediaAction(m *Model, a VisionMediaAction) (string, error) {
 	default:
 		return "", fmt.Errorf("unknown media op %q", a.Op)
 	}
+}
+
+// visionMediaRetarget crops+retunes focus encode from SAM bbox (closed loop).
+func visionMediaRetarget(m *Model, target string, a VisionMediaAction) (string, error) {
+	crop := VisionCrop{X: a.CropX, Y: a.CropY, W: a.CropW, H: a.CropH, Label: a.Source}
+	// fill crop from last global retarget / explicit bus if missing
+	if !crop.Valid() {
+		globalRetarget.mu.Lock()
+		crop = globalRetarget.last
+		globalRetarget.mu.Unlock()
+	}
+	if !crop.Valid() && a.Source != "" {
+		// label-only: can't crop without bbox
+		return "", fmt.Errorf("retarget needs crop=x,y,w,h or prior SAM bbox")
+	}
+	if !crop.Valid() {
+		return "", fmt.Errorf("no SAM crop for retarget")
+	}
+	// encode path: also allow frame-only crop snapshot
+	w, h, fps := a.ScaleW, a.ScaleH, a.FPS
+	if w == 0 {
+		w = newsTileW
+	}
+	if h == 0 {
+		h = newsTileH
+	}
+	if fps == 0 {
+		fps = newsTileFPS
+	}
+	opts := NewsTileOpts{
+		W: w, H: h, FPS: fps,
+		HasCrop: true,
+		CropX: crop.X, CropY: crop.Y, CropW: crop.W, CropH: crop.H,
+		CropLabel: crop.Label,
+	}
+	// news wall focus
+	if m.lab != nil && m.lab.News != nil && m.lab.News.On {
+		i := m.lab.Active
+		if target != "focus" && target != "active" && target != "" {
+			for j, tp := range m.lab.News.Pipes {
+				if tp != nil && (strings.EqualFold(tp.Label, target) ||
+					strings.Contains(strings.ToLower(tp.Label), strings.ToLower(target))) {
+					i = j
+					break
+				}
+			}
+		}
+		if i < 0 || i >= len(m.lab.News.Pipes) || m.lab.News.Pipes[i] == nil {
+			return "", fmt.Errorf("no focus tile for retarget")
+		}
+		tp := m.lab.News.Pipes[i]
+		nt, err := RetuneNewsTile(tp, opts)
+		if err != nil {
+			return "", err
+		}
+		m.lab.News.Pipes[i] = nt
+		if i < len(m.lab.Feeds) {
+			if fr := nt.Snapshot(); fr != nil {
+				m.lab.Feeds[i].Frame = fr
+			}
+		}
+		recordRetarget(crop, nt.Label)
+		return fmt.Sprintf("retarget news:%s crop=[%.2f,%.2f,%.2f,%.2f] %s",
+			nt.Label, crop.X, crop.Y, crop.W, crop.H, crop.Label), nil
+	}
+	// watch / main frame: soft crop into displayed frame + optional re-encode note
+	if m.frame != nil {
+		cf := CropFramePixels(m.frame, crop)
+		if cf != nil && cf != m.frame {
+			m.frame = cf
+			recordRetarget(crop, "main")
+			return fmt.Sprintf("retarget frame crop=[%.2f,%.2f,%.2f,%.2f]", crop.X, crop.Y, crop.W, crop.H), nil
+		}
+	}
+	if m.vpipe != nil {
+		// can't inject crop into running watch vf without restart API — soft frame path
+		rgb, fw, fh, _, ok := m.vpipe.Snapshot()
+		if ok && len(rgb) >= fw*fh*3 {
+			fr := &FramePixels{W: fw, H: fh, RGB: append([]byte(nil), rgb...), Source: "watch"}
+			cf := CropFramePixels(fr, crop)
+			if cf != nil {
+				m.frame = cf
+				recordRetarget(crop, "watch")
+				return fmt.Sprintf("retarget watch-frame crop=[%.2f,%.2f,%.2f,%.2f]", crop.X, crop.Y, crop.W, crop.H), nil
+			}
+		}
+	}
+	return "", fmt.Errorf("retarget needs news wall or frame")
 }
 
 func visionMediaRestart(m *Model, target string) (string, error) {
@@ -689,6 +795,12 @@ func visionMediaRetune(m *Model, target string, a VisionMediaAction) (string, er
 		fps = 15
 	}
 	opts := NewsTileOpts{W: w, H: h, FPS: fps}
+	if a.CropW > 0 && a.CropH > 0 {
+		opts.HasCrop = true
+		opts.CropX, opts.CropY = a.CropX, a.CropY
+		opts.CropW, opts.CropH = a.CropW, a.CropH
+		opts.CropLabel = a.Source
+	}
 
 	if m.lab == nil || m.lab.News == nil || !m.lab.News.On {
 		return "", fmt.Errorf("retune needs news wall")
@@ -868,6 +980,20 @@ func visionMediaEncode(m *Model, a VisionMediaAction) (string, error) {
 
 	// Frame dump path (no network) when we have RGB and format is jpeg/png
 	frame, _, _ := FocusFrameFromModel(m)
+	// closed-loop: crop focus frame to last SAM bbox before encode
+	if frame != nil && (a.CropW > 0 || LoadRetargetConfig().Enabled) {
+		crop := VisionCrop{X: a.CropX, Y: a.CropY, W: a.CropW, H: a.CropH}
+		if !crop.Valid() {
+			globalRetarget.mu.Lock()
+			crop = globalRetarget.last
+			globalRetarget.mu.Unlock()
+		}
+		if crop.Valid() {
+			if cf := CropFramePixels(frame, crop); cf != nil {
+				frame = cf
+			}
+		}
+	}
 	if frame != nil && (format == "jpeg" || format == "png" || format == "jpg") {
 		if err := writeFrameImage(frame, out, format); err != nil {
 			return "", err
@@ -996,8 +1122,9 @@ func FormatVisionMediaDoctor() string {
 	if s.LastOut != "" {
 		fmt.Fprintf(&b, "  last_out  %s\n", s.LastOut)
 	}
-	b.WriteString("  ops       MEDIA restart|kill|spawn|retune|encode|recover [target]\n")
+	b.WriteString("  ops       MEDIA restart|kill|spawn|retune|retarget|encode|recover [target]\n")
 	b.WriteString("  env       GY_VISION_MEDIA=1 · GY_VISION_MEDIA_MAX=4 · GY_VISION_MEDIA_AUTO=1\n")
-	b.WriteString("  stage     capture→encode→infer→apply(+ffmpeg)→emit\n")
+	b.WriteString("  stage     capture→encode→infer→apply(+ffmpeg/retarget)→emit\n")
+	b.WriteString(FormatRetargetDoctor())
 	return b.String()
 }
