@@ -18,6 +18,7 @@ html, body.gg-body {
 .gg-body {
   display: grid;
   grid-template-rows:
+    auto /* shared site nav */
     calc(var(--gg-header-h) + var(--gg-safe-t))
     1fr
     calc(var(--gg-footer-h) + var(--gg-safe-b));
@@ -28,6 +29,26 @@ html, body.gg-body {
 }
 
 .noise { z-index: 0; opacity: 0.03; }
+
+/* site-wide nav sits above app chrome */
+.gg-body > .nav-site-slim,
+.gg-body > #site-nav {
+  position: relative;
+  z-index: 40;
+  min-height: 40px;
+  padding: 0.45rem 0.75rem;
+  background: rgba(8, 8, 12, 0.96);
+  border-bottom: 1px solid var(--border);
+}
+.gg-body > .nav-site-slim .brand-name,
+.gg-body > #site-nav .brand-name {
+  font-size: 0.9rem;
+}
+.gg-body > .nav-site-slim nav,
+.gg-body > #site-nav nav {
+  font-size: 0.78rem;
+  gap: 0.3rem 0.7rem;
+}
 
 /* ── header (main needs) ─────────────────────────────────── */
 .gg-header {
