@@ -209,3 +209,92 @@ func logsOf(outs []sfuBridgeOut) []string {
 	}
 	return s
 }
+
+func TestBuildSfuWSURL(t *testing.T) {
+	u := BuildSfuWSURL("127.0.0.1:9880", "dojo", "bridge", "secret")
+	if !strings.Contains(u, "token=secret") || !strings.Contains(u, "room=dojo") {
+		t.Fatal(u)
+	}
+	if !strings.HasPrefix(u, "ws://") {
+		t.Fatal(u)
+	}
+	u2 := BuildSfuWSURL("ws://host:9/ws", "r", "n", "")
+	if strings.Contains(u2, "token=") {
+		t.Fatal(u2)
+	}
+}
+
+func TestMapSfuGlyphToHub(t *testing.T) {
+	g := make([]any, 13*13)
+	for i := range g {
+		g[i] = float64(i % 100)
+	}
+	outs := MapSfuMsgToHub(map[string]any{
+		"type": "glyph", "n": float64(13), "data": g, "from": "browser",
+	})
+	if len(outs) != 1 || outs[0].Msg["type"] != "vburst-frame" {
+		t.Fatalf("%+v", outs)
+	}
+	if outs[0].Msg["glyphN"] != 13 {
+		t.Fatal(outs[0].Msg)
+	}
+	// loop guard
+	if outs2 := MapSfuMsgToHub(map[string]any{
+		"type": "glyph", "n": float64(13), "data": g, "from": "sfu-bridge",
+	}); len(outs2) != 0 {
+		t.Fatal("echo")
+	}
+}
+
+func TestMapSfuChatToHub(t *testing.T) {
+	outs := MapSfuMsgToHub(map[string]any{
+		"type": "chat", "text": "hi dojo", "from": "alice", "nick": "alice",
+	})
+	if len(outs) != 1 || outs[0].Msg["type"] != "chat" {
+		t.Fatal(outs)
+	}
+}
+
+func TestMapSfuHexToHub(t *testing.T) {
+	lum := make([]byte, 13*13)
+	pkt := PacketFromHexLum(lum, 13, 1)
+	line := EncodeHexLine(pkt)
+	outs := MapSfuMsgToHub(map[string]any{
+		"type": "hex", "payload": line, "from": "peer",
+	})
+	if len(outs) != 1 {
+		t.Fatal(outs)
+	}
+	if outs[0].Msg["type"] != MeshTypeGYST && outs[0].Msg["type"] != "gyst" {
+		// PacketToMesh type
+		t.Logf("type %v", outs[0].Msg["type"])
+	}
+}
+
+func TestGenerateSfuToken(t *testing.T) {
+	a, b := GenerateSfuToken(), GenerateSfuToken()
+	if a == "" || a == b {
+		t.Fatalf("%q %q", a, b)
+	}
+	if len(a) < 16 {
+		t.Fatal(a)
+	}
+}
+
+func TestRedactTokenURL(t *testing.T) {
+	r := redactTokenURL("ws://127.0.0.1:9880/ws?room=dojo&token=sekrit")
+	if strings.Contains(r, "sekrit") {
+		t.Fatal(r)
+	}
+	// Query.Encode may percent-escape ***
+	if !strings.Contains(r, "***") && !strings.Contains(r, "%2A%2A%2A") {
+		t.Fatal(r)
+	}
+}
+
+func TestFormatSfuDoctor(t *testing.T) {
+	doc := FormatSfuDoctor()
+	if !strings.Contains(doc, "sfu") || !strings.Contains(doc, "glyph") {
+		t.Fatal(doc)
+	}
+}

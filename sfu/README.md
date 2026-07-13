@@ -79,24 +79,34 @@ SFU → client:
 
 `glyph` / `hex` frames can ride the signaling socket **or** a WebRTC DataChannel once `media` is enabled — same JSON body.
 
-## Bridge to GrokYtalkY hub
+## Bridge to GrokYtalkY hub (token + glyph DC)
 
-`gy sfu-bridge` links the DOJO hub to a gy-sfu room (signaling + media DC lanes):
+`gy sfu-bridge` links the DOJO hub to a gy-sfu room over **signaling + media DataChannels** (`glyph` · `hex` · `chat`) with shared **token** auth.
 
-| Hub message | SFU lane |
-|-------------|----------|
-| `vburst-frame.glyph` | `type:glyph` |
-| `gyst` `kind=hexlum` (forge lattice on wire) | `type:glyph` + `type:hex` |
-| `gyst` forge-mark meta | `type:chat` + `meta.mark` |
+| Direction | Message | Lane |
+|-----------|---------|------|
+| hub→sfu | `vburst-frame.glyph` | `type:glyph` (WS + DC fan-out) |
+| hub→sfu | `gyst` `kind=hexlum` | `type:glyph` + `type:hex` |
+| hub→sfu | forge-mark meta | `type:chat` + `meta.mark` |
+| sfu→hub | `type:glyph` | hub `vburst-frame` (bidi) |
+| sfu→hub | `type:hex` | hub `gyst` hexlum |
+| sfu→hub | `type:chat` | hub `chat` |
 
+```bash
+export GY_SFU_TOKEN=$(gy sfu-token)   # or gy sfu-token --export
+gy serve
+make sfu-media && ./sfu/target/release/gy-sfu --token "$GY_SFU_TOKEN"
+gy sfu-bridge --token "$GY_SFU_TOKEN" --room dojo
+# browser: site/dojo.html → token field = $GY_SFU_TOKEN
+# publisher: /forge examples/dojo.pcap  or  gy burst
+gy doctor sfu
 ```
-gy serve                 # :9876 hexcast mesh
-cargo run -p gy-sfu --features media -- --token secret
-gy sfu-bridge --sfu 'ws://127.0.0.1:9880/ws?room=dojo&nick=bridge&token=secret'
-# publisher: gy → /forge examples/dojo.pcap   or  gy burst
-```
 
-Terminal clients stay on the hub; browser/WebRTC peers consume glyph|hex DCs. Lattice watermark bytes are not recomputed — they pass through unchanged.
+Join auth: `?token=` on WS URL **and/or** `{"type":"join","token":"…"}`.  
+Welcome includes `auth: true` when the SFU requires a token.  
+Glyph grids on the wire are **JSON number arrays** (not base64) so DC + bridge stay aligned.
+
+Terminal clients stay on the hub; browser/WebRTC peers use glyph|hex DCs. Lattice watermark bytes pass through unchanged.
 
 ## Concurrency targets
 

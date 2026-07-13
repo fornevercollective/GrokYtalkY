@@ -9,7 +9,7 @@ No X API credentials in this environment — post manually from the fornevercoll
 ICE queuing fix + outbound SFU DCs first was the right call — glyph + chat fan-out rock solid on both sides (`make sfu-e2e`).
 
 gy-sfu: client offer→answer, WS ICE, RTP fan-out, glyph/chat DataChannels.
-Auth token + hub→SFU glyph bridge next: `gy sfu-bridge`.
+Auth token + hub↔SFU glyph bridge: `gy sfu-token` · `gy sfu-bridge --token` · dojo.html token field.
 
 github.com/fornevercollective/GrokYtalkY · dojo.html two-tab A/V
 

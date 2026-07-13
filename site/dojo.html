@@ -101,7 +101,8 @@
     <p class="hint">
       <code>make sfu-media && ./sfu/target/release/gy-sfu --bind 0.0.0.0:9880</code><br />
       Offer without <code>to</code> → SFU answers. Outbound DCs: <code>glyph</code> · <code>hex</code> · <code>chat</code>.
-      Auth tokens still deferred. Hybrid CF path unchanged for 1k+ viewers.
+      Token: same <code>GY_SFU_TOKEN</code> as <code>gy-sfu --token</code> / <code>gy sfu-bridge --token</code> (query <code>?token=</code>).
+      Hub bridge: <code>gy sfu-bridge</code> fans glyph DC ↔ terminal mesh.
     </p>
   </main>
   <script src="dojo-room.js"></script>

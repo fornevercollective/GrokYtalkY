@@ -182,7 +182,8 @@
     if (msg.type === "welcome") {
       state.peerId = msg.peer_id;
       setStatus(
-        `joined ${msg.room} · peer ${msg.peer_id.slice(0, 8)} · media=${msg.media}`,
+        `joined ${msg.room} · peer ${String(msg.peer_id).slice(0, 8)} · media=${msg.media}` +
+          (msg.auth ? " · auth" : ""),
         msg.media ? "live" : "err",
       );
       if (!msg.media) {
@@ -251,7 +252,19 @@
     setStatus("connecting " + u);
     const ws = new WebSocket(u.toString());
     state.ws = ws;
-    ws.onopen = () => setStatus("ws open · waiting welcome", "live");
+    ws.onopen = () => {
+      setStatus("ws open · join" + (token ? " +token" : ""), "live");
+      // join.token mirrors ?token= (SFU accepts either)
+      ws.send(
+        JSON.stringify({
+          type: "join",
+          room: room,
+          nick: nick,
+          lanes: ["glyph", "hex", "chat"],
+          ...(token ? { token } : {}),
+        }),
+      );
+    };
     ws.onerror = () => setStatus("ws error", "err");
     ws.onclose = () => setStatus("ws closed", "err");
     ws.onmessage = async (ev) => {

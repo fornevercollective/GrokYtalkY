@@ -142,7 +142,8 @@ func helpBodyStream() string {
   gy stream-x init|start|offer       reusable Media Studio publisher
   gy space · gy space-rtmp           ca.pscp.tv RTMP/RTMPS
   gy doctor reliability · metrics   process health / prom text
-  gy doctor plugins · space · vision registry + Spaces + vision bus
+  gy doctor plugins · space · vision · sfu  registry + Spaces + vision + SFU
+  gy sfu-token · sfu-bridge --token  SFU auth + hub↔glyph DC
   /social @user      social handle · lazy lab fill
   /duplex            open-mic full duplex (RX duck)
   /meshmidi          Strudel/walkie → hub type:midi

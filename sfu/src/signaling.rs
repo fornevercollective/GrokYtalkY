@@ -66,6 +66,8 @@ pub enum ClientMsg {
     },
     Glyph {
         n: u32,
+        /// luminance grid — JSON number array (not base64)
+        #[serde(with = "u8_seq")]
         data: Vec<u8>,
     },
     Hex {
@@ -95,6 +97,9 @@ pub enum ServerMsg {
         room: String,
         media: bool,
         lanes: Vec<String>,
+        /// true when SFU was started with --token / GY_SFU_TOKEN
+        #[serde(default)]
+        auth: bool,
     },
     PeerJoined {
         peer_id: Uuid,
@@ -119,6 +124,8 @@ pub enum ServerMsg {
     Glyph {
         from: Uuid,
         n: u32,
+        /// luminance grid as JSON number array (matches bridge + dojo.html)
+        #[serde(with = "u8_seq")]
         data: Vec<u8>,
     },
     Hex {
@@ -136,6 +143,55 @@ pub enum ServerMsg {
     Error {
         message: String,
     },
+}
+
+/// Serialize/deserialize Vec<u8> as JSON number arrays (not base64).
+mod u8_seq {
+    use serde::de::{self, SeqAccess, Visitor};
+    use serde::{Deserializer, Serializer};
+    use std::fmt;
+
+    pub fn serialize<S>(data: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        use serde::ser::SerializeSeq;
+        let mut seq = serializer.serialize_seq(Some(data.len()))?;
+        for b in data {
+            seq.serialize_element(b)?;
+        }
+        seq.end()
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct U8SeqVisitor;
+        impl<'de> Visitor<'de> for U8SeqVisitor {
+            type Value = Vec<u8>;
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("byte array as JSON numbers or base64 string")
+            }
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let mut out = Vec::with_capacity(seq.size_hint().unwrap_or(0));
+                while let Some(v) = seq.next_element::<u64>()? {
+                    out.push((v & 0xff) as u8);
+                }
+                Ok(out)
+            }
+            fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(v.to_vec())
+            }
+        }
+        deserializer.deserialize_any(U8SeqVisitor)
+    }
 }
 
 pub async fn ws_handler(
@@ -362,6 +418,7 @@ async fn try_join(
                     room: room.clone(),
                     media: state.media_enabled,
                     lanes: peer_lanes.to_vec(),
+                    auth: !state.token.is_empty(),
                 })
                 .ok();
             for o in &others {
