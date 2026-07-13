@@ -154,7 +154,7 @@ open site/dojo.html   # Join · allow cam · Send glyph pulse · chat
 - [x] STUN + optional TURN env  
 - [x] E2E demo: [`site/dojo.html`](../site/dojo.html)  
 - [x] Auth token (`--token` / `GY_SFU_TOKEN` / `?token=`)  
-- [x] Hub glyph bridge: `gy sfu-bridge` (vburst-frame.glyph → room)  
+- [x] Hub glyph/hex bridge: `gy sfu-bridge` (vburst + gyst hexlum lattice + forge-mark)  
 - [ ] Metrics
 
 ## License
