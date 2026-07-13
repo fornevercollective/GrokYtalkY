@@ -18,6 +18,23 @@ func TestMajorNewsSources(t *testing.T) {
 			t.Fatal(a.URL)
 		}
 	}
+	ext := ExtendedNewsSources()
+	if len(ext) < 20 {
+		t.Fatalf("extended catalog small: %d", len(ext))
+	}
+	// weather + public present
+	var hasW, hasP bool
+	for _, a := range ext {
+		if a.Region == "weather" {
+			hasW = true
+		}
+		if a.Region == "public" {
+			hasP = true
+		}
+	}
+	if !hasW || !hasP {
+		t.Fatal("want weather + public regions in extended")
+	}
 }
 
 func TestFilterNewsSources(t *testing.T) {

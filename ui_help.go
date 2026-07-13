@@ -128,7 +128,8 @@ func helpBodyStream() string {
 	return `stream · binary · colossus
   /watch url|file|@u ffmpeg (+ yt-dlp · live first)
   /pip · /popout · O  macOS QuickTime PiP pop-out
-  /news [us|eu|all N]  glyph news wall (agencies)
+  /news [us|eu|weather|all N]  glyph news wall (world catalog)
+  site/livenews.html   world news+weather+public · main swap · theme clump
   /media · H           ffmpeg supervisor health
   R restart tile · K kill pipe (lab/news)
   /orch [hint] · *     Grok take: STYLE/CAPTION/PATTERN/GLYPH

@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Live News · Glyph wall · GrokYtalkY</title>
-  <meta name="description" content="Major news broadcasters as 25×25 Glyph Matrix previews — collapsible region rows like GrokGlyph. Stress-test the feed pipeline." />
+  <title>Live News · World glyph wall · GrokYtalkY</title>
+  <meta name="description" content="Global news, weather, and public-access streams as 25×25 Glyph Matrix tiles. Main swap column, theme clusters for AI captions/transcripts." />
   <meta name="theme-color" content="#0c0c0f" />
   <link rel="canonical" href="https://fornevercollective.github.io/GrokYtalkY/livenews.html" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -32,38 +32,74 @@
   </header>
 
   <main class="ln-page">
-    <p class="eyebrow">glyph wall · major agencies · pipeline stress</p>
+    <p class="eyebrow">world · news · weather · public access · theme clusters</p>
     <h1>Live News · Glyph Matrix</h1>
     <p class="ln-lede">
-      All major 24/7 streams as <strong>25×25 luminance</strong> tiles — collapsible region rows
-      (same vocabulary as <a href="grokglyph.html">GrokGlyph</a>). Connect a hub running
-      <code>gy serve</code> + <code>/news</code> wall to drive real frames; offline mode animates
-      agency posters so you can stress the mesh with many joiners.
+      Streaming news, weather, and public-access stations worldwide as
+      <strong>25×25 luminance</strong> tiles. Collapsible sections with
+      <strong>refresh</strong>. Main column (like Burst Speakers) swaps the active mosaic —
+      ready for live AI captioning / transcripts to <strong>auto-sort and cluster by theme</strong>.
     </p>
 
     <div class="ln-toolbar" role="toolbar" aria-label="News wall controls">
       <button type="button" class="btn primary" id="ln-connect">Connect hub</button>
       <button type="button" class="btn ghost" id="ln-expand">Expand all</button>
       <button type="button" class="btn ghost" id="ln-collapse">Collapse all</button>
-      <button type="button" class="btn ghost" id="ln-stress" title="Spawn local stress viewers on mesh">Stress join +8</button>
+      <button type="button" class="btn ghost" id="ln-refresh-all" title="Refresh all sections">↻ All</button>
+      <button type="button" class="btn ghost" id="ln-stress" title="Stress mesh joiners">Stress +8</button>
       <label class="btn ghost" style="font-size:0.68rem">
         Hub
-        <input type="text" id="ln-hub" placeholder="ws://127.0.0.1:9876" style="width:11rem;margin-left:0.35rem" />
+        <input type="text" id="ln-hub" placeholder="ws://127.0.0.1:9876" style="width:10rem;margin-left:0.35rem" />
       </label>
-      <span class="ln-meta" id="ln-meta">idle · <em>0</em> tiles · poster mode</span>
+      <label class="btn ghost" style="font-size:0.68rem">
+        Sort
+        <select id="ln-sort" style="margin-left:0.35rem">
+          <option value="region">by region</option>
+          <option value="theme">by theme (AI)</option>
+          <option value="kind">by kind</option>
+          <option value="alpha">A–Z</option>
+        </select>
+      </label>
+      <button type="button" class="btn ghost" id="ln-theme-demo" title="Inject demo captions to show clustering">Demo themes</button>
+      <button type="button" class="btn ghost" id="ln-cluster" title="Re-cluster main column from captions">Cluster now</button>
+      <span class="ln-meta" id="ln-meta">idle · 0 tiles</span>
     </div>
 
-    <div id="ln-regions" aria-label="News regions"></div>
+    <div class="ln-layout">
+      <!-- Main column · Speakers-style 25×25 swap mosaic -->
+      <aside class="ln-main-col" aria-label="Main glyph column">
+        <div class="ln-main-head">
+          <h2>Main · Glyph Matrix 25×25</h2>
+          <span class="ln-main-sub" id="ln-main-sub">swap · pin · theme clump</span>
+        </div>
+        <div class="ln-main-tools">
+          <button type="button" class="btn ghost" id="ln-main-shuffle" title="Shuffle main column">Shuffle</button>
+          <button type="button" class="btn ghost" id="ln-main-cycle" title="Cycle next page of feeds">Cycle ▸</button>
+          <button type="button" class="btn ghost" id="ln-main-clear">Clear pins</button>
+          <button type="button" class="btn ghost" id="ln-main-fill" title="Fill main from current sort">Fill from sort</button>
+        </div>
+        <div class="speaker-grid ln-main-grid" id="ln-main-grid" role="list" aria-label="Main feed mosaic"></div>
+        <div class="ln-theme-bar" id="ln-theme-bar" aria-label="Theme clusters"></div>
+        <p class="ln-main-hint">
+          Click a section tile to <strong>pin → main</strong>. With hub captions
+          (<code>news-caption</code> / <code>news-transcript</code>), sort →
+          <em>by theme</em> clumps related stories. Terminal: <code>gy lab</code> · <code>/news</code>
+        </p>
+      </aside>
+
+      <!-- Collapsible world sections -->
+      <div class="ln-side" id="ln-regions" aria-label="News regions"></div>
+    </div>
 
     <p class="ln-hint">
-      Terminal: <code>gy lab</code> · <code>/news</code> · <code>gy doctor</code> media<br />
-      Sources mirror <code>MajorNewsSources()</code> in <code>news_wall.go</code>.
-      Open on X / YouTube via tile ↗. Join many listeners from <a href="burst.html">Burst → Listeners</a>
-      or <a href="grokglyph.html">GrokGlyph</a> to stress-test the feed pipeline.
+      Catalog: news + weather + public access / PEG / government worldwide.
+      Refresh per section re-seeds posters + clears stale hub frames.
+      AI path: pipe captions via hub → auto theme cluster in the main column.
     </p>
   </main>
 
   <script src="news-sources.js"></script>
+  <script src="news-theme.js"></script>
   <script src="glyph-shared.js"></script>
   <script src="livenews.js"></script>
 </body>

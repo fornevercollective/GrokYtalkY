@@ -106,9 +106,18 @@ Same mesh as walkie chat; optional whisper translate still hooks PTT release on 
 
 ## Live News wall
 
-Separate page: [`site/livenews.html`](../site/livenews.html) — all major agency streams as
-**25×25 Glyph Matrix** tiles in collapsible region rows (US / EU / ME / Asia / World).
-Mirrors `MajorNewsSources()` in `news_wall.go`. Hub connect + **Stress join** for pipeline load.
+Separate page: [`site/livenews.html`](../site/livenews.html) — **global** news, weather, and
+public-access / PEG / government streams as **25×25 Glyph Matrix** tiles.
+
+| Feature | Detail |
+|---------|--------|
+| Catalog | `site/news-sources.js` (world regions + weather + public) |
+| Sections | Collapsible rows · **↻ refresh** each · **→ main** swaps section into mosaic |
+| Main column | Speakers-style Glyph grid · pin / shuffle / cycle / fill from sort |
+| Theme AI | Captions/transcripts → `news-theme.js` clusters (breaking, politics, markets, weather…) |
+| Hub | `news-caption` · `news-transcript` · `vburst-frame` |
+
+Demo: **Demo themes** injects sample captions → sort **by theme** → **Cluster now**.
 
 ## X Spaces stage (burst page)
 
