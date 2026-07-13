@@ -1,6 +1,6 @@
 {
   "name": "GrokYtalkY powerhouse protocol",
-  "version": "1.36.0",
+  "version": "1.42.0",
   "hub": {
     "default": "ws://127.0.0.1:9876/",
     "env": "GY_HUB"
@@ -8,17 +8,39 @@
   "mesh_types": {
     "program": {
       "owner": "gy conductor",
-      "fields": ["mode", "program", "preview", "caption", "conductor", "seq"],
-      "consumers": ["gy venue", "qbpm-gy-bridge", "blank multiview", "sfu-bridge"]
+      "fields": ["mode", "program", "preview", "caption", "caption_meta", "conductor", "seq"],
+      "consumers": ["gy venue", "gy TUI", "qbpm-gy-bridge", "blank multiview", "GrokGlyph", "sfu-bridge"]
+    },
+    "program-caption": {
+      "owner": "chat-bridge --program-caption (opt-in)",
+      "note": "caption-only merge; does not change PGM/PVW/mode; hub re-fans type:program",
+      "fields": ["text", "caption", "caption_meta", "lang", "role", "speaker", "source"],
+      "consumers": ["hub store", "venue OnANC via program"]
+    },
+    "caption": {
+      "owner": "UI / chat-bridge --caption-event",
+      "note": "informational only — no program bus authority",
+      "consumers": ["gy TUI soft line", "GrokGlyph caption bar", "gy agent"]
     },
     "gyst": {
       "kinds": ["hexlum", "rgb24", "jpeg", "meta", "pcm16"],
       "forge": "cgf: marks + lattice on hexlum",
-      "consumers": ["dual Glyph", "gy agent", "sfu glyph/hex"]
+      "hexlum_lane": "vburst-frame.glyph promotes to gyst hexlum unless hex_lane skip",
+      "consumers": ["dual Glyph", "gy agent", "sfu glyph/hex", "GrokGlyph RX"]
+    },
+    "vburst-frame": {
+      "fields": ["glyph", "glyphN", "b64", "hex_lane"],
+      "note": "walkie + optional hub hexlum promote"
     },
     "chat": {
       "consumers": ["gy TUI", "Space chat-bridge", "blank thread"]
     }
+  },
+  "caption_meta": {
+    "fields": ["text", "lang", "role", "speaker", "source"],
+    "roles": ["lower", "upper", "crawl", "chyron", "speaker"],
+    "sources": ["manual", "chat", "xl8", "bridge", "program"],
+    "anc_udw": "plain UTF-8 or 0xC1+JSON rich (SDID 0x05)"
   },
   "anc": {
     "did": "0x5F",
@@ -47,6 +69,10 @@
     "qbpm": {
       "path": "~/Projects/Qbpm",
       "hook": "static/gy-program-bridge.js · window.qbpmGy"
+    },
+    "grokglyph": {
+      "path": "site/grokglyph.html",
+      "hook": "PWA · cam/cast/hub · roster search · caption bar"
     }
   },
   "ports": {

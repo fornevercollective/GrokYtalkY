@@ -239,6 +239,18 @@ func MapHubMsgToAgentEvents(raw []byte) []GlyphAgentEvent {
 		}
 	case "program":
 		if bus, ok := ParseProgramBus(msg); ok {
+			eff := bus.EffectiveCaption()
+			meta := map[string]any{
+				"conductor": bus.Conductor,
+				"seq":       bus.Seq,
+				"program":   bus.Program,
+				"preview":   bus.Preview,
+				"venue":     bus.VenueAdapterHint(),
+			}
+			if !eff.IsEmpty() {
+				meta["caption"] = eff.Text
+				meta["caption_meta"] = eff
+			}
 			out = append(out, GlyphAgentEvent{
 				Type:   "program",
 				From:   from,
@@ -248,12 +260,31 @@ func MapHubMsgToAgentEvents(raw []byte) []GlyphAgentEvent {
 				Source: bus.Program.Source,
 				OnAir:  bus.Mode == ProgramModeLive || bus.Mode == ProgramModeHold,
 				T:      bus.T,
+				Meta:   meta,
+			})
+			if !eff.IsEmpty() {
+				out = append(out, GlyphAgentEvent{
+					Type: "caption",
+					From: from,
+					T:    bus.T,
+					Meta: map[string]any{
+						"text": eff.Text, "lang": eff.Lang, "role": eff.Role,
+						"speaker": eff.Speaker, "source": eff.Source,
+						"display": eff.Display(), "seq": bus.Seq,
+					},
+				})
+			}
+		}
+	case "caption":
+		if cap, ok := ParseCaptionFromMesh(msg); ok && !cap.IsEmpty() {
+			out = append(out, GlyphAgentEvent{
+				Type: "caption",
+				From: from,
+				T:    time.Now().UnixMilli(),
 				Meta: map[string]any{
-					"conductor": bus.Conductor,
-					"seq":       bus.Seq,
-					"program":   bus.Program,
-					"preview":   bus.Preview,
-					"venue":     bus.VenueAdapterHint(),
+					"text": cap.Text, "lang": cap.Lang, "role": cap.Role,
+					"speaker": cap.Speaker, "source": cap.Source,
+					"display": cap.Display(), "soft": true,
 				},
 			})
 		}

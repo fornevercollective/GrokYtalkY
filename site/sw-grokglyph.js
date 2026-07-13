@@ -1,5 +1,5 @@
 /* GrokGlyph service worker — cache shell for offline PWA */
-const CACHE = "grokglyph-v5";
+const CACHE = "grokglyph-v6";
 const PRECACHE = [
   "./grokglyph.html",
   "./grokglyph.js",

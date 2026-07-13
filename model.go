@@ -2237,6 +2237,7 @@ func (m *Model) applyProgramBus(bus ProgramBus, from string) {
 	if bus.Seq > 0 && m.program.Seq > 0 && bus.Seq < m.program.Seq {
 		return
 	}
+	prevCap := m.program.EffectiveCaption()
 	m.program = bus
 	if from != "" && bus.Conductor == "" {
 		m.program.Conductor = from
@@ -2251,12 +2252,26 @@ func (m *Model) applyProgramBus(bus ProgramBus, from string) {
 			}
 		}
 	}
+	// surface caption changes (chat-bridge --program-caption · /caption remote)
+	nextCap := m.program.EffectiveCaption()
+	if nextCap.Text != prevCap.Text || nextCap.Speaker != prevCap.Speaker || nextCap.Lang != prevCap.Lang {
+		if nextCap.IsEmpty() {
+			if !prevCap.IsEmpty() {
+				m.pushSys("◈ caption clear (mesh)")
+			}
+		} else {
+			m.pushSys("◈ " + FormatCaptionLine(nextCap))
+		}
+	}
 }
 
 func (m *Model) pushProgramStatus() {
 	m.pushSys(FormatProgramLine(m.program))
 	if m.program.Preview != nil {
 		m.pushSys("◈ PVW " + FormatProgramSource(*m.program.Preview))
+	}
+	if eff := m.program.EffectiveCaption(); !eff.IsEmpty() {
+		m.pushSys("◈ " + FormatCaptionLine(eff))
 	}
 	who := "viewer"
 	if m.conductor {
@@ -2844,7 +2859,7 @@ func (m *Model) handleWS(raw []byte) (tea.Model, tea.Cmd) {
 			m.applyRoomGlyphN()
 		}
 	case "program":
-		// conductor program bus — venue sinks + dual follow
+		// conductor program bus — venue sinks + dual follow + caption
 		from, _ := msg["from"].(string)
 		if bus, ok := ParseProgramBus(msg); ok {
 			// ignore echo of our own higher/equal if we are conductor racing
@@ -2852,10 +2867,25 @@ func (m *Model) handleWS(raw []byte) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			prevSeq := m.program.Seq
+			prevMode := m.program.Mode
+			prevSrc := m.program.Program.Mark
 			m.applyProgramBus(bus, from)
-			if bus.Seq != prevSeq || bus.Mode != "" {
+			// status line on cut / mode / seq (caption already pushed in applyProgramBus)
+			if bus.Seq != prevSeq || bus.Mode != prevMode || bus.Program.Mark != prevSrc {
 				m.pushSys(FormatProgramLine(m.program))
 				m.status = fmt.Sprintf("PGM %s", FormatProgramSource(m.program.Program))
+				if eff := m.program.EffectiveCaption(); !eff.IsEmpty() {
+					m.status = truncate(eff.Display(), 28)
+				}
+			}
+		}
+	case "caption":
+		// informational caption (UI) — no program authority; show soft line
+		if cap, ok := ParseCaptionFromMesh(msg); ok && !cap.IsEmpty() {
+			from, _ := msg["from"].(string)
+			if from != "" && from != m.nick {
+				m.pushSys("◈ " + FormatCaptionLine(cap) + " · soft")
+				m.status = truncate(cap.Display(), 28)
 			}
 		}
 	case "leave":

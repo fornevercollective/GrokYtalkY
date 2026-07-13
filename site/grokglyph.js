@@ -60,6 +60,9 @@
     drawerToggle: document.getElementById("gg-drawer-toggle"),
     drawerHandle: document.getElementById("gg-drawer-handle"),
     drawerScrim: document.getElementById("gg-drawer-scrim"),
+    captionBar: document.getElementById("gg-caption-bar"),
+    captionMeta: document.getElementById("gg-caption-meta"),
+    captionText: document.getElementById("gg-caption-text"),
   };
 
   const sampleCtx = els.sample
@@ -687,6 +690,76 @@
         });
       }
     }
+    // on-air caption (program bus full update or soft type:caption)
+    if (typ === "program") {
+      applyProgramCaption(msg);
+    }
+    if (typ === "caption") {
+      showCaptionBar({
+        text: msg.text || msg.caption || "",
+        lang: msg.lang || "",
+        role: msg.role || "",
+        speaker: msg.speaker || from,
+        source: msg.source || "chat",
+        soft: true,
+      });
+    }
+  }
+
+  function applyProgramCaption(msg) {
+    const bus = msg.bus || msg;
+    if (!bus || typeof bus !== "object") return;
+    let meta = bus.caption_meta;
+    if (meta && typeof meta === "object") {
+      showCaptionBar({
+        text: meta.text || bus.caption || "",
+        lang: meta.lang || "",
+        role: meta.role || "",
+        speaker: meta.speaker || "",
+        source: meta.source || "program",
+        soft: false,
+      });
+      return;
+    }
+    const text = (bus.caption || "").trim();
+    if (!text) {
+      hideCaptionBar();
+      return;
+    }
+    showCaptionBar({
+      text: text,
+      lang: "",
+      role: "",
+      speaker: "",
+      source: "program",
+      soft: false,
+    });
+  }
+
+  function showCaptionBar(c) {
+    if (!els.captionBar || !els.captionText) return;
+    const text = (c.text || "").trim();
+    if (!text) {
+      hideCaptionBar();
+      return;
+    }
+    els.captionBar.hidden = false;
+    els.captionText.textContent = c.speaker ? c.speaker + ": " + text : text;
+    const bits = [];
+    if (c.soft) bits.push("soft");
+    if (c.source) bits.push(c.source);
+    if (c.lang) bits.push(c.lang);
+    if (c.role) bits.push(c.role);
+    if (els.captionMeta) {
+      els.captionMeta.textContent = bits.length ? bits.join(" · ") : "caption";
+    }
+  }
+
+  function hideCaptionBar() {
+    if (!els.captionBar) return;
+    els.captionBar.hidden = true;
+    if (els.captionText) els.captionText.textContent = "";
+    if (els.captionMeta) els.captionMeta.textContent = "";
   }
 
   function findPeerByNick(nick) {

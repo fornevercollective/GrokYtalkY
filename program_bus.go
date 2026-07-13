@@ -167,8 +167,12 @@ func FormatProgramLine(b ProgramBus) string {
 	if cond == "" {
 		cond = "—"
 	}
-	return fmt.Sprintf("◈ program %s · %s · cond %s · seq %d",
+	line := fmt.Sprintf("◈ program %s · %s · cond %s · seq %d",
 		mode, FormatProgramSource(b.Program), truncate(cond, 12), b.Seq)
+	if eff := b.EffectiveCaption(); !eff.IsEmpty() {
+		line += " · " + truncate(FormatCaptionLine(eff), 40)
+	}
+	return line
 }
 
 // FormatProgramSource short source identity.
