@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>GrokYtalkY · fornevercollective</title>
-  <meta name="description" content="Grok companion — multi-feed simulcast wall, size/FPS/style controls, Charm dock." />
+  <title>GrokYtalkY · terminal companion · fornevercollective</title>
+  <meta name="description" content="GrokYtalkY — terminal walkie, Glyph Matrix, X Spaces stage, world live news wall, DOJO mesh, stream-x asset to X.com. Install gy and ship." />
   <meta name="theme-color" content="#0c0c0f" />
   <link rel="canonical" href="https://fornevercollective.github.io/GrokYtalkY/" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -21,30 +21,40 @@
       <span class="brand-name">GrokYtalkY</span>
     </a>
     <nav>
-      <a href="#conversation">VWall</a>
-      <a href="burst.html">Burst</a>
-      <a href="livenews.html">Live News</a>
-      <a href="grokglyph.html">GrokGlyph</a>
-      <a href="mid-lane.html">Mid-lane</a>
-      <a href="chat.html">Chat</a>
-      <a href="dojo.html">DOJO</a>
+      <a href="#conversation">Live</a>
+      <a href="#sections">Sections</a>
+      <a href="#keypoints">Keypoints</a>
       <a href="#install">Install</a>
+      <a href="burst.html">Burst</a>
+      <a href="livenews.html">News</a>
+      <a href="grokglyph.html">Glyph</a>
+      <a href="dojo.html">DOJO</a>
       <a href="docs.html">Docs</a>
       <a href="https://github.com/fornevercollective/GrokYtalkY" rel="noopener">GitHub</a>
     </nav>
   </header>
 
   <main id="top">
+    <!-- ── Hero + VWall demo (#conversation) ── -->
     <section id="conversation" class="hero-convo">
       <div class="convo-copy-top">
-        <p class="eyebrow">fornevercollective · vwall simulcast</p>
-        <h1>Multi-feed wall. Tunable stream.</h1>
+        <p class="eyebrow">fornevercollective · gy terminal companion · v1.65</p>
+        <h1>Terminal walkie. Glyph mesh. Live news wall. Stream to X.</h1>
         <p class="lede">
-          Overview-style simulcast: size, FPS, and style (half / blocks / points / ascii / halftone).
-          Terminal on the left mirrors the active feed. Camera optional — sim when blocked.
+          Charm dock + multi-feed simulcast: size, FPS, and style (half / hex / braille / ascii / …).
+          Hold to burst · seat on Spaces · pin world news into a 25×25 mosaic · publish RTMP when your
+          Media Studio key is ready. One binary: <code>gy</code>.
         </p>
 
-        <!-- stream controls (vwall / VideoFeedsLab inspired) -->
+        <div class="home-quick-links" aria-label="Jump to product surfaces">
+          <a class="hq-chip" href="burst.html">Burst · Spaces</a>
+          <a class="hq-chip" href="livenews.html">Live News</a>
+          <a class="hq-chip" href="grokglyph.html">GrokGlyph PWA</a>
+          <a class="hq-chip" href="dojo.html">DOJO SFU</a>
+          <a class="hq-chip" href="chat.html">Space chat</a>
+          <a class="hq-chip" href="#install">Install gy</a>
+        </div>
+
         <div class="vwall-controls" role="group" aria-label="Stream controls">
           <label class="vctrl">
             <span>Size</span>
@@ -86,31 +96,30 @@
             + Video file
             <input type="file" id="file-video" accept="video/*,.mp4,.mkv,.mov,.webm" hidden />
           </label>
-          <a class="btn ghost" href="docs.html">Open docs →</a>
+          <a class="btn ghost" href="#install">Terminal install →</a>
+          <a class="btn ghost" href="docs.html">Docs →</a>
         </div>
-        <p class="stream-status" id="stream-status">vwall ready</p>
+        <p class="stream-status" id="stream-status">vwall ready · drop image/video onto the wall</p>
       </div>
 
       <div class="dual-stage">
-        <!-- LEFT: terminal + feed mirror -->
         <div class="term term-preview term-left" id="terminal" aria-label="GrokYtalkY terminal">
           <div class="term-bar">
             <span></span><span></span><span></span>
-            <code>grokytalky · companion dock</code>
+            <code>gy · companion dock</code>
           </div>
           <div class="term-cam">
             <canvas id="term-canvas" width="160" height="72" aria-label="Active feed mirror"></canvas>
             <span class="term-cam-label" id="term-cam-label">vwall · half · 64</span>
           </div>
-          <pre class="term-body"><span class="c-dim">◈ gy</span> <span class="c-live">●</span> <span class="c-tab">chat</span><span class="c-dim">│</span><span class="c-tab on">live</span><span class="c-dim">│</span><span class="c-tab">grok</span><span class="c-dim">│</span><span class="c-tab">watch</span>
-<span class="c-dim">▶ s("bd*4, [~ sd]*2")  cyc=12  hit=drum bd</span>
+          <pre class="term-body"><span class="c-dim">◈ gy</span> <span class="c-live">●</span> <span class="c-tab">chat</span><span class="c-dim">│</span><span class="c-tab on">live</span><span class="c-dim">│</span><span class="c-tab">lab</span><span class="c-dim">│</span><span class="c-tab">burst</span>
+<span class="c-dim">▶ s("bd*4, [~ sd]*2")  · /news · /space · /orch</span>
 <span class="c-live">█</span><span class="c-dim">····</span><span class="c-live">█</span><span class="c-dim">····</span><span class="c-live">█</span><span class="c-dim">····</span><span class="c-accent">│</span><span class="c-dim">···</span>
-<span class="c-dim">· companion · mesh :9876 · midi GrokYtalkY</span>
-<span class="c-dim">· feed: <span id="term-feed-line">2×half@12</span> · size/fps/style</span>
-<span class="c-grok">✦ grok</span><span class="c-dim"> ›</span> make a house pattern at 124 bpm<span class="cursor">█</span></pre>
+<span class="c-dim">· mesh :9876 · stream-x · media supervisor</span>
+<span class="c-dim">· feed: <span id="term-feed-line">2×half@12</span> · plugins · reliability</span>
+<span class="c-grok">✦ grok</span><span class="c-dim"> ›</span> STYLE / CAPTION / PATTERN take<span class="cursor">█</span></pre>
         </div>
 
-        <!-- RIGHT: multi-feed wall + chat -->
         <div class="stream-hero" id="stream-hero">
           <div class="stream-chrome">
             <span class="pill live-pill on" id="live-pill">● live</span>
@@ -127,36 +136,277 @@
       </div>
     </section>
 
-    <section id="install" class="section">
-      <p class="section-label">Install</p>
-      <h2>Companion dock + mesh hub</h2>
-      <div class="install">
-        <pre class="code-block"><code>git clone https://github.com/fornevercollective/GrokYtalkY.git
-cd GrokYtalkY
-make install                  # → ~/.local/bin/gy
-# or: gy install · gy update · gy upgrade
-#     gy clean install · gy uninstall
-#     gy install dependencies [--yes]
-gy                            # companion dock (auto-update)
-gy serve                      # hub + site/ (GrokGlyph PWA)
-gy watch clip.mp4</code></pre>
+    <!-- ── All sections showcase ── -->
+    <section id="sections" class="section home-section">
+      <p class="section-label">Sections</p>
+      <h2>Everything on the site + in <code>gy</code></h2>
+      <p class="section-lead">
+        Web surfaces for demos and stress tests; the same mesh protocols power the terminal lab,
+        burst orb, news wall, and X Spaces stage.
+      </p>
+      <div class="feat-grid">
+        <a class="feat-card" href="#conversation">
+          <span class="feat-icon">▣</span>
+          <h3>VWall / Lab</h3>
+          <p>Multi-feed simulcast · size · FPS · style · layout. Terminal lab: <code>gy lab</code> · <code>V</code>.</p>
+        </a>
+        <a class="feat-card" href="burst.html">
+          <span class="feat-icon">◎</span>
+          <h3>Burst · Spaces</h3>
+          <p>Hold-to-talk Glyph orb · host/co-host circles · 10 speaker tiles · listener grid · RTMP/RTMPS to X.</p>
+        </a>
+        <a class="feat-card" href="livenews.html">
+          <span class="feat-icon">▤</span>
+          <h3>Live News</h3>
+          <p>~165 world news + weather + public-access streams as 25×25 glyphs · main swap · theme clusters.</p>
+        </a>
+        <a class="feat-card" href="grokglyph.html">
+          <span class="feat-icon">◈</span>
+          <h3>GrokGlyph PWA</h3>
+          <p>Mesh cast · geo rooms · resolution ladder · mobile double-stack · installable app.</p>
+        </a>
+        <a class="feat-card" href="dojo.html">
+          <span class="feat-icon">⬡</span>
+          <h3>DOJO</h3>
+          <p>Private SFU room · WebRTC + glyph/chat data channels · 16–32 peer jam.</p>
+        </a>
+        <a class="feat-card" href="chat.html">
+          <span class="feat-icon">☰</span>
+          <h3>Space chat</h3>
+          <p>Public CF Space path + DOJO hub · caption bridge · same JSON envelope.</p>
+        </a>
+        <a class="feat-card" href="mid-lane.html">
+          <span class="feat-icon">⇄</span>
+          <h3>Mid-lane</h3>
+          <p>Edge publish hooks · Cloudflare mid-lane worker · hybrid fan-out plane.</p>
+        </a>
+        <a class="feat-card" href="phone.html">
+          <span class="feat-icon">▣</span>
+          <h3>Phone cast</h3>
+          <p>Same-WiFi phone → terminal · LAN discovery · vertical glyph stack.</p>
+        </a>
+        <a class="feat-card" href="docs.html">
+          <span class="feat-icon">?</span>
+          <h3>Docs</h3>
+          <p>Stream binary · ST 2110 · burst · chat · depth/gsplat · full CLI map.</p>
+        </a>
       </div>
-      <div class="hero-cta">
-        <a class="btn primary" href="grokglyph.html">Open GrokGlyph PWA</a>
-        <a class="btn ghost" href="docs.html">Open docs page</a>
-        <a class="btn ghost" href="https://github.com/fornevercollective/GrokYtalkY">GitHub</a>
+    </section>
+
+    <!-- ── CLI map ── -->
+    <section id="cli" class="section alt home-section">
+      <p class="section-label">Terminal</p>
+      <h2>One binary · many planes</h2>
+      <div class="cli-grid">
+        <div class="cli-block">
+          <h3>Everyday</h3>
+          <pre class="code-block"><code>gy                 # companion dock
+gy burst           # Glyph walkie + Spaces
+gy lab             # multi-feed video lab
+gy serve           # mesh hub + site/
+gy watch URL|file  # yt-dlp + ffmpeg</code></pre>
+        </div>
+        <div class="cli-block">
+          <h3>Stage · news · X</h3>
+          <pre class="code-block"><code>/news [us|weather|all]
+/space seat|mute|key --pull
+gy stream-x init|start|offer
+gy space-rtmp --key $K --in …
+gy doctor space · plugins</code></pre>
+        </div>
+        <div class="cli-block">
+          <h3>Mesh · AI · media</h3>
+          <pre class="code-block"><code>/orch [hint]       # Grok take
+/overlay auto|fx
+/duplex · /meshmidi
+H media health · K kill
+/plugin list|style</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Keypoints / roadmap ── -->
+    <section id="keypoints" class="section home-section">
+      <p class="section-label">Keypoints</p>
+      <h2>What we’re building toward</h2>
+      <p class="section-lead">
+        Hybrid stack: terminals stay 25² / half-block; public scale on the edge; producers keep
+        RTMP and program bus control. Stress the feed pipeline from the browser; ship reliability
+        from the binary.
+      </p>
+      <ol class="kp-list">
+        <li>
+          <strong>Glyph-first surfaces</strong>
+          <span>Burst orb, Spaces seats, news wall, GrokGlyph PWA — same 13/25/37/49 matrix vocabulary.</span>
+        </li>
+        <li>
+          <strong>World live news + theme clump</strong>
+          <span>Global catalog (news · weather · public access). Main swap column. AI captions → theme clusters.</span>
+        </li>
+        <li>
+          <strong>X Spaces + stream asset</strong>
+          <span>Host / 2 co-hosts / 10 speakers / listeners. Mute controls. <code>gy stream-x</code> as RTMP asset for others → ca.pscp.tv.</span>
+        </li>
+        <li>
+          <strong>Key when ready</strong>
+          <span>Auto-pull stream key from env / file / JSON / vault URL / clipboard / hub token API.</span>
+        </li>
+        <li>
+          <strong>Hybrid capacity</strong>
+          <span>DOJO hub + gy-sfu for 16–32 · CF Workers/DO for 1k+ chat · media SFU lanes optional.</span>
+        </li>
+        <li>
+          <strong>Media supervisor</strong>
+          <span>Bounded ffmpeg/yt-dlp children · health · kill · news wall stagger · GY_MEDIA_MAX.</span>
+        </li>
+        <li>
+          <strong>Grok orchestrate</strong>
+          <span>Takes on stable feeds: STYLE / CAPTION / PATTERN / GLYPH with overlay + program bus.</span>
+        </li>
+        <li>
+          <strong>Reliability + plugins</strong>
+          <span>Panic recovery · metrics · CI release sums · in-process style/mesh plugins (no .so).</span>
+        </li>
+        <li>
+          <strong>Facility path</strong>
+          <span>ST 2110 / NMOS / NDI scaffolds · sync doctor · venue sinks — edge vs facility planes.</span>
+        </li>
+        <li>
+          <strong>Phone + PiP</strong>
+          <span>Same-WiFi cast · phone-v glyph · macOS QuickTime PiP pop-out.</span>
+        </li>
+      </ol>
+      <div class="kp-status">
+        <div class="kp-pill done">Shipped · burst · livenews · stream-x · plugins · reliability</div>
+        <div class="kp-pill next">Next · live AI caption pipe → theme sort · more public-access feeds · SFU auth</div>
+      </div>
+    </section>
+
+    <!-- ── Install ── -->
+    <section id="install" class="section alt home-section">
+      <p class="section-label">Install</p>
+      <h2>Terminal path · get <code>gy</code> on PATH</h2>
+      <p class="section-lead">
+        User install lands in <code>~/.local/bin</code>. System install and package managers also work.
+        After install: <code>gy --version</code> · <code>gy doctor</code> · <code>gy update</code>.
+      </p>
+
+      <div class="install-tabs" role="tablist" aria-label="Install methods">
+        <button type="button" class="install-tab is-on" data-install="clone">Clone + make</button>
+        <button type="button" class="install-tab" data-install="go">go install</button>
+        <button type="button" class="install-tab" data-install="gy">gy self-update</button>
+        <button type="button" class="install-tab" data-install="deps">Dependencies</button>
+      </div>
+
+      <div class="install-panel is-on" data-panel="clone">
+        <pre class="code-block"><code># recommended — full tree + site/
+git clone https://github.com/fornevercollective/GrokYtalkY.git
+cd GrokYtalkY
+make install                    # → ~/.local/bin/gy + grokytalky
+# or: ./scripts/install.sh      # progress bars · new-user guide
+
+# PATH (zsh)
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
+
+gy --version
+gy                              # companion dock
+gy serve                        # hub :9876 + site static</code></pre>
+      </div>
+      <div class="install-panel" data-panel="go" hidden>
+        <pre class="code-block"><code># Go 1.26+ · https://go.dev/dl/  or  brew install go
+go install github.com/fornevercollective/grokytalky@latest
+
+# short name on PATH
+mkdir -p ~/.local/bin
+ln -sfn "$(go env GOPATH)/bin/grokytalky" ~/.local/bin/gy
+export PATH="$HOME/.local/bin:$PATH"
+
+gy --version
+gy install deps -y              # ffmpeg · yt-dlp via brew/uv/…</code></pre>
+      </div>
+      <div class="install-panel" data-panel="gy" hidden>
+        <pre class="code-block"><code># once gy is on PATH
+gy update                       # GitHub release check + progress install
+gy upgrade                      # alias
+gy clean install                # uninstall → reinstall local channel
+gy uninstall                    # remove gy / grokytalky / gy-burst
+
+# pin a release
+go install github.com/fornevercollective/grokytalky@v1.64.0</code></pre>
+      </div>
+      <div class="install-panel" data-panel="deps" hidden>
+        <pre class="code-block"><code>gy install deps --list          # catalog + detected managers
+gy install deps -y              # auto-pick brew · uv · npm · pipx · apt…
+gy install deps --pm uv         # force manager
+gy doctor packages              # who provides what
+gy doctor                       # ffmpeg · yt-dlp · reliability · space · plugins
+
+# system-wide (optional)
+make install-system             # /usr/local/bin/gy + dep checks
+make launch                     # open Terminal running gy</code></pre>
+      </div>
+
+      <div class="install-table-wrap">
+        <table class="install-table">
+          <thead>
+            <tr><th>Method</th><th>Command</th><th>Binary</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Make (user)</td><td><code>make install</code></td><td><code>~/.local/bin/gy</code></td></tr>
+            <tr><td>Script</td><td><code>./scripts/install.sh</code></td><td>same</td></tr>
+            <tr><td>Go module</td><td><code>go install …@latest</code></td><td><code>GOPATH/bin/grokytalky</code></td></tr>
+            <tr><td>Self-update</td><td><code>gy update</code></td><td>replaces local channel</td></tr>
+            <tr><td>System</td><td><code>make install-system</code></td><td><code>/usr/local/bin/gy</code></td></tr>
+            <tr><td>Homebrew</td><td><code>brew install --build-from-source ./Formula/…</code></td><td><code>gy</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="hero-cta" style="margin-top:1.25rem">
+        <a class="btn primary" href="https://github.com/fornevercollective/GrokYtalkY/releases">Releases</a>
+        <a class="btn ghost" href="burst.html">Open Burst</a>
+        <a class="btn ghost" href="livenews.html">Open Live News</a>
+        <a class="btn ghost" href="grokglyph.html">Open GrokGlyph</a>
+        <a class="btn ghost" href="docs.html">Full docs</a>
       </div>
     </section>
   </main>
 
   <footer class="footer">
-    <div><strong>GrokYtalkY</strong><span class="c-dim"> · fornevercollective</span></div>
+    <div>
+      <strong>GrokYtalkY</strong>
+      <span class="c-dim"> · fornevercollective · Apache-2.0</span>
+    </div>
     <div class="footer-links">
+      <a href="#sections">Sections</a>
+      <a href="#keypoints">Keypoints</a>
+      <a href="#install">Install</a>
+      <a href="burst.html">Burst</a>
+      <a href="livenews.html">News</a>
       <a href="grokglyph.html">GrokGlyph</a>
       <a href="docs.html">Docs</a>
       <a href="https://github.com/fornevercollective/GrokYtalkY">Source</a>
     </div>
   </footer>
+
   <script src="stream-hero.js"></script>
+  <script>
+    (function () {
+      // install method tabs
+      var tabs = document.querySelectorAll('.install-tab');
+      var panels = document.querySelectorAll('.install-panel');
+      tabs.forEach(function (tab) {
+        tab.addEventListener('click', function () {
+          var id = tab.getAttribute('data-install');
+          tabs.forEach(function (t) { t.classList.toggle('is-on', t === tab); });
+          panels.forEach(function (p) {
+            var on = p.getAttribute('data-panel') === id;
+            p.hidden = !on;
+            p.classList.toggle('is-on', on);
+          });
+        });
+      });
+    })();
+  </script>
 </body>
 </html>

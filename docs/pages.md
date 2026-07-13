@@ -4,6 +4,7 @@
 - **Docs:** https://fornevercollective.github.io/GrokYtalkY/docs.html
 - **DOJO e2e:** https://fornevercollective.github.io/GrokYtalkY/dojo.html
 - **Chat demo:** https://fornevercollective.github.io/GrokYtalkY/chat.html
+- **Home (sections · install · keypoints):** https://fornevercollective.github.io/GrokYtalkY/#conversation
 - **Burst orb / Spaces:** https://fornevercollective.github.io/GrokYtalkY/burst.html
 - **Live News glyph wall:** https://fornevercollective.github.io/GrokYtalkY/livenews.html
 
