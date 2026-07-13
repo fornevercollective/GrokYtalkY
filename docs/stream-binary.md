@@ -65,13 +65,55 @@ Drop `.gyst` / `.gyhex` / `.pcap` onto Terminal like any media file.
 ## Pipeline
 
 ```
-camera / mp4 / yt-dlp
+camera / mp4 / yt-dlp / sim / Colossus
         │
         ▼
-   RGB24 / PCM16 frames  ──encode──►  .gyst | .gyhex | .pcap
-        ▲                                    │
-        └──────── decode /watch /load ───────┘
+   RGB24 / PCM16 / hexlum  ──encode──►  .gyst | .gyhex | .pcap
+        │                                    │
+        │ live (no file)                     │ file
+        ▼                                    ▼
+   mesh type:gyst  ──hub──►  gy peers     gy watch /load
+        │
+        └─ optional: gy sfu-bridge (glyph) · hex style render
 ```
+
+## Live publish (no file)
+
+Headless DOJO/Colossus → hub → every connected peer:
+
+```bash
+# terminal A
+gy serve
+
+# terminal B — headless publisher
+gy stream-pub sim --kind hexlum --hex 25 --fps 12 --nick colossus
+# or replay a pcap live:
+gy stream-pub capture.pcap --loop --fps 10
+# or video file:
+gy stream-pub clip.mp4 --kind rgb24 --w 96 --h 54 --loop
+
+# terminal C — consumer TUI
+gy --nick viewer
+# incoming gyst frames render (hexlum prefers hex style)
+```
+
+Mesh envelope (`type: gyst`):
+
+```json
+{
+  "type": "gyst",
+  "from": "colossus",
+  "kind": "hexlum",
+  "w": 25, "h": 25,
+  "seq": 42,
+  "t": 1710000000000,
+  "b64": "<payload>",
+  "data": [0, 12, 40],
+  "glyphN": 25
+}
+```
+
+Same kinds as file GYST: `rgb24` · `hexlum` · `jpeg` · `pcm16`.
 
 ## Wireshark
 

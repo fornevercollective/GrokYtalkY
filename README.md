@@ -78,6 +78,12 @@ gy encode clip.mp4 out.gyst
 gy decode out.pcap
 gy watch out.gyst          # play packets; j/k scrub
 # TUI: /rec → /export out.gyhex · /load out.gyst · /hexdump
+
+# live headless (DOJO/Colossus) → hub → peers (no file)
+gy serve
+gy stream-pub sim --kind hexlum --hex 25 --nick colossus
+gy stream-pub capture.pcap --loop --fps 12
+# other terminal: gy  (renders type:gyst frames)
 ```
 
 **Video lab:** multi-feed wall next to chat with listed **FPS / scale / style / layout** controls:

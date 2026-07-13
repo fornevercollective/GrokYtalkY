@@ -1895,6 +1895,37 @@ func (m *Model) handleWS(raw []byte) (tea.Model, tea.Cmd) {
 			// keep last peer frame frozen (don't nil) so dual view stays readable
 			m.status = "clear"
 		}
+	case "gyst", "gyst-frame":
+		// live headless stream (DOJO/Colossus): rgb24|hexlum|jpeg over mesh
+		from, _ := msg["from"].(string)
+		if from == m.nick {
+			return m, nil
+		}
+		pkt, err := MeshToPacket(msg)
+		if err != nil || pkt == nil {
+			return m, nil
+		}
+		// hexlum also feeds glyph consumers
+		if pkt.Kind == KindHexLum && len(pkt.Payload) > 0 {
+			ints := make([]int, len(pkt.Payload))
+			for i, b := range pkt.Payload {
+				ints[i] = int(b)
+			}
+			m.lastGlyph = ints
+		}
+		fp, err := FrameFromPacket(pkt)
+		if err != nil || fp == nil {
+			return m, nil
+		}
+		// prefer hex style for hexlum packets (aesthetic)
+		if pkt.Kind == KindHexLum && m.pixelMode == PixelHalf {
+			m.pixelMode = PixelHex
+		}
+		meta := fmt.Sprintf("gyst:%s %s %dx%d", from, pkt.KindName(), fp.W, fp.H)
+		m.videoOn = true
+		return m, func() tea.Msg {
+			return frameReady{F: fp, Meta: meta}
+		}
 	case "vburst-frame":
 		from, _ := msg["from"].(string)
 		if from == m.nick {

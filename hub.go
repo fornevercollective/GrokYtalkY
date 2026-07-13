@@ -199,6 +199,13 @@ func (h *Hub) route(from *websocket.Conn, meta *peerMeta, data []byte) {
 			meta.Talking = false
 		}
 		h.broadcast(from, mustJSON(msg))
+	case "gyst", "gyst-frame":
+		// live headless binary/hex stream packets (rgb24|hexlum|jpeg)
+		if _, ok := msg["from"]; !ok {
+			msg["from"] = meta.Nick
+		}
+		msg["type"] = "gyst"
+		h.broadcast(from, mustJSON(msg))
 	case "audio":
 		h.broadcast(from, data)
 	default:

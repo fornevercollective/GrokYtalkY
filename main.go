@@ -76,6 +76,13 @@ func run(args []string) error {
 			fmt.Println(versionLine())
 		}
 		return nil
+	case "stream-pub", "publish", "stream-live", "colossus":
+		// own flags (--kind, --hex, …) — before main flag.Parse
+		return runStreamPubCmd(args)
+	case "chat-bridge", "caption-bridge", "bridge-chat":
+		return runChatBridgeCmd(args)
+	case "sfu-bridge", "glyph-bridge", "bridge-sfu":
+		return runSfuBridgeCmd(args)
 	case "update", "upgrade":
 		checkOnly := false
 		for _, a := range args {
@@ -140,12 +147,6 @@ func run(args []string) error {
 	case "hub", "receive", "serve":
 		// server-level: headless mesh only — no TUI takeover
 		return runHubOnly(*bind, *port)
-	case "chat-bridge", "caption-bridge", "bridge-chat":
-		// thin DOJO hub → public Space chat captions (CF Worker / wrangler)
-		return runChatBridgeCmd(args)
-	case "sfu-bridge", "glyph-bridge", "bridge-sfu":
-		// hub vburst glyph → gy-sfu room lane
-		return runSfuBridgeCmd(args)
 	case "burst", "glyph", "orb":
 		// Siri-sized popup: hold space = short video+audio walkie burst
 		h := *host
@@ -257,6 +258,7 @@ func printHelp() {
   %s lab             multi-feed lab (feeds | chat)
   %s encode in out   binary/hex/pcap encode stream
   %s decode file     inspect .gyst|.gyhex|.pcap
+  %s stream-pub src  live headless GYST → hub (sim|file|pcap|cam)
   %s serve           headless hub
   %s chat-bridge     DOJO hub → public Space captions
   %s sfu-bridge      hub vburst glyph → gy-sfu room
@@ -282,7 +284,7 @@ func printHelp() {
   flags: --burst --glyph 13|25|37|49 --glyph-scale 0..8 --midi --cam
   keys:  [ ] scale · g res · space PTT  (matches GlyphMatrix-Developer-Kit layout)
   env:   XAI_API_KEY · GROK_MODEL · GROK_CLI_URL
-`, Version, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd)
+`, Version, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd)
 }
 
 func runHubOnly(bind string, port int) error {

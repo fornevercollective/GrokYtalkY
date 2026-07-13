@@ -188,6 +188,11 @@ func (c *MeshClient) SendBurstEnd() {
 	})
 }
 
+// SendGystPacket publishes a live binary/hex stream packet to the hub (no file).
+func (c *MeshClient) SendGystPacket(p StreamPacket) error {
+	return c.SendJSON(PacketToMesh(p, c.Nick))
+}
+
 // SendBurstFrame ships a small JPEG + optional glyph matrix brightness for Nothing Phone.
 func (c *MeshClient) SendBurstFrame(jpeg []byte, w, h int, glyph []int) {
 	msg := map[string]any{
