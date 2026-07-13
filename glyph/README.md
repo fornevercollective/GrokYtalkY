@@ -2,7 +2,10 @@
 
 [Siri-sized](../docs/burst.md) short **video + voice** walkie, rendered on the
 [Nothing Glyph Matrix](https://github.com/Nothing-Developer-Programme/GlyphMatrix-Developer-Kit)
-(Phone (3) = **25×25**, Phone (4a) Pro = **13×13**).
+using the official circular LED allocation
+([25111_spec](https://github.com/Nothing-Developer-Programme/GlyphMatrix-Developer-Kit/blob/main/image/25111_spec.svg) 13×13 / 137 LEDs,
+[23112_spec](https://github.com/Nothing-Developer-Programme/GlyphMatrix-Developer-Kit/blob/main/image/23112_spec.svg) 25×25 / 489 LEDs).
+Terminal peers can scale cells/LED and raise resolution; mesh still ships device N brightness.
 
 ## Concept
 

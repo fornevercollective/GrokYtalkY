@@ -51,7 +51,8 @@ func run(args []string) error {
 	cam := fs.Bool("cam", false, "enable camera on start")
 	burst := fs.Bool("burst", false, "Siri-sized video burst orb (Glyph Matrix walkie)")
 	lab := fs.Bool("lab", false, "multi-feed video lab (FPS/scale/style + chat)")
-	glyphN := fs.Int("glyph", 25, "Glyph Matrix side length (25 Phone3 / 13 Phone4a)")
+	glyphN := fs.Int("glyph", 25, "Glyph Matrix side (13|25 hardware, 37|49 terminal hi-res)")
+	glyphScale := fs.Int("glyph-scale", 0, "cells per LED pitch (0=auto, 1–8 scale-up)")
 	noAudio := fs.Bool("no-audio", false, "disable local pattern synth")
 	_ = noAudio
 	fs.SetOutput(os.Stderr)
@@ -148,7 +149,7 @@ func run(args []string) error {
 		return runTUI(Options{
 			Nick: *nick, Host: h, MIDI: *midi, MIDIDev: *midiDev,
 			Translate: *translate, XL8: xl8,
-			Burst: true, Cam: true, GlyphN: *glyphN,
+			Burst: true, Cam: true, GlyphN: *glyphN, GlyphScale: *glyphScale,
 		}, true, *bind, *port)
 	case "lab", "vwall", "feeds":
 		h := *host
@@ -174,7 +175,7 @@ func run(args []string) error {
 		return runTUI(Options{
 			Nick: *nick, Host: h, MIDI: *midi, MIDIDev: *midiDev,
 			Translate: *translate, XL8: xl8, Live: *live, Full: *full, Cam: *cam,
-			Burst: *burst, Lab: *lab, GlyphN: *glyphN,
+			Burst: *burst, Lab: *lab, GlyphN: *glyphN, GlyphScale: *glyphScale,
 		}, false, *bind, *port)
 	case "term", "start", "live", "companion", "":
 		h := *host
@@ -185,7 +186,7 @@ func run(args []string) error {
 			Nick: *nick, Host: h, MIDI: *midi, MIDIDev: *midiDev,
 			Translate: *translate, XL8: xl8,
 			Live: *live || cmd == "live", Full: *full || *lab, Cam: *cam,
-			Burst: *burst, Lab: *lab, GlyphN: *glyphN,
+			Burst: *burst, Lab: *lab, GlyphN: *glyphN, GlyphScale: *glyphScale,
 		}, true, *bind, *port)
 	case "watch", "vplay":
 		// grokytalky watch movie.mp4
@@ -269,8 +270,9 @@ func printHelp() {
 
   install:  make install     →  ~/.local/bin/gy
             brew install --build-from-source ./Formula/grokytalky.rb
-  burst = short video+audio walkie, face → Glyph Matrix 25×25
-  flags: --burst --glyph 25|13 --midi --cam --live --port --nick
+  burst = short video+audio walkie → Nothing Glyph Matrix dual circles
+  flags: --burst --glyph 13|25|37|49 --glyph-scale 0..8 --midi --cam
+  keys:  [ ] scale · g res · space PTT  (matches GlyphMatrix-Developer-Kit layout)
   env:   XAI_API_KEY · GROK_MODEL · GROK_CLI_URL
 `, Version, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd)
 }

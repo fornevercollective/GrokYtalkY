@@ -88,7 +88,8 @@ type Model struct {
 	burstRemote     string // nick currently bursting video at us
 	burstLocalFrame *FramePixels
 	burstPeerFrame  *FramePixels
-	glyphN          int   // 25 Phone(3) / 13 Phone(4a)
+	glyphN          int // display matrix N (13/25 hardware, 37/49 terminal hi-res)
+	glyphScale      int // cells per LED pitch; 0 = auto-fit terminal
 	lastGlyph       []int // last brightness grid for debug / Android bridge
 
 	// Live depth + gsplat (ZipDepth sidecar / zip-lite / overview-style stack)
@@ -156,9 +157,10 @@ type Options struct {
 	Full      bool // full dashboard (default is compact companion)
 	NoHub     bool
 	Cam       bool
-	Burst     bool // Siri-sized video burst orb (Glyph Matrix walkie)
-	GlyphN    int  // matrix side (25 or 13); default 25
-	Lab       bool // multi-feed video lab next to chat
+	Burst      bool // Siri-sized video burst orb (Glyph Matrix walkie)
+	GlyphN     int  // matrix side (13/25 hardware, 37/49 hi-res); default 25
+	GlyphScale int  // cells/LED pitch (0=auto, 1–8); scales display like GDK setScale
+	Lab        bool // multi-feed video lab next to chat
 }
 
 func NewModel(opts Options) *Model {
@@ -174,7 +176,8 @@ func NewModel(opts Options) *Model {
 		camOn:      opts.Cam || opts.Burst,
 		compact:    !opts.Full,
 		burstMode:  opts.Burst,
-		glyphN:     opts.GlyphN,
+		glyphN:     NormalizeGlyphN(opts.GlyphN),
+		glyphScale: opts.GlyphScale,
 		depth:      newDepthSession(),
 		lab:        newLabState(),
 		recorder:   NewRecordSession(),
@@ -199,22 +202,24 @@ func NewModel(opts Options) *Model {
 			{Sys: true, Text: fmt.Sprintf("gy %s · companion", Version)},
 		},
 	}
-	if m.glyphN != GlyphPhone3 && m.glyphN != GlyphPhone4a {
-		m.glyphN = GlyphPhone3
+	m.glyphN = NormalizeGlyphN(m.glyphN)
+	if m.glyphScale < 0 {
+		m.glyphScale = 0
+	}
+	if m.glyphScale > GlyphScaleMax {
+		m.glyphScale = GlyphScaleMax
 	}
 	if opts.Burst {
-		// exact dual 25×25 needs ≥52 cols × 30 rows; 13×13 needs ≥28×18
+		// Prefer requested N; real WindowSizeMsg will fit full circles.
+		// Default model is 80×24 — dual 25 does not fit (auto → 13).
 		gn := m.glyphN
-		if gn != GlyphPhone3 && gn != GlyphPhone4a {
-			gn = GlyphPhone3
-		}
-		m.width = max(80, gn*2+8)
-		m.height = max(32, gn+8)
+		// keep default 80×24 until real terminal size arrives (don't invent 32 rows)
+		dev := GlyphDeviceN(gn)
 		m.chat = []chatLine{
-			{Sys: true, Text: fmt.Sprintf("burst · exact %d×%d full-color Glyph Matrix", gn, gn)},
-			{Sys: true, Text: "1 cell = 1 LED · left ◎ you · right ◎ peer"},
+			{Sys: true, Text: fmt.Sprintf("burst · prefer %d×%d (device %d) · auto-fit full circles to window", gn, gn, dev)},
+			{Sys: true, Text: "80×24 → 13×13 dual · larger term → 25×25 · [ ] scale · g res · space PTT"},
 		}
-		m.status = fmt.Sprintf("burst · ◎ %d×%d color", gn, gn)
+		m.status = fmt.Sprintf("burst · prefer ◎ %d×%d · auto-fit window", gn, gn)
 		m.camOn = true
 		m.videoOn = true
 	}
@@ -514,7 +519,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if err == nil && fp != nil {
 				m.frame = fp
 				m.burstLocalFrame = fp
-				gm := FrameToGlyph(fp, m.glyphN)
+				// mesh / Nothing hardware uses device N (25 or 13), not terminal hi-res
+				gm := FrameToGlyph(fp, GlyphDeviceN(m.glyphN))
 				m.lastGlyph = gm.IntColors()
 				m.client.SendBurstFrame(msg, fp.W, fp.H, m.lastGlyph)
 			} else {
@@ -826,8 +832,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				m.camOn = true
 				m.videoOn = true
 				m.compact = true
-				m.status = "burst · you | peer"
-				m.pushSys("burst dual: left=you · right=peer · space PTT")
+				m.status = fmt.Sprintf("burst · ◎ %d×%d · [ ] scale · g res", m.glyphN, m.glyphN)
+				m.pushSys("burst · Nothing Glyph dual · [ ] scale · g res · space PTT")
 			} else {
 				m.status = "companion"
 			}
@@ -877,11 +883,21 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "[":
+			if m.burstMode {
+				m.glyphScale = nudgeGlyphScale(m.glyphScale, m.width, m.height, m.glyphN, -1)
+				m.status = glyphScaleStatus(m.glyphScale, m.glyphN, m.width, m.height)
+				return m, nil
+			}
 			if m.lab != nil && m.lab.On {
 				m.status = fmt.Sprintf("scale %d · %s", m.lab.NudgeScale(-1), m.lab.BudgetLine())
 			}
 			return m, nil
 		case "]":
+			if m.burstMode {
+				m.glyphScale = nudgeGlyphScale(m.glyphScale, m.width, m.height, m.glyphN, +1)
+				m.status = glyphScaleStatus(m.glyphScale, m.glyphN, m.width, m.height)
+				return m, nil
+			}
 			if m.lab != nil && m.lab.On {
 				m.status = fmt.Sprintf("scale %d · %s", m.lab.NudgeScale(1), m.lab.BudgetLine())
 			}
@@ -990,6 +1006,14 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.status = fmt.Sprintf("midi %v", m.midiOn)
 			return m, nil
 		case "g":
+			// burst: cycle matrix resolution (13/25/37/49); else open Grok prompt
+			if m.burstMode {
+				m.glyphN = cycleGlyphRes(m.glyphN)
+				m.status = fmt.Sprintf("glyph %d×%d · device %d · LEDs %d",
+					m.glyphN, m.glyphN, GlyphDeviceN(m.glyphN), glyphActiveCount(m.glyphN))
+				m.pushSys(m.status)
+				return m, nil
+			}
 			m.promptMode = ModeGrok
 			m.status = "grok · " + m.grokCfg.ModeLabel()
 			return m, nil

@@ -36,25 +36,23 @@ func (m *Model) renderCharm() string {
 	return stableView(m.renderFull(cw, h), w, h)
 }
 
-// renderBurstOrb — dual exact-scale full-color Glyph Matrix circles (you | peer).
-// Each circle is glyphN×glyphN cells (1 LED = 1 cell), FG+BG truecolor █ like half style.
+// renderBurstOrb — dual Nothing Glyph Matrix circles (you | peer).
+// Uses the real terminal size only (default 80×24). Dual 25×25 needs ~54×31;
+// on 80×24 FitGlyphDual auto-uses full 13×13 disks so nothing is half-clipped.
 func (m *Model) renderBurstOrb(w, h int) string {
-	gn := m.glyphN
-	if gn != GlyphPhone3 && gn != GlyphPhone4a {
-		gn = GlyphPhone3
-	}
-	// exact dual matrix needs 2*N + gutter columns and N+title rows
-	gutter := 2
-	needW := gn*2 + gutter + 2
-	needH := gn + 5 // header, status, matrix, vu, hint
+	preferN := NormalizeGlyphN(m.glyphN)
+	// Real terminal only — never invent rows/cols (that caused half-circles)
 	cols := safeCols(w)
-	if cols < needW {
-		cols = needW
-	}
 	rows := h
-	if rows < needH {
-		rows = needH
+	if cols < 1 {
+		cols = 80
 	}
+	if rows < 1 {
+		rows = 24
+	}
+
+	panelCols, panelH := BurstPanelBudget(cols, rows)
+	displayN, displayScale, downgraded := fitGlyphInPanel(panelCols, panelH, preferN, m.glyphScale)
 
 	tx := m.talking
 	rx := m.burstRemote
@@ -71,27 +69,36 @@ func (m *Model) renderBurstOrb(w, h int) string {
 	parts = append(parts, clampCells(m.headerLine(cols), cols))
 	parts = append(parts, clampCells(BurstStatusLine(cols, tx, rx, m.nick, len(m.peers)), cols))
 
-	// panel height: exact N + 1 title inside dual renderer
-	panelH := gn + 1
-	dual := RenderBurstDualGlyph(cols, panelH, local, peer, tx, rx, m.nick, gn)
-	for _, ln := range strings.Split(dual, "\n") {
+	// panelH is exact remaining rows for title+matrix — dual must not exceed it
+	dual := RenderBurstDualGlyphScaled(panelCols, panelH, local, peer, tx, rx, m.nick, displayN, displayScale)
+	dualLines := strings.Split(dual, "\n")
+	// hard-cap panel so we never steal vu/hint or clip mid-circle
+	if len(dualLines) > panelH {
+		dualLines = dualLines[:panelH]
+	}
+	for _, ln := range dualLines {
 		parts = append(parts, clampCells(ln, cols))
 	}
 
 	vu := renderVU(maxF(m.level, m.peak*0.85), min(16, cols/4))
+	fitNote := ""
+	if downgraded {
+		fitNote = fmt.Sprintf(" · fit %d (prefer %d)", displayN, preferN)
+	}
 	parts = append(parts, clampCells(
 		styDim().Render("♪ ")+vu+
-			styDim().Render(fmt.Sprintf("  ◎ exact %d×%d full-color LEDs · half-style truecolor", gn, gn)),
+			styDim().Render(fmt.Sprintf("  ◎ %d×%d full · scale×%d · %dx%d%s",
+				displayN, displayN, displayScale, cols, rows, fitNote)),
 		cols,
 	))
 	parts = append(parts, clampCells(
-		styDim().Render("space PTT · b exit · 1 cell=1 LED · FG+BG truecolor · left=you right=peer"),
+		styDim().Render("space PTT · [ ] scale · g res · b exit · full circles fit window"),
 		cols,
 	))
 
-	// stableView will pad; if terminal smaller than need, still emit exact matrix
-	if len(parts) > h && h >= needH {
-		parts = parts[:h]
+	// Exact terminal height — stableView will pad; never emit more than h
+	if len(parts) > rows {
+		parts = parts[:rows]
 	}
 	return strings.Join(parts, "\n")
 }

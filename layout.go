@@ -77,6 +77,13 @@ func cellWidth(s string) int {
 			n++
 			continue
 		}
+		// Block elements (▀ █ ▄ etc.) are ambiguous-width; terminals render them
+		// as 1 cell in practice for our half-block / glyph LEDs. Force width 1
+		// so dual Glyph circles are not clamped to half-frame under CJK locales.
+		if r >= 0x2580 && r <= 0x259F {
+			n++
+			continue
+		}
 		w := runewidth.RuneWidth(r)
 		if w < 0 {
 			w = 0
