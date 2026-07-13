@@ -269,6 +269,15 @@
       el.btnAssetOffer.textContent = state.assetOffer ? 'Asset ON' : 'Offer asset';
     }
     updateSlotSelect();
+    // visual stage (host circles · speaker glyphs · listener grid)
+    if (window.__gyStage && typeof window.__gyStage.render === 'function') {
+      window.__gyStage.render(state, {
+        myRole: myRole,
+        mySlot: mySlot,
+        selfMuted: selfMuted,
+        nick: (burst().nick) || '',
+      });
+    }
   }
 
   function updateSlotSelect() {

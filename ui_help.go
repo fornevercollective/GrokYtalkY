@@ -264,7 +264,7 @@ func helpBodyDocs() string {
 	return fmt.Sprintf(`docs · pages · powerhouse  (gy %s)
 
   site  https://fornevercollective.github.io/GrokYtalkY/
-  docs  …/docs.html · dojo · chat · burst · grokglyph (PWA)
+  docs  …/docs.html · dojo · chat · burst · livenews · grokglyph (PWA)
   hexlum lane  vburst glyph → gyst kind=hexlum (hub promote)
                GrokGlyph cast dual-pubs gyst + vburst
   GrokGlyph    roster search / filters · / key · focus peer

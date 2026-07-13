@@ -1,0 +1,181 @@
+/* Live news wall — collapsible region rows · 25×25 glyph tiles */
+
+.ln-page {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 1.25rem 1rem 4rem;
+}
+.ln-page h1 {
+  font-size: 1.4rem;
+  letter-spacing: -0.03em;
+  margin: 0.2rem 0 0.4rem;
+}
+.ln-lede {
+  color: var(--muted);
+  font-size: 0.92rem;
+  max-width: 40rem;
+  margin-bottom: 1rem;
+  line-height: 1.5;
+}
+.ln-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+}
+.ln-toolbar .ln-meta {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--faint);
+  margin-left: auto;
+}
+.ln-toolbar .ln-meta em {
+  color: var(--accent);
+  font-style: normal;
+}
+
+/* collapsible region */
+.ln-region {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #0e0e14;
+  margin-bottom: 0.65rem;
+  overflow: hidden;
+}
+.ln-region > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.7rem 0.9rem;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--text);
+  user-select: none;
+  background: linear-gradient(180deg, #14141c, #101018);
+  border-bottom: 1px solid transparent;
+}
+.ln-region[open] > summary {
+  border-bottom-color: var(--border);
+}
+.ln-region > summary::-webkit-details-marker { display: none; }
+.ln-region > summary::before {
+  content: "▸";
+  color: var(--accent);
+  font-size: 0.7rem;
+  transition: transform 0.12s;
+}
+.ln-region[open] > summary::before {
+  transform: rotate(90deg);
+}
+.ln-region .ln-count {
+  margin-left: auto;
+  color: var(--faint);
+  font-size: 0.65rem;
+}
+.ln-region .ln-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--live);
+  box-shadow: 0 0 8px rgba(74, 222, 128, 0.5);
+  flex-shrink: 0;
+}
+.ln-region-body {
+  padding: 0.65rem;
+}
+
+/* glyph tile grid — GrokGlyph-ish */
+.ln-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: 2px;
+  background: #0a0a0e;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.ln-tile {
+  position: relative;
+  background: #050508;
+  aspect-ratio: 1;
+  min-height: 100px;
+  outline: none;
+}
+.ln-tile:focus-visible,
+.ln-tile.is-focus {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  z-index: 1;
+}
+.ln-tile canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+}
+.ln-tile-meta {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 0.25rem 0.35rem;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.85));
+  font-family: var(--mono);
+  font-size: 0.58rem;
+  color: #c8c8d4;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.25rem;
+  pointer-events: none;
+}
+.ln-tile.is-live .ln-tile-meta .ln-name::before {
+  content: "● ";
+  color: #4ade80;
+}
+.ln-tile-actions {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+  display: flex;
+  gap: 0.2rem;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.ln-tile:hover .ln-tile-actions,
+.ln-tile:focus-within .ln-tile-actions {
+  opacity: 1;
+}
+.ln-tile-actions a,
+.ln-tile-actions button {
+  font-family: var(--mono);
+  font-size: 0.55rem;
+  padding: 0.15rem 0.35rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: rgba(12, 12, 15, 0.9);
+  color: var(--muted);
+  cursor: pointer;
+  text-decoration: none;
+}
+.ln-tile-actions a:hover,
+.ln-tile-actions button:hover {
+  color: var(--accent);
+  border-color: rgba(125, 211, 252, 0.45);
+}
+
+.ln-hint {
+  margin-top: 1rem;
+  font-size: 0.8rem;
+  color: var(--faint);
+  line-height: 1.5;
+}
+.ln-hint code {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+}

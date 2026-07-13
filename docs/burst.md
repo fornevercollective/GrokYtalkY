@@ -104,16 +104,24 @@ Full video calls are heavy and socially loud. Bursts are:
 
 Same mesh as walkie chat; optional whisper translate still hooks PTT release on the audio path.
 
+## Live News wall
+
+Separate page: [`site/livenews.html`](../site/livenews.html) — all major agency streams as
+**25×25 Glyph Matrix** tiles in collapsible region rows (US / EU / ME / Asia / World).
+Mirrors `MajorNewsSources()` in `news_wall.go`. Hub connect + **Stress join** for pipeline load.
+
 ## X Spaces stage (burst page)
 
-[`site/burst.html`](../site/burst.html) embeds a producer stage next to the orb:
+[`site/burst.html`](../site/burst.html) — collapsible sections (GrokGlyph-style):
 
-| Slot | Count | Waveform |
-|------|-------|----------|
-| Host | 1 | live mic / mesh `space-level` |
-| Co-hosts | **2** | per-seat canvas |
-| Speakers | **10** | per-seat canvas |
-| Listeners | N | count badge |
+| Slot | Count | UI |
+|------|-------|-----|
+| Host | 1 | **video circle** (face + ring + level) |
+| Co-hosts | **2** | **video circles** |
+| Speakers | **10** | **25×25 Glyph Matrix** tiles |
+| Listeners | N (grid) | **GrokGlyph-style join grid** · Stress +12 |
+
+Collapsible: You · Space · Hosts · Speakers · Listeners · Chat · RTMP.
 
 Also on the page:
 

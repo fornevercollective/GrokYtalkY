@@ -4,36 +4,62 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Burst · X Spaces · GrokYtalkY</title>
-  <meta name="description" content="Dual Glyph Matrix video walkie + X Spaces stage: host, 2 co-hosts, 10 speakers, listeners, live waveforms, chat, captions, RTMP/RTMPS to ca.pscp.tv." />
+  <meta name="description" content="Burst walkie + X Spaces: host/co-host video circles, speaker Glyph Matrix tiles, GrokGlyph-style listeners for pipeline stress test." />
   <meta name="theme-color" content="#0c0c0f" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="livenews.css" />
   <style>
     .burst-page {
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 1.5rem 1rem 4rem;
       max-width: 1100px;
       margin: 0 auto;
+      padding: 1.25rem 1rem 4rem;
     }
-    .burst-page > .eyebrow { align-self: flex-start; }
-    .burst-page h1 { font-size: 1.35rem; letter-spacing: -0.03em; margin: 0 0 0.35rem; align-self: flex-start; }
-    .burst-lede { color: var(--muted); font-size: 0.9rem; max-width: 40rem; margin-bottom: 1.25rem; align-self: flex-start; }
-    .burst-grid {
-      display: grid;
-      grid-template-columns: minmax(240px, 300px) 1fr;
-      gap: 1.5rem 2rem;
-      width: 100%;
-      align-items: start;
+    .burst-page h1 { font-size: 1.35rem; letter-spacing: -0.03em; margin: 0.2rem 0 0.35rem; }
+    .burst-lede { color: var(--muted); font-size: 0.9rem; max-width: 42rem; margin-bottom: 1rem; line-height: 1.5; }
+
+    /* collapsible sections (shared look with livenews) */
+    .burst-sec {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: #0e0e14;
+      margin-bottom: 0.65rem;
+      overflow: hidden;
     }
-    @media (max-width: 820px) {
-      .burst-grid { grid-template-columns: 1fr; }
+    .burst-sec > summary {
+      list-style: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.7rem 0.9rem;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      user-select: none;
+      background: linear-gradient(180deg, #14141c, #101018);
     }
-    .burst-left { display: flex; flex-direction: column; align-items: center; }
-    .burst-stage { position: relative; width: min(280px, 72vw); height: min(280px, 72vw); }
+    .burst-sec > summary::-webkit-details-marker { display: none; }
+    .burst-sec > summary::before {
+      content: "▸";
+      color: var(--accent);
+      font-size: 0.7rem;
+      transition: transform 0.12s;
+    }
+    .burst-sec[open] > summary::before { transform: rotate(90deg); }
+    .burst-sec[open] > summary { border-bottom: 1px solid var(--border); }
+    .burst-sec .sec-count { margin-left: auto; color: var(--faint); font-size: 0.65rem; }
+    .burst-sec-body { padding: 0.85rem 0.9rem 1rem; }
+
+    /* YOU walkie orb */
+    .you-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.25rem;
+      align-items: center;
+      justify-content: center;
+    }
+    .burst-stage { position: relative; width: min(240px, 70vw); height: min(240px, 70vw); }
     .burst-orb {
       position: absolute; inset: 0;
       border-radius: 50%;
@@ -41,100 +67,146 @@
         radial-gradient(circle at 40% 35%, rgba(125,211,252,.18), transparent 45%),
         radial-gradient(circle at 50% 50%, #12121a 0%, #08080c 70%);
       border: 1px solid rgba(125,211,252,.25);
-      box-shadow:
-        0 0 0 1px rgba(0,0,0,.4),
-        0 24px 60px rgba(0,0,0,.55),
-        0 0 40px rgba(125,211,252,.08);
+      box-shadow: 0 0 0 1px rgba(0,0,0,.4), 0 20px 50px rgba(0,0,0,.55);
       overflow: hidden;
       cursor: pointer;
       touch-action: none;
       user-select: none;
-      transition: border-color .15s, box-shadow .15s, transform .12s;
     }
-    .burst-orb:active, .burst-orb.tx {
+    .burst-orb.tx {
       border-color: rgba(248,113,113,.7);
-      box-shadow: 0 0 48px rgba(248,113,113,.25), 0 24px 60px rgba(0,0,0,.55);
-      transform: scale(1.03);
+      box-shadow: 0 0 40px rgba(248,113,113,.22);
+      transform: scale(1.02);
     }
-    .burst-orb.rx {
-      border-color: rgba(74,222,128,.55);
-      box-shadow: 0 0 40px rgba(74,222,128,.18), 0 24px 60px rgba(0,0,0,.55);
-    }
+    .burst-orb.rx { border-color: rgba(74,222,128,.55); }
     .burst-orb canvas.face {
-      position: absolute; inset: 18%;
-      width: 64%; height: 64%;
+      position: absolute; inset: 16%;
+      width: 68%; height: 68%;
       border-radius: 50%;
       image-rendering: pixelated;
       background: #050508;
     }
     .burst-orb canvas.ring {
-      position: absolute; inset: 0;
-      width: 100%; height: 100%;
-      pointer-events: none;
+      position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none;
     }
     .burst-orb .orb-label {
-      position: absolute; left: 0; right: 0; bottom: 14%;
-      text-align: center;
-      font-family: var(--mono);
-      font-size: 0.62rem;
-      color: var(--faint);
-      pointer-events: none;
+      position: absolute; left: 0; right: 0; bottom: 12%;
+      text-align: center; font-family: var(--mono); font-size: 0.62rem; color: var(--faint);
     }
     .burst-orb.tx .orb-label { color: #f87171; }
     .burst-orb.rx .orb-label { color: #4ade80; }
-    .burst-meta {
-      margin-top: 1.25rem;
-      font-family: var(--mono);
-      font-size: 0.72rem;
-      color: var(--muted);
-      text-align: center;
-    }
+    .you-side { flex: 1; min-width: 200px; }
+    .burst-meta { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); margin: 0.5rem 0; }
     .burst-meta em { color: var(--accent); font-style: normal; }
-    .burst-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; margin-top: 1rem; }
-    .burst-hint { margin-top: 1.25rem; font-size: 0.78rem; color: var(--faint); text-align: center; max-width: 22rem; line-height: 1.45; }
-    .glyph-preview {
-      margin-top: 1.25rem;
-      padding: 0.75rem;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      background: #08080c;
-      width: 100%;
-      max-width: 280px;
-    }
-    .glyph-preview p {
-      font-family: var(--mono);
-      font-size: 0.62rem;
-      color: var(--faint);
-      margin: 0 0 0.5rem;
-      text-align: center;
-    }
-    .glyph-preview canvas {
-      display: block;
-      margin: 0 auto;
-      image-rendering: pixelated;
-      border-radius: 4px;
-    }
+    .burst-actions { display: flex; flex-wrap: wrap; gap: 0.45rem; }
 
-    /* ── X Spaces stage ── */
-    #spaces-stage {
+    /* Host + cohosts circular video feeds */
+    .host-circles {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.75rem;
+    }
+    @media (max-width: 640px) {
+      .host-circles { grid-template-columns: 1fr; }
+    }
+    .host-circle-card {
+      display: flex; flex-direction: column; align-items: center; gap: 0.4rem;
+      padding: 0.55rem;
       border: 1px solid var(--border);
-      border-radius: var(--radius);
-      background: var(--bg-elev);
-      padding: 1rem 1.1rem 1.25rem;
-      width: 100%;
+      border-radius: 12px;
+      background: #0a0a10;
     }
-    .sp-head { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: baseline; margin-bottom: 0.75rem; }
-    .sp-head h2 { font-size: 1.05rem; letter-spacing: -0.02em; margin: 0; }
-    .sp-head .badge {
-      font-family: var(--mono); font-size: 0.62rem; padding: 0.15rem 0.45rem;
-      border-radius: 999px; border: 1px solid rgba(192,132,252,.4); color: var(--grok);
-      background: rgba(192,132,252,.08);
+    .host-circle-card.talking { border-color: rgba(74,222,128,.5); box-shadow: 0 0 18px rgba(74,222,128,.12); }
+    .host-circle-card.muted { opacity: 0.55; border-color: rgba(248,113,113,.35); }
+    .host-circle-card.empty { opacity: 0.7; }
+    .hc-orb {
+      width: min(140px, 36vw); height: min(140px, 36vw);
+      border-radius: 50%;
+      overflow: hidden;
+      border: 1px solid rgba(125,211,252,.28);
+      background: #050508;
+      position: relative;
     }
-    #space-meta { font-family: var(--mono); font-size: 0.68rem; color: var(--faint); width: 100%; }
-    #space-meta em { color: var(--accent); font-style: normal; }
+    .hc-orb canvas { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+    .hc-label {
+      font-family: var(--mono); font-size: 0.62rem; color: var(--faint); text-align: center;
+    }
+    .hc-label strong { display: block; color: var(--text); font-size: 0.72rem; font-weight: 500; }
+    .hc-wave { width: 100%; height: 22px; border-radius: 4px; background: #050508; }
+    .hc-row { display: flex; gap: 0.3rem; align-items: center; }
+
+    /* Speakers — glyph matrix grid */
+    .speaker-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+      gap: 2px;
+      background: #0a0a0e;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .spk-tile {
+      position: relative;
+      background: #050508;
+      aspect-ratio: 1;
+      min-height: 96px;
+    }
+    .spk-tile.seated { box-shadow: inset 0 0 0 1px rgba(125,211,252,.25); }
+    .spk-tile.talking { box-shadow: inset 0 0 0 2px rgba(74,222,128,.55); }
+    .spk-tile.muted { opacity: 0.5; }
+    .spk-tile canvas { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+    .spk-meta {
+      position: absolute; left: 0; right: 0; bottom: 0;
+      padding: 0.2rem 0.3rem;
+      background: linear-gradient(transparent, rgba(0,0,0,.88));
+      font-family: var(--mono); font-size: 0.55rem; color: #c8c8d4;
+      display: flex; justify-content: space-between; gap: 0.2rem;
+    }
+    .spk-mute {
+      position: absolute; top: 0.2rem; right: 0.2rem;
+      font-family: var(--mono); font-size: 0.5rem;
+      padding: 0.1rem 0.3rem; border-radius: 5px;
+      border: 1px solid var(--border); background: rgba(8,8,12,.9);
+      color: var(--faint); cursor: pointer; opacity: 0;
+    }
+    .spk-tile:hover .spk-mute { opacity: 1; }
+
+    /* Listeners — GrokGlyph-style join grid */
+    .listener-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+      gap: 1px;
+      background: #0a0a0e;
+      border-radius: 8px;
+      min-height: 120px;
+    }
+    .lis-tile {
+      position: relative;
+      background: #050508;
+      aspect-ratio: 1;
+      min-height: 80px;
+      cursor: pointer;
+    }
+    .lis-tile.empty {
+      display: flex; align-items: center; justify-content: center;
+      border: 1px dashed #2a2a36;
+      background: #08080c;
+      color: var(--faint);
+      font-family: var(--mono); font-size: 0.55rem;
+    }
+    .lis-tile.empty:hover { border-color: var(--accent); color: var(--accent); }
+    .lis-tile.filled canvas { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+    .lis-tile .lis-name {
+      position: absolute; left: 0; right: 0; bottom: 0;
+      padding: 0.15rem 0.25rem;
+      background: linear-gradient(transparent, rgba(0,0,0,.9));
+      font-family: var(--mono); font-size: 0.5rem; color: #a0a0b0;
+      text-overflow: ellipsis; overflow: hidden; white-space: nowrap;
+    }
+    .lis-tile.is-you { box-shadow: inset 0 0 0 2px rgba(74,222,128,.55); }
+
     .sp-config {
-      display: grid; gap: 0.45rem; margin: 0.75rem 0;
-      padding: 0.65rem; border: 1px solid var(--border); border-radius: 10px; background: #0e0e14;
+      display: grid; gap: 0.45rem; margin-bottom: 0.75rem;
+      padding: 0.65rem; border: 1px solid var(--border); border-radius: 10px; background: #0c0c12;
     }
     .sp-config label {
       display: grid; grid-template-columns: 4.5rem 1fr; gap: 0.45rem; align-items: center;
@@ -144,84 +216,32 @@
       font-family: var(--mono); font-size: 0.72rem; padding: 0.35rem 0.5rem;
       border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text);
     }
-    .sp-row { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.65rem; align-items: center; }
-    .sp-section-label {
-      font-family: var(--mono); font-size: 0.62rem; color: var(--faint);
-      text-transform: uppercase; letter-spacing: 0.06em; margin: 0.65rem 0 0.35rem;
-    }
-    .sp-slots { display: grid; gap: 0.4rem; }
-    .sp-slots.cohosts { grid-template-columns: 1fr 1fr; }
-    .sp-slots.speakers { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
-    .sp-slot {
-      border: 1px solid var(--border); border-radius: 10px; padding: 0.4rem 0.5rem 0.35rem;
-      background: #0a0a10; min-height: 3.2rem;
-      transition: border-color .15s, box-shadow .15s;
-    }
-    .sp-slot.empty { opacity: 0.72; }
-    .sp-slot.seated { border-color: rgba(125,211,252,.28); }
-    .sp-slot.talking {
-      border-color: rgba(74,222,128,.55);
-      box-shadow: 0 0 16px rgba(74,222,128,.12);
-    }
-    .sp-slot-label { display: flex; justify-content: space-between; gap: 0.35rem; margin-bottom: 0.2rem; }
-    .sp-role { font-family: var(--mono); font-size: 0.55rem; color: var(--faint); letter-spacing: 0.04em; }
-    .sp-nick { font-family: var(--mono); font-size: 0.68rem; color: var(--muted); max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .sp-slot.seated .sp-nick { color: var(--text); }
-    .sp-slot.talking .sp-nick { color: var(--live); }
-    canvas.sp-wave { display: block; width: 100%; height: 28px; border-radius: 4px; }
-    .listeners-bar {
-      display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem;
-      font-family: var(--mono); font-size: 0.72rem; color: var(--muted);
-    }
-    .listeners-bar strong { color: var(--accent); font-weight: 600; font-size: 1rem; }
-    .listener-list {
-      display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.35rem 0 0.5rem;
-      min-height: 1.4rem;
-    }
-    .listener-chip {
-      font-family: var(--mono); font-size: 0.62rem; padding: 0.15rem 0.45rem;
-      border-radius: 999px; border: 1px solid var(--border); color: var(--muted);
-      background: #0a0a10;
-    }
-    .listener-chip.empty { color: var(--faint); border-style: dashed; }
-    .host-controls { margin-top: 0.35rem; }
-    .sp-slot.muted { opacity: 0.55; border-color: rgba(248,113,113,.35); }
-    .sp-slot .sp-mute {
-      font-family: var(--mono); font-size: 0.55rem; padding: 0.1rem 0.35rem;
-      border-radius: 6px; border: 1px solid var(--border); background: transparent;
-      color: var(--faint); cursor: pointer; margin-left: 0.25rem;
-    }
-    .sp-slot.muted .sp-mute { color: var(--err); border-color: rgba(248,113,113,.4); }
-    .sp-slot .sp-mute:hover { color: var(--accent); }
+    .sp-row, .sp-inline { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin: 0.35rem 0; }
+    .sp-inline label { font-family: var(--mono); font-size: 0.65rem; color: var(--faint); display: flex; gap: 0.3rem; align-items: center; }
 
     .space-caption-bar {
-      margin-top: 0.75rem; padding: 0.55rem 0.7rem;
-      border-radius: 10px; border: 1px dashed rgba(192,132,252,.35);
-      background: rgba(192,132,252,.06);
-      font-size: 0.85rem; color: var(--grok); min-height: 2.2rem;
+      padding: 0.55rem 0.7rem; border-radius: 10px;
+      border: 1px dashed rgba(192,132,252,.35); background: rgba(192,132,252,.06);
+      font-size: 0.85rem; color: var(--grok); min-height: 2.2rem; margin-bottom: 0.4rem;
     }
     .space-caption-bar.placeholder { color: var(--faint); font-style: italic; font-size: 0.78rem; }
-
     .space-chat-log {
-      height: 140px; overflow-y: auto; margin-top: 0.5rem;
-      border: 1px solid var(--border); border-radius: 10px; background: #08080c;
-      padding: 0.55rem 0.65rem; font-family: var(--mono); font-size: 0.72rem; line-height: 1.4;
+      height: 130px; overflow-y: auto; border: 1px solid var(--border); border-radius: 10px;
+      background: #08080c; padding: 0.55rem 0.65rem; font-family: var(--mono);
+      font-size: 0.72rem; line-height: 1.4; margin-bottom: 0.4rem;
     }
-    .space-chat-line { margin-bottom: 0.35rem; word-break: break-word; color: var(--muted); }
+    .space-chat-line { margin-bottom: 0.35rem; color: var(--muted); word-break: break-word; }
     .space-chat-line .who { color: var(--accent); }
     .space-chat-line .who.host { color: var(--live); }
-    .space-chat-line .who.cohost { color: #86efac; }
-    .space-chat-line .who.speaker { color: #93c5fd; }
-    .space-chat-line .who.listener { color: var(--faint); }
-    .space-chat-line.pin { border-left: 2px solid var(--grok); padding-left: 0.4rem; color: var(--text); }
-    .space-chat-compose { display: flex; gap: 0.4rem; margin-top: 0.4rem; }
-    .space-chat-compose input { flex: 1; }
+    .space-chat-compose { display: flex; gap: 0.4rem; }
+    .space-chat-compose input { flex: 1; font-family: var(--mono); font-size: 0.85rem;
+      padding: 0.5rem 0.65rem; border-radius: 10px; border: 1px solid var(--border);
+      background: var(--bg-elev); color: var(--text); }
 
     .rtmp-panel {
-      margin-top: 0.85rem; padding: 0.7rem; border: 1px solid var(--border);
-      border-radius: 10px; background: #0c0c12;
+      padding: 0.7rem; border: 1px solid var(--border); border-radius: 10px; background: #0c0c12;
     }
-    .rtmp-panel h3 { font-size: 0.78rem; margin: 0 0 0.45rem; font-family: var(--mono); color: var(--warn); letter-spacing: 0.02em; }
+    .rtmp-panel h3 { font-size: 0.78rem; margin: 0 0 0.45rem; font-family: var(--mono); color: var(--warn); }
     .rtmp-status { font-family: var(--mono); font-size: 0.68rem; margin: 0.4rem 0; }
     .rtmp-status.wait { color: var(--warn); }
     .rtmp-status.ready { color: var(--live); }
@@ -229,10 +249,14 @@
     #rtmp-cmd {
       display: block; margin-top: 0.45rem; padding: 0.5rem; border-radius: 8px;
       background: #050508; border: 1px solid var(--border);
-      font-family: var(--mono); font-size: 0.62rem; color: var(--faint); white-space: pre-wrap; line-height: 1.4;
+      font-family: var(--mono); font-size: 0.62rem; color: var(--faint); white-space: pre-wrap;
     }
-    .sp-inline { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
-    .sp-inline label { font-family: var(--mono); font-size: 0.65rem; color: var(--faint); display: flex; gap: 0.3rem; align-items: center; }
+    .burst-hint { margin-top: 1rem; font-size: 0.78rem; color: var(--faint); line-height: 1.45; }
+    .badge {
+      font-family: var(--mono); font-size: 0.62rem; padding: 0.15rem 0.45rem;
+      border-radius: 999px; border: 1px solid rgba(192,132,252,.4); color: var(--grok);
+      background: rgba(192,132,252,.08);
+    }
   </style>
 </head>
 <body>
@@ -245,6 +269,7 @@
     <nav>
       <a href="./">Home</a>
       <a href="burst.html" class="nav-active">Burst</a>
+      <a href="livenews.html">Live News</a>
       <a href="grokglyph.html">GrokGlyph</a>
       <a href="chat.html">Chat</a>
       <a href="dojo.html">DOJO</a>
@@ -254,17 +279,22 @@
   </header>
 
   <main class="burst-page">
-    <p class="eyebrow">walkie · dual glyph · X Spaces stage</p>
+    <p class="eyebrow">walkie · spaces stage · glyph pipeline stress</p>
     <h1>Burst + Spaces</h1>
     <p class="burst-lede">
-      Hold to burst face+voice on the Glyph orb. Right: live <strong>X Spaces</strong> stage for
-      <a href="https://x.com/i/spaces/1AJEmmANrPeJL?s=20" target="_blank" rel="noopener">1AJEmmANrPeJL</a>
-      — host, <em>2 co-hosts</em>, <em>10 speakers</em>, listeners, waveforms, chat, captions,
-      and Media Studio <strong>RTMP / RTMPS</strong> ingest when your stream key is ready.
+      Hold the orb to burst face+voice. Stage seats:
+      <strong>host + 2 co-hosts</strong> as video circles,
+      <strong>10 speakers</strong> as 25×25 Glyph Matrix tiles,
+      <strong>listeners</strong> as a GrokGlyph-style join grid (stress-test the feed pipeline).
+      Space:
+      <a href="https://x.com/i/spaces/1AJEmmANrPeJL?s=20" target="_blank" rel="noopener">1AJEmmANrPeJL</a>.
+      Also: <a href="livenews.html">Live News wall</a>.
     </p>
 
-    <div class="burst-grid">
-      <div class="burst-left">
+    <!-- 1 · You / walkie -->
+    <details class="burst-sec" open data-persist="burst-you">
+      <summary>You · walkie burst <span class="sec-count">hold · cam · hub</span></summary>
+      <div class="burst-sec-body you-row">
         <div class="burst-stage">
           <div class="burst-orb" id="burst-orb" role="button" aria-label="Hold to send video burst" tabindex="0">
             <canvas class="ring" id="ring-canvas" width="280" height="280"></canvas>
@@ -272,41 +302,33 @@
             <span class="orb-label" id="orb-label">hold</span>
           </div>
         </div>
-
-        <p class="burst-meta" id="burst-meta">idle · mesh optional</p>
-        <div class="burst-actions">
-          <button type="button" class="btn primary" id="btn-hold">Hold burst</button>
-          <button type="button" class="btn ghost" id="btn-cam">Enable cam</button>
-          <label class="btn ghost">
-            Hub
-            <input type="text" id="hub-url" value="" placeholder="ws://127.0.0.1:9876" style="display:none" />
-          </label>
-          <button type="button" class="btn ghost" id="btn-connect">Connect</button>
+        <div class="you-side">
+          <p class="burst-meta" id="burst-meta">idle · mesh optional</p>
+          <div class="burst-actions">
+            <button type="button" class="btn primary" id="btn-hold">Hold burst</button>
+            <button type="button" class="btn ghost" id="btn-cam">Enable cam</button>
+            <input type="hidden" id="hub-url" value="" />
+            <button type="button" class="btn ghost" id="btn-connect">Connect hub</button>
+          </div>
+          <p class="burst-hint" style="margin-top:0.75rem">
+            Space = hold · terminal <code>gy burst</code>
+          </p>
         </div>
-
-        <div class="glyph-preview">
-          <p>Glyph Matrix preview (25×25 luminance)</p>
-          <canvas id="glyph-canvas" width="125" height="125"></canvas>
-        </div>
-
-        <p class="burst-hint">
-          Terminal: <code>gy burst</code> · <code>gy space</code> · <code>gy space-rtmp</code><br />
-          Space key: <code>GY_X_STREAM_KEY</code> when Media Studio is ready.
-        </p>
       </div>
+    </details>
 
-      <!-- X Spaces stage -->
-      <section id="spaces-stage" aria-label="X Spaces stage">
-        <div class="sp-head">
-          <h2 id="space-title">GrokYtalkY Space</h2>
+    <!-- 2 · Space bind -->
+    <details class="burst-sec" open data-persist="burst-space">
+      <summary>Space · bind &amp; seat <span class="sec-count" id="space-meta-sum">1AJEmmANrPeJL</span></summary>
+      <div class="burst-sec-body">
+        <div class="sp-head" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.5rem">
+          <h2 id="space-title" style="font-size:1rem;margin:0">GrokYtalkY Space</h2>
           <span class="badge">X Spaces</span>
-          <p id="space-meta"><em>1AJEmmANrPeJL</em> · host + 2 co-hosts · 10 speakers · listeners</p>
+          <p id="space-meta" style="font-family:var(--mono);font-size:0.68rem;color:var(--faint);width:100%;margin:0"></p>
         </div>
-
-        <div class="sp-config">
+        <div class="sp-config" id="spaces-stage-config">
           <label>Space <input id="space-url" type="url" spellcheck="false"
-            value="https://x.com/i/spaces/1AJEmmANrPeJL?s=20"
-            placeholder="https://x.com/i/spaces/…" /></label>
+            value="https://x.com/i/spaces/1AJEmmANrPeJL?s=20" /></label>
           <div class="sp-row">
             <button type="button" class="btn ghost" id="btn-space-apply">Bind</button>
             <button type="button" class="btn ghost" id="btn-space-open">Open on X</button>
@@ -322,44 +344,74 @@
             </label>
             <label>Slot <select id="my-slot"><option value="0">—</option></select></label>
             <button type="button" class="btn primary" id="btn-seat-me">Seat me</button>
+            <button type="button" class="btn ghost" id="btn-mute-all">Mute all</button>
+            <button type="button" class="btn ghost" id="btn-unmute-all">Unmute all</button>
+            <button type="button" class="btn ghost" id="btn-self-mute">Self mute</button>
+            <button type="button" class="btn ghost" id="btn-asset-offer">Offer asset</button>
           </div>
         </div>
+      </div>
+    </details>
 
-        <p class="sp-section-label">Host</p>
-        <div class="sp-slots" id="slot-host"></div>
+    <!-- 3 · Host + cohosts video circles -->
+    <details class="burst-sec" open data-persist="burst-hosts">
+      <summary>Host &amp; co-hosts · video circles <span class="sec-count">1 + 2</span></summary>
+      <div class="burst-sec-body">
+        <div class="host-circles" id="host-circles" aria-label="Host and co-host video feeds"></div>
+        <!-- legacy hooks for burst-spaces rebuild (hidden containers) -->
+        <div id="slot-host" hidden></div>
+        <div id="slots-cohosts" hidden></div>
+      </div>
+    </details>
 
-        <p class="sp-section-label">Co-hosts · 2</p>
-        <div class="sp-slots cohosts" id="slots-cohosts"></div>
+    <!-- 4 · Speakers glyph matrix -->
+    <details class="burst-sec" open data-persist="burst-speakers">
+      <summary>Speakers · Glyph Matrix 25×25 <span class="sec-count">10 seats</span></summary>
+      <div class="burst-sec-body">
+        <div class="speaker-grid" id="speaker-grid" role="list" aria-label="Speaker glyph tiles"></div>
+        <div id="slots-speakers" hidden></div>
+      </div>
+    </details>
 
-        <p class="sp-section-label">Speakers · 10</p>
-        <div class="sp-slots speakers" id="slots-speakers"></div>
-
-        <div class="listeners-bar">
-          Listeners <strong id="listeners-count">0</strong>
-          <span style="color:var(--faint);font-size:0.65rem">· named list · mesh join/leave</span>
+    <!-- 5 · Listeners GrokGlyph grid -->
+    <details class="burst-sec" open data-persist="burst-listeners">
+      <summary>Listeners · join grid <span class="sec-count"><strong id="listeners-count">0</strong> · stress pipeline</span></summary>
+      <div class="burst-sec-body">
+        <p style="font-size:0.8rem;color:var(--faint);margin:0 0 0.55rem;line-height:1.45">
+          GrokGlyph-style tiles — anyone can join as a listener to stress-test the mesh feed pipeline.
+          Empty slots accept a click to join; filled seats show 25×25 luminance.
+        </p>
+        <div class="sp-row">
+          <button type="button" class="btn primary" id="btn-join-listener">Join as listener</button>
+          <button type="button" class="btn ghost" id="btn-stress-listeners">Stress +12</button>
+          <button type="button" class="btn ghost" id="btn-clear-stress">Clear stress</button>
         </div>
-        <div class="listener-list" id="listener-list" aria-label="Listener list"></div>
-        <div class="sp-row host-controls">
-          <button type="button" class="btn ghost" id="btn-mute-all" title="Host: mute all co-hosts + speakers">Mute all</button>
-          <button type="button" class="btn ghost" id="btn-unmute-all">Unmute all</button>
-          <button type="button" class="btn ghost" id="btn-self-mute">Self mute</button>
-          <button type="button" class="btn ghost" id="btn-asset-offer" title="Offer this gy as X stream asset">Offer asset</button>
-        </div>
+        <div class="listener-grid" id="listener-grid" role="list" aria-label="Listener glyph grid"></div>
+        <div class="listener-list" id="listener-list" hidden></div>
+      </div>
+    </details>
 
-        <p class="sp-section-label">Caption / lower-third</p>
+    <!-- 6 · Chat + caption -->
+    <details class="burst-sec" open data-persist="burst-chat">
+      <summary>Chat &amp; captions <span class="sec-count">stage details</span></summary>
+      <div class="burst-sec-body">
         <div class="space-caption-bar placeholder" id="space-caption">Caption placeholder — pin a line or set lower-third</div>
-        <div class="sp-inline" style="margin-top:0.4rem">
-          <input id="space-caption-input" type="text" placeholder="Caption placeholder…" style="flex:1;min-width:10rem" />
+        <div class="sp-inline">
+          <input id="space-caption-input" type="text" placeholder="Caption…" style="flex:1;min-width:10rem" />
           <button type="button" class="btn ghost" id="space-caption-set">Set caption</button>
         </div>
-
-        <p class="sp-section-label">Space chat · details</p>
         <div class="space-chat-log" id="space-chat-log" aria-live="polite"></div>
         <div class="space-chat-compose">
-          <input id="space-chat-input" type="text" maxlength="280" placeholder="Chat placeholder — stage Q, pins, reactions…" />
+          <input id="space-chat-input" type="text" maxlength="280" placeholder="Space chat…" />
           <button type="button" class="btn primary" id="space-chat-send">Send</button>
         </div>
+      </div>
+    </details>
 
+    <!-- 7 · RTMP -->
+    <details class="burst-sec" data-persist="burst-rtmp">
+      <summary>RTMP · Media Studio <span class="sec-count">key when ready</span></summary>
+      <div class="burst-sec-body">
         <div class="rtmp-panel">
           <h3>RTMP · Media Studio Producer</h3>
           <div class="sp-inline">
@@ -374,28 +426,33 @@
           <div id="rtmp-base">rtmps://ca.pscp.tv:443/x</div>
           <label style="display:grid;grid-template-columns:5.5rem 1fr;gap:0.4rem;align-items:center;margin-top:0.45rem;font-family:var(--mono);font-size:0.65rem;color:var(--faint)">
             Stream key
-            <input id="rtmp-key" type="password" autocomplete="off" spellcheck="false"
-              placeholder="available when ready" />
+            <input id="rtmp-key" type="password" autocomplete="off" spellcheck="false" placeholder="available when ready" />
           </label>
-          <div class="sp-row" style="margin-top:0.4rem">
+          <div class="sp-row">
             <button type="button" class="btn primary" id="btn-key-pull">Auto-pull key</button>
             <label class="btn ghost" style="font-size:0.65rem">Token
               <input id="space-token" type="password" placeholder="GY_SPACE_TOKEN" style="width:7rem;margin-left:0.3rem" />
             </label>
           </div>
-          <p class="rtmp-status wait" id="rtmp-status">stream key available when ready · auto-pull env/file/hub · or paste from Media Studio</p>
+          <p class="rtmp-status wait" id="rtmp-status">stream key available when ready</p>
           <code id="rtmp-cmd"></code>
-          <p style="margin-top:0.45rem;font-size:0.72rem;color:var(--faint);line-height:1.4">
-            Defaults: <code>rtmps://ca.pscp.tv:443/x</code> · <code>rtmp://ca.pscp.tv:80/x</code><br />
-            Asset: <code>gy stream-x init|start|offer</code> · others seat via burst · host mute controls<br />
-            Hub: <code>GET /api/space</code> · <code>GET /api/space/key?token=…</code>
-          </p>
         </div>
-      </section>
-    </div>
+      </div>
+    </details>
+
+    <p class="burst-hint">
+      <code>gy burst</code> · <code>gy stream-x</code> · <code>gy space mute all</code> ·
+      <a href="livenews.html">livenews.html</a> · <a href="grokglyph.html">grokglyph.html</a>
+    </p>
+
+    <!-- hidden root for spaces JS -->
+    <div id="spaces-stage" hidden aria-hidden="true"></div>
+    <canvas id="glyph-canvas" width="125" height="125" hidden></canvas>
   </main>
 
+  <script src="glyph-shared.js"></script>
   <script src="burst-orb.js"></script>
   <script src="burst-spaces.js"></script>
+  <script src="burst-stage.js"></script>
 </body>
 </html>

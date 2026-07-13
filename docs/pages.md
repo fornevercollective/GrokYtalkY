@@ -4,7 +4,8 @@
 - **Docs:** https://fornevercollective.github.io/GrokYtalkY/docs.html
 - **DOJO e2e:** https://fornevercollective.github.io/GrokYtalkY/dojo.html
 - **Chat demo:** https://fornevercollective.github.io/GrokYtalkY/chat.html
-- **Burst orb:** https://fornevercollective.github.io/GrokYtalkY/burst.html
+- **Burst orb / Spaces:** https://fornevercollective.github.io/GrokYtalkY/burst.html
+- **Live News glyph wall:** https://fornevercollective.github.io/GrokYtalkY/livenews.html
 
 ## Source
 
@@ -12,7 +13,7 @@
 - Content: `site/`
   - `index.html` — conversation hero + vwall
   - `docs.html` — full documentation (sidebar) — keep in sync with TUI `?` help pages
-  - `dojo.html` / `chat.html` / `burst.html` — demos
+  - `dojo.html` / `chat.html` / `burst.html` / `livenews.html` — demos
   - `stream-hero.js` · `dojo-room.js` · `styles.css`
 
 ## Repo markdown (not Pages-rendered, linked from docs)
