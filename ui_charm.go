@@ -191,52 +191,6 @@ func promptLine(mode PromptMode, nick, input string, thinking bool, width int) s
 	return clampCells(line, width)
 }
 
-func helpOverlay(width, height int) string {
-	body := `keys
-  tab        chat · live · grok · watch
-  enter      send / eval / watch path
-  space      PTT (chat, empty line)
-  p          pattern play/stop
-  c          camera strip
-  m          pixel style
-  1-7        pattern presets
-  F          full ↔ companion
-  ?          help ·  q / ctrl+c quit
-
-  /watch url|file   ffmpeg (auto yt-dlp for YT/…)
-  /vstop            stop pipe
-  /pause            toggle pause
-  /seek +10|-30|90  relative or absolute (seconds)
-  /rate 1.5         playback speed
-  /rec · /export f  record frames → .gyst|.gyhex|.pcap
-  /load stream.gyst binary-level load & play
-  /colossus pcap|sim live TUI ingest + hub gyst publish
-  /colossus stop    stop loop + publish
-  /forge a.pcap b…  multi-pcap lab + Cursor-Grok Forge marks
-  /forge status|stop|next|hold|rotate
-  /conductor claim|release|status   program bus (venue on-air)
-  /take [slot] · /preview [slot] · /hold · /black
-  /program              show PGM/PVW + venue adapter hint
-  forge RX → dual Glyph · dual-local left · peer right holds
-  cap handshake · gy agent · gy venue · auto-update on TUI launch
-  /hexdump          current frame as hex line
-
-  scrub: k/space pause · j/l ±5s · J/L ±30s · 0 start · <> rate
-
-  binary formats:
-  .gyst   GYST packets (rgb24/pcm16/jpeg/hexlum)
-  .gyhex  text hex lines (editable)
-  .pcap   Wireshark USER0 wrapping GYST
-  gy encode clip.mp4 out.gyst
-  gy decode out.pcap
-
-  styles: half hex braille ascii blocks points
-          halftone depth gsplat
-
-env  XAI_API_KEY · GROK_MODEL · ZIPDEPTH_URL`
-	return panel("help", styText().Render(body), width)
-}
-
 func spinnerFrame(n int) string {
 	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 	return frames[n%len(frames)]

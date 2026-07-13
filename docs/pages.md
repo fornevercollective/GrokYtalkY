@@ -1,21 +1,40 @@
 # GitHub Pages
 
 - **Home (stream hero):** https://fornevercollective.github.io/GrokYtalkY/
-- **Docs page:** https://fornevercollective.github.io/GrokYtalkY/docs.html
+- **Docs:** https://fornevercollective.github.io/GrokYtalkY/docs.html
+- **DOJO e2e:** https://fornevercollective.github.io/GrokYtalkY/dojo.html
+- **Chat demo:** https://fornevercollective.github.io/GrokYtalkY/chat.html
+- **Burst orb:** https://fornevercollective.github.io/GrokYtalkY/burst.html
 
 ## Source
 
 - Workflow: `.github/workflows/pages.yml`
 - Content: `site/`
-  - `index.html` — conversation hero with live camera/video half-blocks
-  - `docs.html` — full documentation (sidebar)
-  - `stream-hero.js` — getUserMedia + file → canvas stream
-  - `styles.css`
+  - `index.html` — conversation hero + vwall
+  - `docs.html` — full documentation (sidebar) — keep in sync with TUI `?` help pages
+  - `dojo.html` / `chat.html` / `burst.html` — demos
+  - `stream-hero.js` · `dojo-room.js` · `styles.css`
 
-## Repo settings
+## Repo markdown (not Pages-rendered, linked from docs)
 
-**Settings → Pages → Build and deployment**
+| File | Topic |
+|------|--------|
+| `docs/streams-capacity.md` | Hub / SFU / CF lanes · venue CLI |
+| `docs/st2110-sync-cameras.md` | 2110-20/30 · PTP · cameras · 2022-7 |
+| `docs/stream-binary.md` | gyst / gyhex / pcap |
+| `docs/burst.md` · `chat.md` · `companion.md` | Feature deep-dives |
 
-- Source: **GitHub Actions**
+## Keep in sync
+
+When shipping features, update:
+
+1. TUI multi-page help (`ui_help.go` — keys/stream/forge/venue/cli/docs)
+2. `gy --help` (`main.go` printHelp)
+3. `site/docs.html` sidebar + sections
+4. Relevant `docs/*.md`
+
+## Deploy
+
+**Settings → Pages → Build and deployment** → **GitHub Actions**
 
 Push to `main` deploys. Manual: Actions → Deploy GitHub Pages → Run workflow.

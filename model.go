@@ -75,6 +75,7 @@ type Model struct {
 	// Charm / Grok prompt
 	promptMode   PromptMode
 	showHelp     bool
+	helpPage     int // multi-page help overlay (tab while ? open)
 	grokCfg      GrokConfig
 	grokHistory  []GrokMessage
 	grokThinking bool
@@ -749,6 +750,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.input = ""
 		return m, nil
 	case "tab":
+		// help overlay: cycle help pages (keys · stream · forge · venue · cli · docs)
+		if m.showHelp {
+			m.helpPage = (m.helpPage + 1) % HelpPageCount
+			m.status = "help · " + HelpPageTitle(m.helpPage)
+			return m, nil
+		}
 		if m.lab != nil && m.lab.On && m.input == "" {
 			m.lab.NextFeed()
 			if af := m.lab.ActiveFeed(); af != nil {
@@ -761,6 +768,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.status = m.promptMode.String()
 		return m, nil
 	case "shift+tab":
+		if m.showHelp {
+			m.helpPage = (m.helpPage + HelpPageCount - 1) % HelpPageCount
+			m.status = "help · " + HelpPageTitle(m.helpPage)
+			return m, nil
+		}
 		m.promptMode = (m.promptMode + ModeCount - 1) % ModeCount
 		m.liveMode = m.promptMode == ModeLive
 		m.status = m.promptMode.String()
@@ -1079,6 +1091,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "?", "f1":
 			m.showHelp = !m.showHelp
+			if m.showHelp {
+				m.helpPage = 0
+				m.status = "help · " + HelpPageTitle(0) + " · tab pages"
+			}
 			return m, nil
 		case "f", "F":
 			m.compact = !m.compact

@@ -21,7 +21,8 @@ func (m *Model) renderCharm() string {
 	cw := safeCols(w)
 
 	if m.showHelp {
-		return stableView(helpOverlay(min(cw, 72), min(h, 22)), w, h)
+		// expansive multi-page help — tab/shift-tab cycles pages
+		return stableView(helpOverlay(min(cw, 78), min(h, 28), m.helpPage), w, h)
 	}
 	if m.burstMode {
 		return stableView(m.renderBurstOrb(cw, h), w, h)

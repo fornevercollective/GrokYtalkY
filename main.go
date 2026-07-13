@@ -306,43 +306,45 @@ func printHelp() {
 			cmd = base
 		}
 	}
-	fmt.Printf(`GrokYtalkY %s — lean Charm companion + video burst
+	fmt.Printf(`GrokYtalkY %s — companion dock · forge · venue · ST 2110
 
-  %s                 companion dock (default)
-  %s burst           Nothing Glyph dual circles (you | peer)
-  %s lab             multi-feed lab (feeds | chat)
-  %s encode in out   binary/hex/pcap encode stream
-  %s decode file     inspect .gyst|.gyhex|.pcap
-  %s stream-pub src  live headless GYST → hub (sim|file|pcap|cam)
-  %s serve           headless hub
-  %s chat-bridge     DOJO hub → public Space captions
-  %s sfu-bridge      hub vburst|gyst hexlum → SFU glyph/hex
-  %s agent           thin Glyph/IoT client (cap handshake, no TUI)
-  %s venue           venue adapter stub (program bus + glyph)
-  %s version         version + build info
-  %s update          check & install latest
-  %s update --check  check only (exit 2 if outdated)
-  %s --full          larger layout
-  %s watch URL|file  ffmpeg or binary stream
-  %s doctor          check ffmpeg / yt-dlp / ffplay
-  %s join HOST:PORT  remote hub
+commands
+  %s                      companion dock (default)
+  %s burst                dual Glyph Matrix (you | peer)
+  %s lab                  multi-feed video lab
+  %s serve | join HOST    headless hub · remote peer
+  %s watch URL|file       ffmpeg terminal video
+  %s stream-pub|colossus  live gyst → hub (sim|pcap|cam)
+  %s encode|decode        .gyst|.gyhex|.pcap
+  %s agent                thin Glyph/IoT (JSON, no TUI)
+  %s venue                NDI · ST 2110-20/30 · 2022-7
+  %s sfu-bridge           hub hexlum/vburst → SFU glyph|hex
+  %s chat-bridge          hub → Space captions
+  %s doctor [st2110|sync|cameras]
+  %s update [--check]     install channel update
+  %s version
 
-  tab   chat · live · grok · watch  (lab: next feed)
-  V     video lab on/off     [ ] scale   , . fps
-  L     layout side|stack|grid|focus
-  m     style half·hex·…·depth·gsplat
-  a     +sim feed            c  cam / +cam feed
-  b     burst orb            F  full/companion
-  ?     help                 q  quit
+TUI ( ? multi-page help · tab pages )
+  tab     chat·live·grok·watch  (lab: next feed · help: next page)
+  b       dual Glyph burst      V lab · L layout · m style
+  F       full/companion        space PTT · [ ] glyph scale · g res
+  /forge a.pcap b…   multi-pcap + cgf: marks · dual-left rotate
+  /conductor · /take · /preview · /hold · /black · /program
+  /colossus pcap|sim · /watch · /rec · /export · /load
 
-  install:  make install     →  ~/.local/bin/gy
-            brew install --build-from-source ./Formula/grokytalky.rb
-  burst = short video+audio walkie → Nothing Glyph Matrix dual circles
-  flags: --burst --glyph 13|25|37|49 --glyph-scale 0..8 --midi --cam
-  keys:  [ ] scale · g res · space PTT  (matches GlyphMatrix-Developer-Kit layout)
-  env:   XAI_API_KEY · GROK_MODEL · GROK_CLI_URL · GY_CAP · GY_ROLE
-         GY_NO_AUTO_UPDATE=1 · GY_AUTO_UPDATE=0|check  (TUI launch auto-update)
-`, Version, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd)
+venue / 2110
+  gy venue --sink st2110 --rtp A --rtp-b B   # 2022-7 dual-dest
+  gy venue --audio-rtp … --depth 10 --tp 2110TPN
+  gy doctor st2110 | sync | cameras
+
+docs  https://fornevercollective.github.io/GrokYtalkY/
+      docs.html · dojo.html · chat.html · burst.html
+  repo docs/streams-capacity.md · st2110-sync-cameras.md
+
+env   XAI_API_KEY · GROK_MODEL · GY_CAP · GY_ROLE
+      GY_NO_AUTO_UPDATE=1 · --no-update
+install  make install → ~/.local/bin/gy
+`, Version, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd)
 }
 
 func runHubOnly(bind string, port int) error {

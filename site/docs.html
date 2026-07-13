@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Docs · GrokYtalkY</title>
-  <meta name="description" content="GrokYtalkY documentation — install, modes, video pipe, MIDI, Grok env, companion dock." />
+  <meta name="description" content="GrokYtalkY docs — companion dock, forge multi-pcap, dual Glyph, program bus, ST 2110/NDI venue, SFU, Space chat." />
   <meta name="theme-color" content="#0c0c0f" />
   <link rel="canonical" href="https://fornevercollective.github.io/GrokYtalkY/docs.html" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -35,39 +35,63 @@
       <a href="#quickstart">Quick start</a>
       <a href="#companion">Companion dock</a>
       <a href="#modes">Modes</a>
+      <a href="#help-tui">TUI help pages</a>
       <a href="#video">Camera &amp; video</a>
       <a href="#vwall">VWall simulcast</a>
       <a href="#burst">Burst / Glyph</a>
+      <a href="#forge">Forge multi-pcap</a>
+      <a href="#program-bus">Program bus</a>
+      <a href="#venue">Venue · NDI · ST 2110</a>
       <a href="#streams-scale">Stream scale</a>
       <a href="#chat-space">Space chat</a>
       <a href="dojo.html">DOJO media e2e</a>
-      <a href="#burst">Video burst / Glyph</a>
       <a href="#patterns">Patterns</a>
       <a href="#midi">MIDI</a>
       <a href="#grok">Grok prompt</a>
       <a href="#server">Server / mesh</a>
+      <a href="#cli">CLI map</a>
       <a href="#env">Environment</a>
       <a href="#keys">Keys</a>
       <a href="#stack">Stack &amp; lineage</a>
     </aside>
 
     <article class="docs-main">
-      <p class="eyebrow">docs · fornevercollective/GrokYtalkY</p>
+      <p class="eyebrow">docs · fornevercollective/GrokYtalkY · v1.32+</p>
       <h1>Documentation</h1>
       <p class="lede docs-lede">
-        Grok terminal companion: walkie mesh, live video hero, Strudel-lite, MIDI, and Grok prompts.
-        Compact by default — sits beside your session.
+        Companion dock, dual Glyph walkie, forge multi-pcap marks, conductor program bus,
+        ST 2110 / NDI venue sinks, SFU lanes, and Space chat — one binary, honest facility limits.
       </p>
 
       <section id="quickstart" class="docs-section">
         <h2>Quick start</h2>
         <pre class="code-block"><code>git clone https://github.com/fornevercollective/GrokYtalkY.git
 cd GrokYtalkY
-go build -o bin/grokytalky .
-./bin/grokytalky                 # companion dock
-./bin/grokytalky serve           # headless hub
-./bin/grokytalky watch clip.mp4  # terminal pixel video + audio</code></pre>
-        <p>Optional: <code>./scripts/install.sh</code> → <code>~/.local/bin/grokytalky</code></p>
+go build -o bin/gy .
+./bin/gy                      # companion dock (auto-update on launch)
+./bin/gy serve                # headless hub
+./bin/gy burst                # dual Glyph Matrix
+./bin/gy watch clip.mp4
+./bin/gy venue --sink st2110 --rtp-b rtp://…   # 2110-20 + 2022-7
+./bin/gy doctor st2110</code></pre>
+        <p>Install: <code>make install</code> → <code>~/.local/bin/gy</code> · Pages: this site deploys from <code>site/</code> on <code>main</code>.</p>
+      </section>
+
+      <section id="help-tui" class="docs-section">
+        <h2>TUI help pages</h2>
+        <p>In the terminal: press <kbd>?</kbd> or <kbd>F1</kbd>. While help is open, <kbd>tab</kbd> / <kbd>shift+tab</kbd> cycle pages:</p>
+        <table class="docs-table">
+          <thead><tr><th>Page</th><th>Covers</th></tr></thead>
+          <tbody>
+            <tr><td><code>keys</code></td><td>Modes, PTT, lab, burst, quit</td></tr>
+            <tr><td><code>stream</code></td><td><code>/watch</code> · <code>/colossus</code> · gyst/gyhex/pcap · scrub</td></tr>
+            <tr><td><code>forge</code></td><td>Multi-pcap marks · dual Glyph · <code>/conductor</code> · <code>/take</code></td></tr>
+            <tr><td><code>venue</code></td><td>NDI · ST 2110-20/30 · 2022-7 · doctor · bridges</td></tr>
+            <tr><td><code>cli</code></td><td>Subcommands · env · auto-update</td></tr>
+            <tr><td><code>docs</code></td><td>This site + repo markdown paths</td></tr>
+          </tbody>
+        </table>
+        <p><kbd>esc</kbd> or <kbd>?</kbd> closes help. Prompt bar modes remain <code>chat · live · grok · watch</code>.</p>
       </section>
 
       <section id="companion" class="docs-section">
@@ -168,6 +192,65 @@ ffplay -vn SRC   # audio parallel</code></pre>
         <p>Full write-up: <code>docs/burst.md</code> in the repo.</p>
       </section>
 
+      <section id="forge" class="docs-section">
+        <h2>Forge multi-pcap + dual Glyph</h2>
+        <p>
+          Cursor-Grok Forge stamps multi-pcap lab tiles with NFT-style <code>cgf:</code> IDs and a 4×4 corner lattice
+          on hexlum. Dual Glyph: <strong>left</strong> rotates local slots; <strong>right</strong> holds peer RX.
+        </p>
+        <pre class="code-block"><code>/forge examples/dojo.pcap examples/dojo.pcap
+/forge status | next | hold | rotate | stop
+# hub fans forge-mark meta + stamped hexlum
+# peer: forge → dual Glyph auto-open</code></pre>
+        <ul>
+          <li>Marks: <code>cgf:&lt;16hex&gt;</code> · content commitment per slot</li>
+          <li>Lattice pass-through on hub / SFU bridge / venue — never re-stamped</li>
+          <li>Cap handshake: <code>GY_CAP=term-lean|glyph-iot|bridge</code> on join</li>
+          <li>Thin edge: <code>gy agent</code> → JSON glyph + forge-mark lines</li>
+        </ul>
+      </section>
+
+      <section id="program-bus" class="docs-section">
+        <h2>Conductor · program bus</h2>
+        <p>On-air control plane for jam + venue sinks. Mesh type <code>program</code>; hub remembers last bus for late joiners.</p>
+        <pre class="code-block"><code>/conductor claim
+/preview 2
+/take            # or /take 1
+/hold · /black
+/program         # PGM/PVW + venue adapter hint</code></pre>
+        <p>Modes: <code>live</code> · <code>hold</code> (freeze last) · <code>black</code> (safe slate). Source carries forge mark, slot, lane.</p>
+      </section>
+
+      <section id="venue" class="docs-section">
+        <h2>Venue · NDI · ST 2110 · 2022-7</h2>
+        <p>
+          <code>gy venue</code> consumes the program bus + on-air hexlum/glyph and drives pluggable sinks.
+          Lattice is nearest-neighbor upscaled for HD egress — identity preserved.
+        </p>
+        <pre class="code-block"><code>gy venue --sink log
+gy venue --sink ndi --ndi-name GrokYtalkY-PGM
+gy venue --sink st2110 --profile 2110-20 --tp 2110TPN \
+  --fps-exact 30000/1001 --depth 10
+gy venue --rtp rtp://239.100.1.10:5004 \
+  --rtp-b rtp://239.100.2.10:5004          # ST 2022-7 dual-dest tee
+gy venue --audio-rtp rtp://239.100.1.10:5006  # ST 2110-30 L24
+gy doctor st2110 · sync · cameras</code></pre>
+        <table class="docs-table">
+          <thead><tr><th>Piece</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td>ST 2110-20</td><td>Full fmtp (TCS/RANGE/PAR/exactframerate/PM/TP) · uyvy or v210</td></tr>
+            <tr><td>ST 2110-30</td><td>AES67-constrained L24/48k · ST 2059-2 PTP profile required in prod</td></tr>
+            <tr><td>ST 2022-7</td><td>Single-encode tee to A/B RTP · best-effort hitless diversity</td></tr>
+            <tr><td>NDI</td><td>libndi_newtek when present · MPEG-TS UDP fallback</td></tr>
+            <tr><td>Cameras</td><td><code>gy doctor cameras</code> — Sony/ARRI/RED/BMD/Canon/… tether matrix</td></tr>
+          </tbody>
+        </table>
+        <p>
+          Honest limits: free-run PTP until facility GM; no NMOS/GM in-process; 2110-40 ANC still facility-side.
+          Spec write-up: <code>docs/st2110-sync-cameras.md</code> · capacity: <code>docs/streams-capacity.md</code>.
+        </p>
+      </section>
+
       <section id="streams-scale" class="docs-section">
         <h2>Simulcast scale · Cloudflare vs custom SFU</h2>
         <p>
@@ -205,10 +288,12 @@ ffplay -vn SRC   # audio parallel</code></pre>
         </p>
         <pre class="code-block"><code>make sfu            # signaling + WS glyph/hex/chat
 make sfu-media      # + webrtc-rs track fan-out + DataChannels
-./sfu/target/release/gy-sfu --bind 127.0.0.1:9880
+./sfu/target/release/gy-sfu --bind 127.0.0.1:9880 --token secret
 curl -s http://127.0.0.1:9880/health   # "media": true|false
-# WS: ws://127.0.0.1:9880/ws?room=dojo&amp;nick=qbit
-# offer without "to" → SFU answers; DataChannel labels: glyph|hex|chat</code></pre>
+# WS: ws://127.0.0.1:9880/ws?room=dojo&amp;nick=qbit&amp;token=secret
+# offer without "to" → SFU answers; DataChannel labels: glyph|hex|chat
+gy sfu-bridge --sfu 'ws://127.0.0.1:9880/ws?room=dojo&amp;nick=bridge&amp;token=secret'
+# hub vburst + gyst hexlum (lattice) → SFU glyph|hex</code></pre>
         <h3 id="chat-space">Space / Creator Studio chat</h3>
         <p>
           Text is a separate plane from media (X Spaces–style). Public 1k+ chat →
@@ -271,6 +356,23 @@ export GROK_CLI_URL=http://127.0.0.1:3000   # optional notes backend</code></pre
         <p>Headless WebSocket hub for multi-peer chat, audio, frames, patterns. No TUI takeover.</p>
       </section>
 
+      <section id="cli" class="docs-section">
+        <h2>CLI map</h2>
+        <table class="docs-table">
+          <thead><tr><th>Command</th><th>Role</th></tr></thead>
+          <tbody>
+            <tr><td><code>gy</code> / <code>burst</code> / <code>lab</code></td><td>TUI companion · Glyph dual · multi-feed</td></tr>
+            <tr><td><code>gy serve</code> · <code>join</code></td><td>Headless hub · remote peer</td></tr>
+            <tr><td><code>stream-pub</code> · <code>colossus</code></td><td>Live gyst publish</td></tr>
+            <tr><td><code>agent</code></td><td>Thin Glyph/IoT JSON client</td></tr>
+            <tr><td><code>venue</code></td><td>NDI / ST 2110 / 2022-7 sinks</td></tr>
+            <tr><td><code>sfu-bridge</code> · <code>chat-bridge</code></td><td>Hub → SFU / Space</td></tr>
+            <tr><td><code>doctor st2110|sync|cameras</code></td><td>Suite · PTP · tether matrix</td></tr>
+            <tr><td><code>update</code></td><td>Channel install (TUI also auto-updates)</td></tr>
+          </tbody>
+        </table>
+      </section>
+
       <section id="env" class="docs-section">
         <h2>Environment</h2>
         <table class="docs-table">
@@ -280,9 +382,12 @@ export GROK_CLI_URL=http://127.0.0.1:3000   # optional notes backend</code></pre
             <tr><td><code>GROK_MODEL</code></td><td>default <code>grok-3-mini</code></td></tr>
             <tr><td><code>GROK_CLI_URL</code></td><td>local backend base URL</td></tr>
             <tr><td><code>GROK_OFFLINE</code></td><td><code>1</code> force backend offline path</td></tr>
+            <tr><td><code>GY_CAP</code> / <code>GY_ROLE</code></td><td>Capability class · term|agent|bridge</td></tr>
+            <tr><td><code>GY_NO_AUTO_UPDATE</code> · <code>GY_AUTO_UPDATE</code></td><td>Disable / check-only TUI auto-update</td></tr>
+            <tr><td><code>ZIPDEPTH_URL</code></td><td>Depth sidecar</td></tr>
           </tbody>
         </table>
-        <p>See <code>.env.example</code> in the repo.</p>
+        <p>See <code>.env.example</code> in the repo. Flag <code>--no-update</code> skips launch auto-update once.</p>
       </section>
 
       <section id="keys" class="docs-section">
@@ -290,14 +395,17 @@ export GROK_CLI_URL=http://127.0.0.1:3000   # optional notes backend</code></pre
         <table class="docs-table">
           <thead><tr><th>Key</th><th>Action</th></tr></thead>
           <tbody>
-            <tr><td><kbd>tab</kbd></td><td>Cycle modes</td></tr>
+            <tr><td><kbd>tab</kbd></td><td>Cycle modes · in help: next help page · lab: next feed</td></tr>
+            <tr><td><kbd>shift+tab</kbd></td><td>Previous mode / help page</td></tr>
             <tr><td><kbd>enter</kbd></td><td>Send (mode-dependent)</td></tr>
-            <tr><td><kbd>g</kbd></td><td>Grok mode</td></tr>
-            <tr><td><kbd>l</kbd></td><td>Live mode</td></tr>
+            <tr><td><kbd>space</kbd></td><td>PTT (chat empty) · scrub pause</td></tr>
+            <tr><td><kbd>b</kbd></td><td>Dual Glyph burst</td></tr>
+            <tr><td><kbd>V</kbd> · <kbd>L</kbd> · <kbd>m</kbd></td><td>Lab · layout · pixel style</td></tr>
+            <tr><td><kbd>g</kbd></td><td>Grok mode · in burst: res ladder</td></tr>
             <tr><td><kbd>p</kbd></td><td>Pattern play/stop</td></tr>
             <tr><td><kbd>c</kbd></td><td>Camera strip</td></tr>
             <tr><td><kbd>F</kbd></td><td>Full ↔ companion</td></tr>
-            <tr><td><kbd>?</kbd></td><td>In-app help</td></tr>
+            <tr><td><kbd>?</kbd> / <kbd>F1</kbd></td><td>Multi-page help</td></tr>
             <tr><td><kbd>q</kbd></td><td>Quit</td></tr>
           </tbody>
         </table>
