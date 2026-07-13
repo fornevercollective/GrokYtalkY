@@ -90,6 +90,7 @@ a:hover { text-decoration: underline; }
   color: var(--text);
   font-weight: 600;
 }
+/* screen cast button state (GrokGlyph) — uses gg-hbtn in grokglyph.css */
 /* keep full menu on narrow screens (scroll, don’t hide) */
 .nav nav {
   overflow-x: auto;
