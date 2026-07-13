@@ -17,11 +17,12 @@ import (
 
 // Hub is the mesh WebSocket relay (hexcast-compatible frames + walkie msgs).
 type Hub struct {
-	mu     sync.Mutex
-	peers  map[*websocket.Conn]*peerMeta
-	server *http.Server
-	addr   string
-	quiet  bool
+	mu      sync.Mutex
+	peers   map[*websocket.Conn]*peerMeta
+	server  *http.Server
+	addr    string
+	quiet   bool
+	program map[string]any // last type:program bus for late joiners
 }
 
 type peerMeta struct {
@@ -131,6 +132,13 @@ func (h *Hub) handleWS(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	_ = writeJSON(ctx, c, map[string]any{"type": "hello", "id": meta.ID, "nick": meta.Nick, "version": Version})
 	_ = writeJSON(ctx, c, map[string]any{"type": "roster", "peers": h.peerList()})
+	// late join: push last program bus so venue/agents sync on-air state
+	h.mu.Lock()
+	pgm := h.program
+	h.mu.Unlock()
+	if pgm != nil {
+		_ = writeJSON(ctx, c, pgm)
+	}
 	h.broadcast(c, mustJSON(map[string]any{"type": "join", "id": meta.ID, "nick": meta.Nick, "role": meta.Role}))
 
 	defer func() {
@@ -242,6 +250,16 @@ func (h *Hub) route(from *websocket.Conn, meta *peerMeta, data []byte) {
 			msg["from"] = meta.Nick
 		}
 		msg["type"] = "gyst"
+		h.broadcast(from, mustJSON(msg))
+	case "program":
+		// conductor program bus — store for late joiners, fan-out
+		if _, ok := msg["from"]; !ok {
+			msg["from"] = meta.Nick
+		}
+		msg["type"] = "program"
+		h.mu.Lock()
+		h.program = msg
+		h.mu.Unlock()
 		h.broadcast(from, mustJSON(msg))
 	case "audio":
 		h.broadcast(from, data)

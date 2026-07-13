@@ -70,7 +70,7 @@ type GlyphAgentOpts struct {
 
 // GlyphAgentEvent is one stdout JSON line for IoT consumers.
 type GlyphAgentEvent struct {
-	Type   string         `json:"type"` // glyph | forge-mark | status
+	Type   string         `json:"type"` // glyph | forge-mark | program | status
 	From   string         `json:"from,omitempty"`
 	N      int            `json:"n,omitempty"`
 	Data   []int          `json:"data,omitempty"` // lattice pass-through
@@ -79,6 +79,8 @@ type GlyphAgentEvent struct {
 	Source string         `json:"source,omitempty"`
 	Forge  string         `json:"forge,omitempty"`
 	T      int64          `json:"t,omitempty"`
+	Mode   string         `json:"mode,omitempty"` // program bus mode
+	OnAir  bool           `json:"on_air,omitempty"`
 	Meta   map[string]any `json:"meta,omitempty"`
 }
 
@@ -234,6 +236,26 @@ func MapHubMsgToAgentEvents(raw []byte) []GlyphAgentEvent {
 					T:    time.Now().UnixMilli(),
 				})
 			}
+		}
+	case "program":
+		if bus, ok := ParseProgramBus(msg); ok {
+			out = append(out, GlyphAgentEvent{
+				Type:   "program",
+				From:   from,
+				Mode:   bus.Mode,
+				Mark:   bus.Program.Mark,
+				Slot:   bus.Program.Slot,
+				Source: bus.Program.Source,
+				OnAir:  bus.Mode == ProgramModeLive || bus.Mode == ProgramModeHold,
+				T:      bus.T,
+				Meta: map[string]any{
+					"conductor": bus.Conductor,
+					"seq":       bus.Seq,
+					"program":   bus.Program,
+					"preview":   bus.Preview,
+					"venue":     bus.VenueAdapterHint(),
+				},
+			})
 		}
 	case "cap", "join":
 		if cap, ok := ParseCapFromMesh(msg); ok {

@@ -106,6 +106,10 @@ type Model struct {
 	cap       CapProfile
 	peerCaps  map[string]CapProfile // nick → cap
 
+	// Conductor / program bus — on-air control (venue adapters consume later)
+	conductor bool       // this peer claimed conductor
+	program   ProgramBus // room program state
+
 	// Live depth + gsplat (ZipDepth sidecar / zip-lite / overview-style stack)
 	depth *depthSession
 
@@ -206,6 +210,7 @@ func NewModel(opts Options) *Model {
 		glyphScale: opts.GlyphScale,
 		cap:        cap,
 		peerCaps:   make(map[string]CapProfile),
+		program:    NewProgramBus(),
 		depth:      newDepthSession(),
 		lab:        newLabState(),
 		recorder:   NewRecordSession(),
@@ -1460,6 +1465,25 @@ func (m *Model) slash(line string) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m.startColossusIngest(src)
+	case "conductor", "dir", "director":
+		// /conductor claim|release|status — own the program bus
+		return m.handleConductorCmd(strings.TrimSpace(arg))
+	case "take":
+		// /take [slot|next] — cut to program (conductor)
+		return m.handleTakeCmd(strings.TrimSpace(arg))
+	case "preview":
+		// /preview [slot] — arm preview without take
+		return m.handlePreviewCmd(strings.TrimSpace(arg))
+	case "hold":
+		// /hold — freeze program (venue hold last frame)
+		return m.handleProgramMode(ProgramModeHold)
+	case "black", "slate":
+		// /black — safe black/slate for venue sinks
+		return m.handleProgramMode(ProgramModeBlack)
+	case "program", "pgm", "onair":
+		// /program [status] — show program bus
+		m.pushProgramStatus()
+		return m, nil
 	case "forge":
 		// /forge a.pcap b.pcap …  — multi-pcap NFT-style forge marks
 		// /forge status | stop | next | hold | rotate
@@ -1988,6 +2012,200 @@ func (m *Model) ensureBurstForForgeRX(from string) bool {
 		m.remoteTX = from
 	}
 	return true
+}
+
+// ── Conductor / program bus ──────────────────────────────────
+
+func (m *Model) handleConductorCmd(arg string) (tea.Model, tea.Cmd) {
+	switch arg {
+	case "", "status", "st":
+		m.pushProgramStatus()
+		return m, nil
+	case "claim", "on", "take-control":
+		m.conductor = true
+		m.program.Conductor = m.nick
+		m.program.T = time.Now().UnixMilli()
+		m.publishProgramBus()
+		m.pushSys("◈ conductor claimed · /take · /preview · /hold · /black")
+		return m, nil
+	case "release", "off":
+		was := m.conductor
+		m.conductor = false
+		if was {
+			m.pushSys("◈ conductor released")
+		}
+		// do not clear bus — last program holds for venue
+		return m, nil
+	default:
+		m.pushSys("usage: /conductor claim|release|status")
+		return m, nil
+	}
+}
+
+func (m *Model) handleTakeCmd(arg string) (tea.Model, tea.Cmd) {
+	if !m.ensureConductor() {
+		return m, nil
+	}
+	src, ok := m.resolveProgramSource(arg)
+	if !ok {
+		m.pushSys("usage: /take [slot|next] · need forge slot or preview armed")
+		return m, nil
+	}
+	m.program.Take(src, m.nick)
+	// dual-local: cut left to taken forge slot when slot known
+	if src.Source == ProgramSourceForge && src.Slot > 0 {
+		m.forgeHoldLeft = true
+		slots := m.forgePcapSlots()
+		for i, f := range slots {
+			if f.Forge != nil && f.Forge.Slot == src.Slot {
+				m.applyForgeDualLocalSlot(i)
+				break
+			}
+		}
+	}
+	m.publishProgramBus()
+	m.pushSys("◈ TAKE " + FormatProgramSource(m.program.Program))
+	m.status = fmt.Sprintf("PGM %s", FormatProgramSource(m.program.Program))
+	return m, nil
+}
+
+func (m *Model) handlePreviewCmd(arg string) (tea.Model, tea.Cmd) {
+	if !m.ensureConductor() {
+		return m, nil
+	}
+	src, ok := m.resolveProgramSource(arg)
+	if !ok {
+		m.pushSys("usage: /preview [slot|next] · arm forge/gyst source")
+		return m, nil
+	}
+	m.program.SetPreview(src, m.nick)
+	m.publishProgramBus()
+	m.pushSys("◈ PVW " + FormatProgramSource(src) + " · /take to cut")
+	return m, nil
+}
+
+func (m *Model) handleProgramMode(mode string) (tea.Model, tea.Cmd) {
+	if !m.ensureConductor() {
+		return m, nil
+	}
+	switch mode {
+	case ProgramModeHold:
+		m.program.Hold(m.nick)
+		m.pushSys("◈ HOLD program · venue freezes last frame")
+	case ProgramModeBlack:
+		m.program.Black(m.nick)
+		m.pushSys("◈ BLACK · safe slate for venue sinks")
+	default:
+		return m, nil
+	}
+	m.publishProgramBus()
+	m.status = "PGM " + m.program.Mode
+	return m, nil
+}
+
+func (m *Model) ensureConductor() bool {
+	if m.conductor {
+		return true
+	}
+	// auto-claim on first take if no one else is conductor
+	if m.program.Conductor == "" || m.program.Conductor == m.nick {
+		m.conductor = true
+		m.program.Conductor = m.nick
+		m.pushSys("◈ conductor auto-claim · /conductor release to drop")
+		return true
+	}
+	m.pushSys(fmt.Sprintf("program bus owned by %s · /conductor claim to steal", m.program.Conductor))
+	return false
+}
+
+// resolveProgramSource parses /take /preview args into a ProgramSource.
+func (m *Model) resolveProgramSource(arg string) (ProgramSource, bool) {
+	arg = strings.TrimSpace(arg)
+	// empty: use preview if armed, else current forge local, else forge RX
+	if arg == "" || arg == "next" {
+		if m.program.Preview != nil && arg == "" {
+			return *m.program.Preview, true
+		}
+		if m.forgeLocal != nil {
+			return SourceFromForge(m.nick, m.forgeLocal, LaneGlyph), true
+		}
+		if m.forgeRX != nil {
+			return SourceFromForge(m.forgeRXFrom, m.forgeRX, LaneGlyph), true
+		}
+		if m.program.Preview != nil {
+			return *m.program.Preview, true
+		}
+		return ProgramSource{}, false
+	}
+	// numeric slot
+	if slot, err := strconv.Atoi(arg); err == nil && slot > 0 {
+		for _, f := range m.forgePcapSlots() {
+			if f.Forge != nil && f.Forge.Slot == slot {
+				return SourceFromForge(m.nick, f.Forge, LaneGlyph), true
+			}
+		}
+		// index into slots (1-based among marked)
+		slots := m.forgePcapSlots()
+		if slot <= len(slots) && slots[slot-1].Forge != nil {
+			return SourceFromForge(m.nick, slots[slot-1].Forge, LaneGlyph), true
+		}
+		m.pushSys(fmt.Sprintf("no forge slot %d", slot))
+		return ProgramSource{}, false
+	}
+	// nick — take their forge RX if matching
+	if m.forgeRX != nil && (arg == m.forgeRXFrom || arg == "rx" || arg == "peer") {
+		return SourceFromForge(m.forgeRXFrom, m.forgeRX, LaneGlyph), true
+	}
+	return ProgramSource{
+		Source: ProgramSourceGyst,
+		Nick:   arg,
+		Lane:   LaneGyst,
+		Label:  arg,
+	}, true
+}
+
+func (m *Model) publishProgramBus() {
+	m.program.V = 1
+	if m.program.T == 0 {
+		m.program.T = time.Now().UnixMilli()
+	}
+	if m.client == nil {
+		return
+	}
+	_ = m.client.SendJSON(m.program.MeshJSON(m.nick))
+}
+
+func (m *Model) applyProgramBus(bus ProgramBus, from string) {
+	// accept higher seq or any if we have none
+	if bus.Seq > 0 && m.program.Seq > 0 && bus.Seq < m.program.Seq {
+		return
+	}
+	m.program = bus
+	if from != "" && bus.Conductor == "" {
+		m.program.Conductor = from
+	}
+	// follow dual: when program is forge from us, hold left on that slot
+	if m.conductor && bus.Program.Source == ProgramSourceForge && bus.Program.Slot > 0 {
+		for i, f := range m.forgePcapSlots() {
+			if f.Forge != nil && f.Forge.Slot == bus.Program.Slot {
+				m.forgeHoldLeft = true
+				m.applyForgeDualLocalSlot(i)
+				break
+			}
+		}
+	}
+}
+
+func (m *Model) pushProgramStatus() {
+	m.pushSys(FormatProgramLine(m.program))
+	if m.program.Preview != nil {
+		m.pushSys("◈ PVW " + FormatProgramSource(*m.program.Preview))
+	}
+	who := "viewer"
+	if m.conductor {
+		who = "conductor"
+	}
+	m.pushSys(fmt.Sprintf("◈ you: %s · %s", who, m.program.VenueAdapterHint()))
 }
 
 func (m *Model) pushForgeStatus() {
@@ -2567,6 +2785,21 @@ func (m *Model) handleWS(raw []byte) (tea.Model, tea.Cmd) {
 			}
 			m.peerCaps[from] = cap
 			m.applyRoomGlyphN()
+		}
+	case "program":
+		// conductor program bus — venue sinks + dual follow
+		from, _ := msg["from"].(string)
+		if bus, ok := ParseProgramBus(msg); ok {
+			// ignore echo of our own higher/equal if we are conductor racing
+			if from == m.nick && m.conductor && bus.Seq <= m.program.Seq {
+				return m, nil
+			}
+			prevSeq := m.program.Seq
+			m.applyProgramBus(bus, from)
+			if bus.Seq != prevSeq || bus.Mode != "" {
+				m.pushSys(FormatProgramLine(m.program))
+				m.status = fmt.Sprintf("PGM %s", FormatProgramSource(m.program.Program))
+			}
 		}
 	case "leave":
 		if n, _ := msg["nick"].(string); n != "" {

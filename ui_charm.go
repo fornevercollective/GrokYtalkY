@@ -214,10 +214,11 @@ func helpOverlay(width, height int) string {
   /colossus stop    stop loop + publish
   /forge a.pcap b…  multi-pcap lab + Cursor-Grok Forge marks
   /forge status|stop|next|hold|rotate
-  forge RX → dual Glyph (auto) · dual-local left rotates slots
-  peer right holds RX · left ↻sN + cgf: id
-  cap handshake · GY_CAP=term-lean|glyph-iot · gy agent
-  auto-update on TUI launch · GY_NO_AUTO_UPDATE=1 · --no-update
+  /conductor claim|release|status   program bus (venue on-air)
+  /take [slot] · /preview [slot] · /hold · /black
+  /program              show PGM/PVW + venue adapter hint
+  forge RX → dual Glyph · dual-local left · peer right holds
+  cap handshake · gy agent · auto-update on TUI launch
   /hexdump          current frame as hex line
 
   scrub: k/space pause · j/l ±5s · J/L ±30s · 0 start · <> rate

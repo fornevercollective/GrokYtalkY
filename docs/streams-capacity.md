@@ -89,6 +89,29 @@ GY_CAP=glyph-iot gy agent    # thin IoT JSON lines (lattice pass-through)
 # resize → {type:cap, cap:…}
 ```
 
+### Conductor / program bus (v1.26+)
+
+On-air control plane for jam + future venue adapters (NDI / ST 2110).  
+**Does not re-stamp lattice** — selects which forge/gyst source is program.
+
+| Mesh | Role |
+|------|------|
+| `type:program` + `bus` | Room PGM/PVW state (mode, mark, slot, lane, seq) |
+| Hub remembers last bus | Late joiners (agents/venue) sync immediately |
+
+| TUI | Action |
+|-----|--------|
+| `/conductor claim` | Own the bus |
+| `/take [slot]` | Cut to program |
+| `/preview [slot]` | Arm preview |
+| `/hold` · `/black` | Freeze / safe slate |
+| `/program` | Status + venue adapter hint |
+
+```
+conductor TUI ──type:program──► hub ──► gy agent (JSON program events)
+                              └──► venue adapter (later: NDI/2110)
+```
+
 Scaffold: [`sfu/`](../sfu/README.md) (`make sfu-media` for webrtc-rs track + DataChannel fan-out) · [`chat/`](../chat/README.md) · site: [docs.html#streams-scale](https://fornevercollective.github.io/GrokYtalkY/docs.html#streams-scale)
 
 ---
