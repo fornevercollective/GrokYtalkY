@@ -112,13 +112,15 @@ go build -o bin/gy .
         <h2>GrokGlyph PWA</h2>
         <p>
           Progressive web app for multi-user <strong>25×25 luminance</strong> Glyph Matrix previews.
-          Tiles scale to device resolution — overflow peers go off-cap until you subtract or rotate capacity.
+          Glyphs stack <strong>side-by-side with a 1px gutter</strong> and fill the page under a slim header;
+          compass, roster, NFC, and site links live in a <strong>footer pop-up drawer</strong>.
         </p>
         <ul>
-          <li><strong>Side-by-side glyphs</strong> with optional <strong>mesh join</strong> lines between neighbors</li>
-          <li><strong>Compass</strong> N/E/S/W add (+) and subtract (−) for crowded-area chat</li>
-          <li><strong>NFC tap add</strong> (Web NFC on Android Chrome) + <strong>delete</strong> on tile or roster</li>
-          <li>Installable standalone: open <a href="grokglyph.html">grokglyph.html</a> → browser Install / Add to Home Screen</li>
+          <li><strong>Full-page grid</strong> — 1px column/row between matrices; cell size from device scale</li>
+          <li><strong>Header</strong> — + peer · mesh · nfc · live count (main needs)</li>
+          <li><strong>Footer drawer</strong> — compass N/E/S/W add/subtract · roster on/off/delete · nick · links</li>
+          <li><strong>NFC tap add</strong> (Web NFC on Android Chrome) + long-press / × delete</li>
+          <li>Installable: <a href="grokglyph.html">grokglyph.html</a> → Install / Add to Home Screen</li>
         </ul>
         <pre class="code-block"><code># local: gy serve  then open
 # http://127.0.0.1:9876/grokglyph.html
