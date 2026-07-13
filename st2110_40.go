@@ -125,7 +125,7 @@ func ProgramBusToANC(bus ProgramBus) []ANCPacket {
 	if bus.Preview != nil {
 		flags |= ANCFlagPreviewArmed
 	}
-	if strings.TrimSpace(bus.Caption) != "" {
+	if !bus.EffectiveCaption().IsEmpty() {
 		flags |= ANCFlagHasCaption
 	}
 	udw = append(udw, flags)
@@ -170,33 +170,50 @@ func ProgramBusToANC(bus ProgramBus) []ANCPacket {
 		})
 	}
 
-	// 4) caption text (omit packet when empty — clear edge)
-	if cap := strings.TrimSpace(bus.Caption); cap != "" {
-		if len(cap) > ANCCaptionMax {
-			cap = cap[:ANCCaptionMax]
+	// 4) caption payload (omit when empty — clear edge)
+	// plain UTF-8 or 0xC1+JSON rich (lang/role/speaker/source)
+	if eff := bus.EffectiveCaption(); !eff.IsEmpty() {
+		udwCap := EncodeCaptionUDW(eff)
+		note := "on-air caption"
+		if eff.IsRich() {
+			note = "caption rich"
+			if eff.Lang != "" {
+				note += " " + eff.Lang
+			}
+			if eff.Role != "" {
+				note += " " + eff.Role
+			}
 		}
 		pkts = append(pkts, ANCPacket{
 			DID: ANC_DID_GY, SDID: ANC_SDID_CAPTION, Line: ANC_LINE_CAPTION,
-			UDW: []byte(cap), Kind: "caption", T: t, Seq: bus.Seq,
-			Note: "on-air caption",
+			UDW: udwCap, Kind: "caption", T: t, Seq: bus.Seq,
+			Note: note,
 		})
 	}
 
 	// 5) compact bus JSON
 	type snap struct {
-		Mode    string `json:"mode"`
-		Src     string `json:"source,omitempty"`
-		Mark    string `json:"mark,omitempty"`
-		Slot    int    `json:"slot,omitempty"`
-		Pvw     int    `json:"pvw,omitempty"`
-		Caption string `json:"caption,omitempty"`
-		Cond    string `json:"conductor,omitempty"`
-		Seq     uint32 `json:"seq"`
+		Mode     string          `json:"mode"`
+		Src      string          `json:"source,omitempty"`
+		Mark     string          `json:"mark,omitempty"`
+		Slot     int             `json:"slot,omitempty"`
+		Pvw      int             `json:"pvw,omitempty"`
+		Caption  string          `json:"caption,omitempty"`
+		CapMeta  *CaptionPayload `json:"caption_meta,omitempty"`
+		Cond     string          `json:"conductor,omitempty"`
+		Seq      uint32          `json:"seq"`
 	}
+	effCap := bus.EffectiveCaption()
 	s := snap{
 		Mode: bus.Mode, Src: bus.Program.Source, Mark: bus.Program.Mark,
 		Slot: bus.Program.Slot, Cond: bus.Conductor, Seq: bus.Seq,
-		Caption: truncate(bus.Caption, 40),
+		Caption: truncate(effCap.Text, 40),
+	}
+	if effCap.IsRich() {
+		cm := effCap
+		// shrink for bus UDW budget
+		cm.Text = truncate(cm.Text, 24)
+		s.CapMeta = &cm
 	}
 	if bus.Preview != nil {
 		s.Pvw = bus.Preview.Slot

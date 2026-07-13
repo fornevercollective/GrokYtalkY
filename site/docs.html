@@ -60,7 +60,7 @@
     </aside>
 
     <article class="docs-main">
-      <p class="eyebrow">docs · fornevercollective/GrokYtalkY · v1.39+</p>
+      <p class="eyebrow">docs · fornevercollective/GrokYtalkY · v1.40+</p>
       <h1>Documentation</h1>
       <p class="lede docs-lede">
         Companion dock, dual Glyph walkie, forge multi-pcap marks, conductor program bus,
@@ -267,10 +267,17 @@ ffplay -vn SRC   # audio parallel</code></pre>
         <pre class="code-block"><code>/conductor claim
 /preview 2
 /caption HELLO DOJO
+/caption lang=en role=lower speaker=dir TAKE NEXT
+/caption en: Hello world
 /take            # or /take 1
 /hold · /black
 /program         # PGM/PVW + venue adapter hint</code></pre>
-        <p>Modes: <code>live</code> · <code>hold</code> · <code>black</code>. ANC: mark · tally (preview/caption flags) · bus · preview · caption (DID <code>0x5F</code>).</p>
+        <p>
+          Modes: <code>live</code> · <code>hold</code> · <code>black</code>.
+          ANC: mark · tally (preview/caption flags) · bus · preview · caption (DID <code>0x5F</code>).
+          Caption UDW: plain UTF-8 or rich <code>0xC1</code>+JSON (<code>lang</code> · <code>role</code> · <code>speaker</code> · <code>source</code>);
+          bus carries <code>caption_meta</code> when rich.
+        </p>
       </section>
 
       <section id="venue" class="docs-section">

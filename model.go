@@ -2114,22 +2114,30 @@ func (m *Model) handleCaptionCmd(arg string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if arg == "" {
-		if m.program.Caption != "" {
-			m.pushSys("◈ caption: " + truncate(m.program.Caption, 60))
+		eff := m.program.EffectiveCaption()
+		if !eff.IsEmpty() {
+			m.pushSys("◈ " + FormatCaptionLine(eff))
 		} else {
 			m.pushSys("usage: /caption text · /caption clear")
+			m.pushSys("  /caption lang=en role=lower speaker=alice Hello")
+			m.pushSys("  /caption en: Hello world")
 		}
 		return m, nil
 	}
-	if arg == "clear" || arg == "off" || arg == "none" {
-		m.program.SetCaption("", m.nick)
+	cap, clear, err := ParseCaptionArg(arg)
+	if err != nil {
+		m.pushSys("caption: " + err.Error())
+		return m, nil
+	}
+	if clear {
+		m.program.SetCaptionRich(CaptionPayload{}, m.nick)
 		m.publishProgramBus()
 		m.pushSys("◈ caption clear · no caption ANC")
 		return m, nil
 	}
-	m.program.SetCaption(arg, m.nick)
+	m.program.SetCaptionRich(cap, m.nick)
 	m.publishProgramBus()
-	m.pushSys("◈ caption → ANC · " + truncate(m.program.Caption, 48))
+	m.pushSys("◈ caption → ANC · " + FormatCaptionLine(cap))
 	return m, nil
 }
 

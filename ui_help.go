@@ -161,10 +161,12 @@ func helpBodyForge() string {
 
   /conductor claim|release|status
   /take [slot] · /preview [slot]|clear
-  /caption text|clear   on-air text → ANC 0x05
+  /caption text|clear   on-air → ANC 0x05
+  /caption lang=en role=lower speaker=x Hello
+  /caption en: Hello    rich caption_meta (compat plain UDW)
   /hold · /black · /program
     program bus → hub type:program (venue on-air)
-    ANC: mark·tally·bus·preview·caption
+    ANC: mark·tally·bus·preview·caption (0xC1+JSON when rich)
 
   caps (join handshake)
     GY_CAP=term-full|term-lean|term-mono|glyph-iot|bridge

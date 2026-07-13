@@ -38,10 +38,11 @@ type ProgramBus struct {
 	Mode      string         `json:"mode"` // live|hold|black
 	Program   ProgramSource  `json:"program"`
 	Preview   *ProgramSource `json:"preview,omitempty"`
-	Caption   string         `json:"caption,omitempty"` // on-air text → ANC caption (not CEA-708)
-	Conductor string         `json:"conductor,omitempty"`
-	Seq       uint32         `json:"seq"`
-	T         int64          `json:"t"`
+	Caption   string          `json:"caption,omitempty"` // on-air text (compat primary)
+	CapMeta   *CaptionPayload `json:"caption_meta,omitempty"` // rich lang/role/speaker/source
+	Conductor string          `json:"conductor,omitempty"`
+	Seq       uint32          `json:"seq"`
+	T         int64           `json:"t"`
 }
 
 // NewProgramBus empty live bus (no conductor yet).
@@ -120,7 +121,27 @@ func parseProgramBusMap(m map[string]any) (ProgramBus, bool) {
 	if s, ok := m["caption"].(string); ok {
 		b.Caption = s
 	}
+	if raw, ok := m["caption_meta"].(map[string]any); ok {
+		cp := captionFromMap(raw)
+		if !cp.IsEmpty() {
+			cp = cp.Normalize()
+			b.CapMeta = &cp
+			if b.Caption == "" {
+				b.Caption = cp.Text
+			}
+		}
+	}
 	return b, true
+}
+
+func captionFromMap(m map[string]any) CaptionPayload {
+	var c CaptionPayload
+	c.Text, _ = m["text"].(string)
+	c.Lang, _ = m["lang"].(string)
+	c.Role, _ = m["role"].(string)
+	c.Speaker, _ = m["speaker"].(string)
+	c.Source, _ = m["source"].(string)
+	return c
 }
 
 func parseProgramSource(m map[string]any) ProgramSource {
@@ -222,20 +243,65 @@ func (b *ProgramBus) ClearPreview(conductor string) {
 	b.T = time.Now().UnixMilli()
 }
 
-// SetCaption sets on-air caption text for ANC SDID caption (max 120 runes-ish bytes).
-// Empty string clears caption (no caption ANC packet).
+// SetCaption sets on-air caption text for ANC SDID caption (max 120 bytes).
+// Empty string clears caption (no caption ANC packet). Clears CapMeta.
 func (b *ProgramBus) SetCaption(text, conductor string) {
 	text = strings.TrimSpace(text)
-	if len(text) > 120 {
-		text = text[:120]
+	if len(text) > ANCCaptionMax {
+		text = truncateUTF8(text, ANCCaptionMax)
 	}
 	b.Caption = text
+	if text == "" {
+		b.CapMeta = nil
+	} else {
+		// keep plain meta so Encode path stays simple unless SetCaptionRich used
+		b.CapMeta = nil
+	}
 	if conductor != "" {
 		b.Conductor = conductor
 	}
 	b.Seq++
 	b.T = time.Now().UnixMilli()
 	b.V = 1
+}
+
+// SetCaptionRich sets structured caption (lang/role/speaker/source) + primary text.
+// Empty text clears. Bumps seq for ANC re-emit (preview-first style).
+func (b *ProgramBus) SetCaptionRich(cap CaptionPayload, conductor string) {
+	cap = cap.Normalize()
+	if cap.IsEmpty() {
+		b.Caption = ""
+		b.CapMeta = nil
+	} else {
+		b.Caption = cap.Text
+		if cap.IsRich() {
+			cp := cap
+			b.CapMeta = &cp
+		} else {
+			b.CapMeta = nil
+		}
+	}
+	if conductor != "" {
+		b.Conductor = conductor
+	}
+	b.Seq++
+	b.T = time.Now().UnixMilli()
+	b.V = 1
+}
+
+// EffectiveCaption returns rich meta if present, else plain Caption string.
+func (b ProgramBus) EffectiveCaption() CaptionPayload {
+	if b.CapMeta != nil && !b.CapMeta.IsEmpty() {
+		c := *b.CapMeta
+		if c.Text == "" {
+			c.Text = b.Caption
+		}
+		return c.Normalize()
+	}
+	if strings.TrimSpace(b.Caption) == "" {
+		return CaptionPayload{}
+	}
+	return CaptionPayload{Text: b.Caption, Source: CaptionSourceManual}.Normalize()
 }
 
 // Hold freezes program (venue holds last frame).
