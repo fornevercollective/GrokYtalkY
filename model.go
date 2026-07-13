@@ -1413,6 +1413,9 @@ func (m *Model) applyPromptMode(mode PromptMode) (tea.Model, tea.Cmd) {
 		}
 		info := BuildLanInfo(port, "")
 		m.pushSys("phone cast · " + info.Phone)
+		if info.QR != "" {
+			m.pushSys("quick QR · " + info.QR + " · scan → Quick connect")
+		}
 		m.pushSys(FormatGlyphResLabel(m.glyphN, m.glyphAspect) + " · g cycle 13/25 · G aspect")
 	case ModeLive:
 		if m.lab != nil {
@@ -1578,8 +1581,8 @@ func (m *Model) slash(line string) (tea.Model, tea.Cmd) {
 			m.lab.On = true
 		}
 		return m.startWatch(src, true)
-	case "lan", "phone", "wifi":
-		// same-WiFi phone → terminal join banner
+	case "lan", "phone", "wifi", "qr":
+		// same-WiFi phone → terminal join banner + quick-connect QR
 		port := 9876
 		if m.host != "" {
 			port = ParseHubPort(m.host)
@@ -1588,7 +1591,8 @@ func (m *Model) slash(line string) (tea.Model, tea.Cmd) {
 		for _, line := range strings.Split(strings.TrimRight(FormatLanBanner(info), "\n"), "\n") {
 			m.pushSys(line)
 		}
-		m.status = "phone cast"
+		m.pushSys("phone Quick connect · open QR URL in browser, scan with phone")
+		m.status = "phone quick connect"
 		return m, nil
 	case "duplex", "openmic", "fullduplex":
 		m.duplexOn = !m.duplexOn

@@ -9,11 +9,14 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	qrcode "github.com/skip2/go-qrcode"
 )
 
 // LAN discovery for phone ↔ terminal on the same Wi‑Fi.
 //
-// HTTP:  GET /api/lan  → join URLs + local IPs
+// HTTP:  GET /api/lan     → join URLs + local IPs + qr path
+//        GET /api/lan/qr  → PNG QR of phone cast URL
 // UDP:   broadcast/multicast "GYWHO1" → unicast "GYHUB1"+JSON
 //
 // Default UDP discovery port = hub port + 1 (9877 when hub is 9876).
@@ -23,6 +26,8 @@ const (
 	lanHubMagic = "GYHUB1"
 	// multicast group for LAN discovery (link-local admin)
 	lanMulticast = "239.255.76.67"
+	// default PNG size for phone cast QR (square px)
+	lanQRDefaultSize = 280
 )
 
 // LanInfo is advertise payload for phones and other peers on the LAN.
@@ -31,9 +36,10 @@ type LanInfo struct {
 	V       int      `json:"v"`
 	Port    int      `json:"port"`
 	UDP     int      `json:"udp,omitempty"`
-	WS      string   `json:"ws"`      // preferred ws://IP:port/
-	HTTP    string   `json:"http"`    // preferred http://IP:port/
-	Phone   string   `json:"phone"`   // cast page for mobile browsers
+	WS      string   `json:"ws"`    // preferred ws://IP:port/
+	HTTP    string   `json:"http"`  // preferred http://IP:port/
+	Phone   string   `json:"phone"` // cast page for mobile browsers
+	QR      string   `json:"qr,omitempty"` // relative or absolute PNG QR endpoint
 	Burst   string   `json:"burst,omitempty"`
 	Glyph   string   `json:"glyph,omitempty"`
 	Room    string   `json:"room"`
@@ -168,16 +174,18 @@ func BuildLanInfo(port int, room string) LanInfo {
 	}
 	host, _ := os.Hostname()
 	udp := port + 1
+	httpBase := fmt.Sprintf("http://%s:%d", ip, port)
 	return LanInfo{
 		Type:    "gy-hub",
 		V:       1,
 		Port:    port,
 		UDP:     udp,
 		WS:      fmt.Sprintf("ws://%s:%d/", ip, port),
-		HTTP:    fmt.Sprintf("http://%s:%d/", ip, port),
-		Phone:   fmt.Sprintf("http://%s:%d/phone.html", ip, port),
-		Burst:   fmt.Sprintf("http://%s:%d/burst.html", ip, port),
-		Glyph:   fmt.Sprintf("http://%s:%d/grokglyph.html", ip, port),
+		HTTP:    httpBase + "/",
+		Phone:   httpBase + "/phone.html",
+		QR:      httpBase + "/api/lan/qr",
+		Burst:   httpBase + "/burst.html",
+		Glyph:   httpBase + "/grokglyph.html",
 		Room:    room,
 		Version: Version,
 		Host:    host,
@@ -185,11 +193,26 @@ func BuildLanInfo(port int, room string) LanInfo {
 	}
 }
 
+// EncodePhoneQR returns a PNG QR encoding the phone cast URL (or any join URL).
+// size is square pixels; 0 uses lanQRDefaultSize. Negative size uses module scale (go-qrcode).
+func EncodePhoneQR(content string, size int) ([]byte, error) {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return nil, fmt.Errorf("empty QR content")
+	}
+	if size == 0 {
+		size = lanQRDefaultSize
+	}
+	return qrcode.Encode(content, qrcode.Medium, size)
+}
+
 // FormatLanBanner multi-line for gy serve / /lan TUI.
 func FormatLanBanner(info LanInfo) string {
 	var b strings.Builder
 	b.WriteString("same Wi‑Fi · phone → terminal\n")
 	b.WriteString(fmt.Sprintf("  phone cast  %s\n", info.Phone))
+	b.WriteString(fmt.Sprintf("  quick QR    %s\n", info.QR))
+	b.WriteString("  scan tip    open QR on laptop · phone scans → Quick connect\n")
 	b.WriteString(fmt.Sprintf("  mesh WS     %s?role=phone&nick=phone\n", strings.TrimRight(info.WS, "/")))
 	if len(info.IPs) > 1 {
 		b.WriteString("  also        ")
@@ -285,11 +308,13 @@ func (d *LanDiscoverer) reply(to *net.UDPAddr) {
 	info.IPs = LocalLANIPs()
 	if len(info.IPs) > 0 {
 		ip := info.IPs[0]
+		base := fmt.Sprintf("http://%s:%d", ip, info.Port)
 		info.WS = fmt.Sprintf("ws://%s:%d/", ip, info.Port)
-		info.HTTP = fmt.Sprintf("http://%s:%d/", ip, info.Port)
-		info.Phone = fmt.Sprintf("http://%s:%d/phone.html", ip, info.Port)
-		info.Burst = fmt.Sprintf("http://%s:%d/burst.html", ip, info.Port)
-		info.Glyph = fmt.Sprintf("http://%s:%d/grokglyph.html", ip, info.Port)
+		info.HTTP = base + "/"
+		info.Phone = base + "/phone.html"
+		info.QR = base + "/api/lan/qr"
+		info.Burst = base + "/burst.html"
+		info.Glyph = base + "/grokglyph.html"
 	}
 	d.Info = info
 	d.mu.Unlock()
@@ -370,6 +395,13 @@ func DiscoverHubsOnLAN(udpPort int, timeout time.Duration) ([]LanInfo, error) {
 		found = append(found, info)
 	}
 	return found, nil
+}
+
+// isSafeLanQRContent allows only http(s)/ws(s) join URLs for QR generation.
+func isSafeLanQRContent(s string) bool {
+	s = strings.TrimSpace(strings.ToLower(s))
+	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://") ||
+		strings.HasPrefix(s, "ws://") || strings.HasPrefix(s, "wss://")
 }
 
 // ParseHubPort extracts port from "host:port" or addr string.

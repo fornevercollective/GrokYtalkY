@@ -447,7 +447,7 @@ func runHubOnly(bind string, port int) error {
 	fmt.Printf("GrokYtalkY hub %s\n", Version)
 	fmt.Printf("  local join  gy join 127.0.0.1:%d\n", port)
 	fmt.Print(FormatLanBanner(info))
-	fmt.Printf("  api         http://127.0.0.1:%d/api/lan · /api/rooms\n", port)
+	fmt.Printf("  api         http://127.0.0.1:%d/api/lan · /api/lan/qr · /api/rooms\n", port)
 	if static != "" {
 		fmt.Printf("  static      %s\n", static)
 	}

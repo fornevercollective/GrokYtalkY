@@ -89,19 +89,21 @@ Laptop (binds all interfaces by default):
 gy serve                    # or plain `gy` companion with local hub
 # banner prints:
 #   phone cast  http://192.168.x.x:9876/phone.html
+#   quick QR    http://192.168.x.x:9876/api/lan/qr
 #   mesh WS     ws://192.168.x.x:9876/?role=phone&nick=phone
 #   discover    UDP 239.255.76.67:9877  (probe GYWHO1)
 ```
 
 | Path | How |
 |------|-----|
-| **Any phone browser** | Open the printed `phone.html` URL → Camera → hold **Cast** |
+| **Any phone browser** | Scan **quick QR** or open `phone.html` → **Quick connect** → hold **Cast** |
 | **Nothing Glyph Toy** | Intro → **Discover on Wi‑Fi** → Glyph Toys → hold button |
 | **Terminal peer** | `gy` or `gy join 192.168.x.x:9876` — receives `vburst-frame` + `gyst` hexlum |
 
 Discovery APIs:
 
-- `GET http://LAPTOP:9876/api/lan` → `{ws, phone, ips, …}`
+- `GET http://LAPTOP:9876/api/lan` → `{ws, phone, qr, ips, …}`
+- `GET http://LAPTOP:9876/api/lan/qr` → PNG QR of phone cast URL
 - UDP `GYWHO1` → `GYHUB1`+JSON (port **hub+1**, default 9877)
 
 Wire (phone TX):

@@ -120,6 +120,82 @@
       font-size: 0.7rem;
       color: #bbb;
     }
+    .ph-quick {
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+      margin-bottom: 0.75rem;
+      padding: 0.75rem;
+      border-radius: 14px;
+      border: 1px solid #2a2a32;
+      background: linear-gradient(160deg, #12121a 0%, #0c0c12 100%);
+    }
+    .ph-quick button#ph-quick {
+      appearance: none;
+      border: none;
+      background: var(--ph-accent);
+      color: #042;
+      border-radius: 12px;
+      padding: 1rem 0.9rem;
+      font-size: 1.05rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      touch-action: manipulation;
+      width: 100%;
+    }
+    .ph-quick button#ph-quick.is-on {
+      outline: 2px solid #a7f3d0;
+      box-shadow: 0 0 0 3px rgba(110, 231, 183, 0.25);
+    }
+    .ph-quick-meta {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+    }
+    .ph-qr-wrap {
+      flex-shrink: 0;
+      width: 112px;
+      height: 112px;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid #333;
+      background: #fff;
+      display: none;
+    }
+    .ph-qr-wrap.is-show { display: block; }
+    .ph-qr-wrap img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+    .ph-quick-copy {
+      flex: 1;
+      min-width: 0;
+      font-size: 0.72rem;
+      color: var(--ph-muted);
+      line-height: 1.4;
+      word-break: break-all;
+    }
+    .ph-quick-copy strong { color: #ddd; font-weight: 600; }
+    .ph-quick-copy a { color: var(--ph-accent); }
+    .ph-quick-actions {
+      display: flex;
+      gap: 0.4rem;
+      flex-wrap: wrap;
+      margin-top: 0.35rem;
+    }
+    .ph-quick-actions button {
+      appearance: none;
+      border: 1px solid #333;
+      background: var(--ph-card);
+      color: #ccc;
+      border-radius: 8px;
+      padding: 0.35rem 0.55rem;
+      font-size: 0.7rem;
+      font-family: "IBM Plex Mono", ui-monospace, monospace;
+      touch-action: manipulation;
+    }
   </style>
 </head>
 <body class="phone-body">
@@ -127,9 +203,25 @@
   <script src="site-nav.js"></script>
   <header class="ph-header">
     <h1>Phone → terminal</h1>
-    <span>same Wi‑Fi</span>
+    <span>same Wi‑Fi · quick connect</span>
   </header>
   <div class="ph-status" id="ph-status">open this page from the hub URL shown on your laptop</div>
+
+  <section class="ph-quick" id="ph-quick-box" aria-label="Quick connect">
+    <button type="button" id="ph-quick">⚡ Quick connect</button>
+    <div class="ph-quick-meta">
+      <div class="ph-qr-wrap" id="ph-qr-wrap" title="Scan on phone">
+        <img id="ph-qr" alt="QR code for phone cast URL" width="112" height="112" />
+      </div>
+      <div class="ph-quick-copy" id="ph-quick-copy">
+        <strong>One tap</strong> connects hub + camera. On a laptop, show the QR and scan with your phone.
+        <div class="ph-quick-actions">
+          <button type="button" id="ph-show-qr">Show QR</button>
+          <button type="button" id="ph-copy-url">Copy URL</button>
+        </div>
+      </div>
+    </div>
+  </section>
 
   <div class="ph-stage">
     <video id="ph-video" playsinline muted autoplay></video>
@@ -149,10 +241,9 @@
   </div>
   <div id="ph-cam-panel" class="ph-cam-panel" hidden></div>
   <p class="ph-hint">
-    On the laptop: <code>gy serve</code> (bind <code>0.0.0.0</code>) then open the printed
-    <strong>phone cast</strong> URL here. Streams <code>vburst-frame</code> + <code>gyst</code> hexlum
-    to the mesh — terminal peers see dual Glyph / hex styles.
-    <strong>Look</strong> opens phone/film exposure · WB · fill · night (aito-aligned).
+    Laptop: <code>gy serve</code> → scan <strong>quick QR</strong> (<code>/api/lan/qr</code>) or open the printed
+    phone cast URL. <strong>Quick connect</strong> = hub + camera in one tap, then hold <strong>Cast</strong>.
+    Streams <code>vburst-frame</code> + <code>gyst</code> hexlum. <strong>Look</strong> = exposure · WB · fill · night.
     Discover: <code>GET /api/lan</code> · UDP <code>GYWHO1</code>.
   </p>
 

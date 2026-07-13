@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -72,7 +73,7 @@ func NewHub(addr string, quiet bool, staticDir string) *Hub {
 			}
 		}
 		w.Header().Set("Content-Type", "text/plain")
-		_, _ = w.Write([]byte("GrokYtalkY hub — rooms + program bus\n  gy · ws://HOST/?nick=…&room=global\n  GET /api/rooms · /api/peers · /api/lan · /api/social · /api/space\n  phone cast: /phone.html (same Wi‑Fi)\n"))
+		_, _ = w.Write([]byte("GrokYtalkY hub — rooms + program bus\n  gy · ws://HOST/?nick=…&room=global\n  GET /api/rooms · /api/peers · /api/lan · /api/lan/qr · /api/social · /api/space\n  phone cast: /phone.html · quick QR: /api/lan/qr (same Wi‑Fi)\n"))
 	})
 	// X Spaces stage + stream asset (public; never leaks stream key)
 	mux.HandleFunc("/api/space", func(w http.ResponseWriter, r *http.Request) {
@@ -215,6 +216,65 @@ func NewHub(addr string, quiet bool, staticDir string) *Hub {
 		h.lan = info
 		h.mu.Unlock()
 		_ = json.NewEncoder(w).Encode(info)
+	})
+	// PNG QR of phone cast URL — scan on phone for one-tap open
+	// GET /api/lan/qr?size=280  optional size= (px, default 280)
+	// GET /api/lan/qr?url=…    override payload (must be http(s) or ws on LAN)
+	mux.HandleFunc("/api/lan/qr", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		info := BuildLanInfo(ParseHubPort(h.addr), NormalizeMeshRoom(os.Getenv("GY_ROOM")))
+		content := strings.TrimSpace(r.URL.Query().Get("url"))
+		if content == "" {
+			content = info.Phone
+		}
+		// only allow http(s)/ws join URLs — avoid arbitrary payload QR abuse
+		if !isSafeLanQRContent(content) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": "url must be http(s) or ws(s) join link"})
+			return
+		}
+		size := lanQRDefaultSize
+		if s := strings.TrimSpace(r.URL.Query().Get("size")); s != "" {
+			if n, err := strconv.Atoi(s); err == nil && n != 0 {
+				// clamp: module scale (-1..-20) or px (48..1024)
+				if n < 0 {
+					if n < -20 {
+						n = -20
+					}
+					size = n
+				} else if n < 48 {
+					size = 48
+				} else if n > 1024 {
+					size = 1024
+				} else {
+					size = n
+				}
+			}
+		}
+		png, err := EncodePhoneQR(content, size)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": err.Error()})
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Content-Disposition", `inline; filename="gy-phone-qr.png"`)
+		if r.Method == http.MethodHead {
+			w.Header().Set("Content-Length", strconv.Itoa(len(png)))
+			return
+		}
+		_, _ = w.Write(png)
 	})
 	// lightweight phone cast landing (redirect if static missing)
 	mux.HandleFunc("/phone", func(w http.ResponseWriter, r *http.Request) {

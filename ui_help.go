@@ -150,7 +150,7 @@ func helpBodyStream() string {
   /meshmidi          Strudel/walkie → hub type:midi
   /overlay auto|fx|… Grok caption/effect on streams
   /grok-cap · /grok-fx  overlay prompts
-  /lan · /phone      same-WiFi phone cast URL banner
+  /lan · /phone · /qr  same-WiFi phone cast + quick QR
   /vstop             stop video pipe
   /pause · /seek     +10|-30|90 · /rate 1.5
   /rec · /export f   .gyst|.gyhex|.pcap
@@ -238,7 +238,7 @@ func helpBodyCLI() string {
   gy serve · gy join HOST:PORT
   gy watch file|url|@user|twitch:name
   gy stream-pub sim|cam|- --kind hexlum --room dojo --dual
-  gy serve               phone cast URL · GET /api/lan
+  gy serve               phone cast URL · GET /api/lan · /api/lan/qr
   gy stream-pub|colossus src
   gy agent · gy venue · gy sfu-bridge · gy chat-bridge
   gy mid-lane --room R --edge URL   edge mid-lane hook

@@ -2,7 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +19,9 @@ func TestBuildLanInfo(t *testing.T) {
 	if !strings.Contains(info.Phone, "phone.html") {
 		t.Fatal(info.Phone)
 	}
+	if !strings.Contains(info.QR, "/api/lan/qr") {
+		t.Fatal(info.QR)
+	}
 	if !strings.HasPrefix(info.WS, "ws://") {
 		t.Fatal(info.WS)
 	}
@@ -28,6 +34,41 @@ func TestBuildLanInfo(t *testing.T) {
 	b := FormatLanBanner(info)
 	if !strings.Contains(b, "phone cast") || !strings.Contains(b, "same Wi") {
 		t.Fatal(b)
+	}
+	if !strings.Contains(b, "quick QR") || !strings.Contains(b, "scan tip") {
+		t.Fatal(b)
+	}
+}
+
+func TestEncodePhoneQR(t *testing.T) {
+	png, err := EncodePhoneQR("http://192.168.1.10:9876/phone.html", 128)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(png) < 100 {
+		t.Fatalf("png too small: %d", len(png))
+	}
+	// PNG magic
+	if png[0] != 0x89 || string(png[1:4]) != "PNG" {
+		t.Fatalf("not png magic: %x", png[:8])
+	}
+	if _, err := EncodePhoneQR("", 64); err == nil {
+		t.Fatal("expected empty content error")
+	}
+}
+
+func TestIsSafeLanQRContent(t *testing.T) {
+	if !isSafeLanQRContent("http://192.168.1.1:9876/phone.html") {
+		t.Fatal("http")
+	}
+	if !isSafeLanQRContent("ws://10.0.0.2:9876/") {
+		t.Fatal("ws")
+	}
+	if isSafeLanQRContent("javascript:alert(1)") {
+		t.Fatal("js")
+	}
+	if isSafeLanQRContent("ftp://x") {
+		t.Fatal("ftp")
 	}
 }
 
@@ -111,5 +152,47 @@ func TestIsPrivateIPv4(t *testing.T) {
 	}
 	if isPrivateIPv4(net.ParseIP("8.8.8.8")) {
 		t.Fatal()
+	}
+}
+
+func TestLanQRHTTPEndpoint(t *testing.T) {
+	h := NewHub("127.0.0.1:9876", true, "")
+	if h == nil || h.server == nil || h.server.Handler == nil {
+		t.Fatal("hub mux")
+	}
+	// JSON /api/lan includes qr
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/lan", nil)
+	h.server.Handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("lan status %d", rr.Code)
+	}
+	var info LanInfo
+	if err := json.Unmarshal(rr.Body.Bytes(), &info); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(info.QR, "/api/lan/qr") || !strings.Contains(info.Phone, "phone.html") {
+		t.Fatalf("%+v", info)
+	}
+	// PNG QR
+	rr2 := httptest.NewRecorder()
+	req2 := httptest.NewRequest(http.MethodGet, "/api/lan/qr?size=96", nil)
+	h.server.Handler.ServeHTTP(rr2, req2)
+	if rr2.Code != http.StatusOK {
+		t.Fatalf("qr status %d body=%s", rr2.Code, rr2.Body.String())
+	}
+	if ct := rr2.Header().Get("Content-Type"); !strings.Contains(ct, "image/png") {
+		t.Fatal(ct)
+	}
+	body, _ := io.ReadAll(rr2.Body)
+	if len(body) < 50 || body[0] != 0x89 {
+		t.Fatalf("bad png len=%d", len(body))
+	}
+	// reject unsafe url
+	rr3 := httptest.NewRecorder()
+	req3 := httptest.NewRequest(http.MethodGet, "/api/lan/qr?url=javascript:alert(1)", nil)
+	h.server.Handler.ServeHTTP(rr3, req3)
+	if rr3.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 got %d", rr3.Code)
 	}
 }

@@ -22,7 +22,16 @@
     camPanel: document.getElementById("ph-cam-panel"),
     nick: document.getElementById("ph-nick"),
     hubUrl: document.getElementById("ph-hub-url"),
+    quick: document.getElementById("ph-quick"),
+    qrWrap: document.getElementById("ph-qr-wrap"),
+    qr: document.getElementById("ph-qr"),
+    showQr: document.getElementById("ph-show-qr"),
+    copyUrl: document.getElementById("ph-copy-url"),
+    quickCopy: document.getElementById("ph-quick-copy"),
   };
+
+  let phonePageURL = "";
+  let lanInfo = null;
 
   const CAM = window.GY_CAMERA;
   let look = CAM ? CAM.clone(CAM.DEFAULTS) : {};
@@ -109,24 +118,124 @@
     return u;
   }
 
-  async function fetchLanHint() {
-    // if page is on hub HTTP, /api/lan confirms + fills WS
+  function apiBase() {
+    if (location.protocol === "file:") return "http://127.0.0.1:9876";
+    return location.origin || "http://127.0.0.1:9876";
+  }
+
+  function isLikelyDesktop() {
+    // coarse: wide viewport or no touch — used to auto-show QR for laptop→phone scan
+    const touch = navigator.maxTouchPoints > 0 || "ontouchstart" in window;
+    return !touch || (window.innerWidth >= 900 && window.innerHeight >= 600);
+  }
+
+  function loadQR(url) {
+    if (!els.qr || !url) return;
+    const src = url + (url.includes("?") ? "&" : "?") + "t=" + Date.now();
+    els.qr.src = src;
+    els.qr.onload = () => {
+      if (els.qrWrap) els.qrWrap.classList.add("is-show");
+    };
+    els.qr.onerror = () => {
+      if (els.qrWrap) els.qrWrap.classList.remove("is-show");
+    };
+  }
+
+  function showQR(force) {
+    const qrURL =
+      (lanInfo && lanInfo.qr) ||
+      apiBase() + "/api/lan/qr";
+    if (force || isLikelyDesktop()) {
+      loadQR(qrURL);
+      if (els.showQr) els.showQr.textContent = "Hide QR";
+    }
+  }
+
+  function hideQR() {
+    if (els.qrWrap) els.qrWrap.classList.remove("is-show");
+    if (els.qr) els.qr.removeAttribute("src");
+    if (els.showQr) els.showQr.textContent = "Show QR";
+  }
+
+  async function copyPhoneURL() {
+    const u = phonePageURL || (lanInfo && lanInfo.phone) || location.href;
     try {
-      const base =
-        location.protocol === "file:"
-          ? "http://127.0.0.1:9876"
-          : location.origin;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(u);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = u;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        ta.remove();
+      }
+      setStatus("copied · " + u, "is-live");
+    } catch (e) {
+      setStatus("copy failed · " + u, "is-err");
+    }
+  }
+
+  async function fetchLanHint() {
+    // if page is on hub HTTP, /api/lan confirms + fills WS + QR
+    try {
+      const base = apiBase();
       const res = await fetch(base + "/api/lan", { headers: { Accept: "application/json" } });
       if (!res.ok) return;
       const info = await res.json();
+      lanInfo = info;
       if (info && info.ws && els.hubUrl && !els.hubUrl.value.trim()) {
         els.hubUrl.value = info.ws;
       }
       if (info && info.phone) {
-        setStatus("LAN hub · " + (info.ws || "") + " · open on phone: " + info.phone, "is-live");
+        phonePageURL = info.phone;
+        setStatus("LAN hub · " + (info.ws || "") + " · phone: " + info.phone, "is-live");
+      }
+      // auto-show QR on laptop so phone can scan
+      if (isLikelyDesktop() && (info.qr || true)) {
+        showQR(true);
       }
     } catch {
-      /* offline / wrong host */
+      /* offline / wrong host — still try relative QR when served by hub */
+      if (location.protocol !== "file:" && !location.host.includes("github.io") && isLikelyDesktop()) {
+        showQR(true);
+      }
+    }
+  }
+
+  /** One-tap: connect hub + enable camera (cast still hold/lock). */
+  async function quickConnect() {
+    saveState();
+    if (els.quick) {
+      els.quick.classList.add("is-on");
+      els.quick.textContent = "Connecting…";
+    }
+    setStatus("quick connect · hub + camera…");
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      connectHub();
+    }
+    // wait briefly for WS open
+    const deadline = Date.now() + 2500;
+    while ((!ws || ws.readyState !== WebSocket.OPEN) && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 80));
+    }
+    const camOk = await enableCam();
+    const hubOk = ws && ws.readyState === WebSocket.OPEN;
+    if (els.quick) {
+      els.quick.classList.toggle("is-on", !!(hubOk && camOk));
+      els.quick.textContent =
+        hubOk && camOk
+          ? "✓ Connected · hold Cast"
+          : hubOk
+            ? "Hub ok · camera failed"
+            : camOk
+              ? "Camera ok · hub failed"
+              : "Retry quick connect";
+    }
+    if (hubOk && camOk) {
+      setStatus("quick connect ready · hold Cast (or double-tap lock)", "is-live");
+    } else if (!hubOk) {
+      setStatus("hub not ready · same Wi‑Fi + gy serve --bind 0.0.0.0", "is-err");
     }
   }
 
@@ -465,14 +574,31 @@
     if (els.nick && !els.nick.value) {
       els.nick.value = "phone";
     }
+    phonePageURL = location.protocol === "file:" ? "" : location.href.split("#")[0];
     fetchLanHint();
+    if (els.quick) els.quick.addEventListener("click", () => quickConnect());
+    if (els.showQr) {
+      els.showQr.addEventListener("click", () => {
+        if (els.qrWrap && els.qrWrap.classList.contains("is-show")) hideQR();
+        else showQR(true);
+      });
+    }
+    if (els.copyUrl) els.copyUrl.addEventListener("click", () => copyPhoneURL());
     if (els.cam) els.cam.addEventListener("click", () => (camOn ? stopCam() : enableCam()));
     if (els.look) els.look.addEventListener("click", toggleLookPanel);
     if (els.hub) els.hub.addEventListener("click", () => connectHub());
     bindCastButton();
-    // auto-connect when served from hub
+    // auto-connect when served from hub (phone already on LAN page)
+    // ?quick=1|connect=1 → full quick connect (hub + cam)
+    const q = new URLSearchParams(location.search);
+    const wantQuick = q.get("quick") === "1" || q.get("connect") === "1" || q.get("qc") === "1";
     if (location.protocol !== "file:" && !location.host.includes("github.io")) {
-      connectHub();
+      if (wantQuick) {
+        // slight delay so LAN hint can fill WS
+        setTimeout(() => quickConnect(), 120);
+      } else {
+        connectHub();
+      }
     }
     setStatus(
       (els.hubUrl && els.hubUrl.value) || defaultHubWS() + " · same Wi‑Fi as laptop running gy serve",
