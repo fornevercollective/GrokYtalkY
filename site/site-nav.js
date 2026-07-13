@@ -1,8 +1,13 @@
 /**
  * Consistent site header nav for all GrokYtalkY pages.
  * Usage:
- *   <header class="nav" id="site-nav" data-active="burst"></header>
+ *   <header class="nav" id="site-nav" data-active="burst" data-site-nav>
+ *     <!-- optional static fallback: brand + same LINKS below -->
+ *   </header>
  *   <script src="site-nav.js"></script>
+ *
+ * Always rebuilds the header so every page gets the same menu
+ * (Home · Burst · Live News · GrokGlyph · Chat · DOJO · Mid-lane · Docs · Install · GitHub).
  *
  * data-active: home|burst|livenews|grokglyph|chat|dojo|mid-lane|docs|install|phone
  */

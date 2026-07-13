@@ -15,12 +15,39 @@
 <body class="docs-page">
   <div class="noise" aria-hidden="true"></div>
 
-  <header class="nav" id="site-nav" data-active="docs" data-site-nav></header>
+  <!-- Full site menu (matches site-nav.js LINKS). JS re-mounts for active state. -->
+  <header class="nav" id="site-nav" data-active="docs" data-site-nav>
+    <a class="brand" href="./">
+      <span class="brand-mark">◈</span>
+      <span class="brand-name">GrokYtalkY</span>
+    </a>
+    <nav aria-label="Site">
+      <a href="./">Home</a>
+      <a href="burst.html">Burst</a>
+      <a href="livenews.html">Live News</a>
+      <a href="grokglyph.html">GrokGlyph</a>
+      <a href="chat.html">Chat</a>
+      <a href="dojo.html">DOJO</a>
+      <a href="mid-lane.html">Mid-lane</a>
+      <a href="docs.html" class="nav-active" aria-current="page">Docs</a>
+      <a href="./#install">Install</a>
+      <a href="https://github.com/fornevercollective/GrokYtalkY" rel="noopener" target="_blank">GitHub</a>
+    </nav>
+  </header>
   <script src="site-nav.js"></script>
 
   <div class="docs-shell">
     <aside class="docs-side" aria-label="Docs navigation">
-      <p class="side-label">Documentation</p>
+      <p class="side-label">Site</p>
+      <a href="./">Home</a>
+      <a href="burst.html">Burst</a>
+      <a href="livenews.html">Live News</a>
+      <a href="grokglyph.html">GrokGlyph</a>
+      <a href="chat.html">Chat</a>
+      <a href="dojo.html">DOJO</a>
+      <a href="mid-lane.html">Mid-lane</a>
+      <a href="./#install">Install</a>
+      <p class="side-label" style="margin-top:0.85rem">Documentation</p>
       <a href="#quickstart">Quick start</a>
       <a href="#companion">Companion dock</a>
       <a href="#modes">Modes</a>
@@ -519,10 +546,21 @@ STAGEFORGE_GY=1 ~/dev/blank/Launch-StageForge.command
   </div>
 
   <footer class="footer">
-    <div><strong>GrokYtalkY</strong><span class="c-dim"> · docs</span></div>
+    <div>
+      <strong>GrokYtalkY</strong>
+      <span class="c-dim"> · docs · fornevercollective · Apache-2.0</span>
+    </div>
     <div class="footer-links">
       <a href="./">Home</a>
-      <a href="https://github.com/fornevercollective/GrokYtalkY">GitHub</a>
+      <a href="burst.html">Burst</a>
+      <a href="livenews.html">News</a>
+      <a href="grokglyph.html">GrokGlyph</a>
+      <a href="chat.html">Chat</a>
+      <a href="dojo.html">DOJO</a>
+      <a href="mid-lane.html">Mid-lane</a>
+      <a href="docs.html">Docs</a>
+      <a href="./#install">Install</a>
+      <a href="https://github.com/fornevercollective/GrokYtalkY">Source</a>
     </div>
   </footer>
 </body>
