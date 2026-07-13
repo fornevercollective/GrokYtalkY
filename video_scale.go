@@ -89,10 +89,25 @@ func (m *Model) computeVideoScale(termW, termH int) videoScale {
 	}
 
 	// Aspect clamp: don't make a super-tall strip for very wide terminals.
-	// 16:9 half-rows ≈ cols * 9/32 ; allow up to ~2× that when height allows
-	// (fills boot terminal without looking like a barcode).
+	// 16:9 half-rows ≈ cols * 9/32 ; allow up to ~2× that when height allows.
+	// Mobile social (double-stack GrokGlyph) prefers portrait ~1:2.
 	ideal := max(3, (cols*9)/32)
 	maxTall := ideal * 2
+	if m.watchMobile {
+		// portrait double-stack: half-rows ≈ cols (pixel aspect ~1:2)
+		gn := m.glyphN
+		if gn < 13 {
+			gn = 25
+		}
+		ideal = MobilePortraitHalfRows(cols, gn)
+		maxTall = ideal
+		if maxTall > free-1 {
+			maxTall = free - 1
+		}
+		if maxTall < 6 {
+			maxTall = min(6, free-1)
+		}
+	}
 	if maxTall < half {
 		// use available height up to maxTall, rest → chat
 		extra := half - maxTall

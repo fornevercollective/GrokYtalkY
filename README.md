@@ -95,6 +95,8 @@ gy lab                 # or V inside companion
 # [ ] scale · , . fps · m style · L layout
 # a +sim · c +cam · tab next feed · o toggle lists
 # styles: half hex braille ascii blocks points halftone depth gsplat
+#         edges poster scan dither neon  (heavy styles auto-throttle under stream)
+# social: /watch @user · /social twitch:name · yt:@ch · tt:@user  (live first · lazy lab)
 # layouts: side | stack | grid | focus
 ```
 

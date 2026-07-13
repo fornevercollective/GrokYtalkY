@@ -113,6 +113,25 @@
             </div>
           </section>
 
+          <section class="gg-drawer-sec" aria-label="Social streams">
+            <h2 class="gg-h2">Social · live first</h2>
+            <p class="gg-hint">
+              Handle → hub <code>/api/social</code> (yt-dlp). Prefers live/broadcast, then lazy-loads more.
+              Mobile (tt/ig/x) uses <strong>double-stack</strong> GrokGlyph scale.
+            </p>
+            <label class="gg-hub-label">
+              Handle
+              <input type="text" id="gg-social-q" placeholder="@user · twitch:name · yt:@ch · tt:@user"
+                autocomplete="off" spellcheck="false" />
+            </label>
+            <div class="gg-btn-row">
+              <button type="button" class="btn primary" id="gg-social-go" title="Resolve live first">Load social</button>
+              <button type="button" class="btn ghost" id="gg-social-stack" title="Toggle double-stack mobile scale" aria-pressed="false">2× stack</button>
+            </div>
+            <p class="gg-hint" id="gg-social-status">idle · needs hub with yt-dlp</p>
+            <ul class="gg-social-lazy" id="gg-social-lazy" hidden aria-label="Lazy social queue"></ul>
+          </section>
+
           <section class="gg-drawer-sec" aria-label="Compass add and subtract">
             <h2 class="gg-h2">Compass</h2>
             <div class="gg-compass">

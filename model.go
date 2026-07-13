@@ -47,6 +47,10 @@ type Model struct {
 	vpipe     *VideoPipe
 	vpipeSeq  uint64
 	watchPath string
+	// social / mobile watch
+	watchMobile bool   // portrait double-stack GrokGlyph scale
+	watchLive   bool   // primary is live/broadcast
+	watchSocial string // platform/@handle for status
 
 	client *MeshClient
 	player *Player
@@ -162,6 +166,12 @@ type (
 		Code  string
 	}
 	autoWatchMsg struct{ src string }
+	// socialLazyTickMsg slowly reserves secondary social content into lab slots.
+	socialLazyTickMsg struct {
+		Items []LazyMediaItem
+		Index int
+		Tag   string // platform/@handle
+	}
 	grokReplyMsg struct {
 		Text string
 		Err  string
@@ -557,8 +567,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(msg) == 0 {
 			return m, nil
 		}
-		// local preview always
-		maxW, maxH := m.videoCols(), m.videoPxH()
+		// local preview always — style caps keep heavy filters from stalling stream
+		maxW, maxH := m.styleDecodeWH(m.videoCols(), m.videoPxH())
 		if m.burstMode {
 			maxW, maxH = 64, 64 // square tiles for dual burst
 		}
@@ -596,6 +606,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case autoWatchMsg:
 		return m.startWatch(msg.src, true)
+
+	case socialLazyTickMsg:
+		return m.applySocialLazy(msg)
 
 	case liveHitMsg:
 		m.liveHit = fmt.Sprintf("%s %s", msg.Ev.Kind, msg.Ev.Sound)
@@ -1297,13 +1310,29 @@ func (m *Model) slash(line string) (tea.Model, tea.Cmd) {
 	case "watch", "vplay", "movie", "video", "ytdl", "yt", "fill":
 		src := arg
 		if src == "" {
-			m.pushSys("usage: /watch file|url|yt-link  (auto yt-dlp → active slot)")
+			m.pushSys("usage: /watch file|url|yt-link|@user|twitch:user  (live first · yt-dlp)")
 			return m, nil
 		}
 		// ensure lab open when filling from slash in companion
 		if cmd == "fill" && m.lab != nil {
 			m.lab.On = true
 		}
+		return m.startWatch(src, true)
+	case "social", "handle":
+		src := arg
+		if src == "" {
+			m.pushSys("usage: /social @user | twitch:user | yt:@channel | tt:@user")
+			m.pushSys("  live/broadcast first · other content lazy-fills lab slots")
+			return m, nil
+		}
+		if !strings.HasPrefix(src, "@") && ParseSocialQuery(src) == nil && !strings.Contains(src, ":") && !strings.Contains(src, "/") {
+			src = "@" + strings.TrimPrefix(src, "@")
+		}
+		// open lab for lazy secondary stacks
+		if m.lab == nil {
+			m.lab = newLabState()
+		}
+		m.lab.On = true
 		return m.startWatch(src, true)
 	case "cam":
 		// quick cam into lab slot
@@ -2536,16 +2565,61 @@ func (m *Model) startWatch(src string, withAudio bool) (tea.Model, tea.Cmd) {
 		m.vpipe = nil
 	}
 	m.status = "resolving…"
-	m.pushSys("resolve " + truncate(src, 50))
+	socialHint := ""
+	if q := ParseSocialQuery(src); q != nil {
+		if q.Platform != "" {
+			socialHint = q.Platform + "/@" + q.Handle
+		} else {
+			socialHint = "@" + q.Handle
+		}
+		m.pushSys("social " + socialHint + " · live first…")
+	} else {
+		m.pushSys("resolve " + truncate(src, 50))
+	}
 
-	r, err := ResolveMediaTimeout(src, 90*time.Second)
+	// social handles need longer (multi-platform probe)
+	timeout := 90 * time.Second
+	if ParseSocialQuery(src) != nil {
+		timeout = 120 * time.Second
+	}
+	r, err := ResolveMediaTimeout(src, timeout)
 	if err != nil {
 		m.pushSys("watch: " + err.Error())
 		m.status = "resolve fail"
 		return m, nil
 	}
-	w := m.videoCols()
-	h := m.videoPxH()
+
+	// mobile / social → double-stack GrokGlyph sample size; else normal video scale
+	w, h := m.videoCols(), m.videoPxH()
+	m.watchMobile = r.Mobile
+	m.watchLive = r.Live
+	m.watchSocial = FormatSocialStatus(r)
+	if r.Mobile {
+		gn := m.glyphN
+		if gn < 13 {
+			gn = 25
+		}
+		mw, mh := MobileGlyphStackSize(gn)
+		// don't exceed terminal budget but prefer portrait double-stack
+		if mw > 0 {
+			w = min(max(w, mw/2), max(mw, w))
+			// portrait: height from double-stack half-rows
+			half := MobilePortraitHalfRows(w, gn)
+			h = half * 2
+			if h < mh/2 {
+				h = min(mh, half*2)
+			}
+		}
+		// lab: stack layout suits portrait tiles
+		if m.lab != nil && m.lab.On {
+			m.lab.Layout = LayoutStack
+			// slightly narrower tiles for mobile stack
+			if m.lab.Scale > 80 {
+				m.lab.Scale = 80
+			}
+		}
+	}
+
 	vp, err := OpenVideoPipeResolved(r, w, h, withAudio)
 	if err != nil {
 		m.pushSys("watch: " + err.Error())
@@ -2567,15 +2641,178 @@ func (m *Model) startWatch(src string, withAudio bool) (tea.Model, tea.Cmd) {
 	if r.Audio != "" {
 		via += "+a"
 	}
+	if r.Live {
+		via += "·live"
+	}
+	if r.Mobile {
+		via += "·mobile"
+	}
 	m.status = fmt.Sprintf("▶ %s", truncate(label, 28))
 	m.pushSys(fmt.Sprintf("▶ %s · %s · %dx%d", truncate(label, 40), via, w, h))
+	if m.watchSocial != "" {
+		m.pushSys("◈ " + m.watchSocial)
+	}
 	m.applyDepthToFrame()
-	// multi-feed lab: drop video into active/empty placeholder
+	// multi-feed lab: drop primary into active/empty placeholder
 	if m.lab != nil && m.lab.On {
 		m.lab.FillWatchIntoActive(truncate(label, 14), r.Input, m.frame)
 		m.pushSys("vid → slot " + fmt.Sprintf("%d", m.lab.Active+1))
 	}
+
+	// lazy-load secondary social content into remaining lab slots (staggered)
+	var cmd tea.Cmd
+	if len(r.Lazy) > 0 {
+		if m.lab == nil {
+			m.lab = newLabState()
+		}
+		m.lab.On = true
+		m.lab.EnsurePlaceholders(min(MaxLabFeeds, 1+len(r.Lazy)))
+		tag := m.watchSocial
+		if tag == "" {
+			tag = truncate(label, 20)
+		}
+		m.pushSys(fmt.Sprintf("lazy +%d more · staggered", len(r.Lazy)))
+		items := append([]LazyMediaItem(nil), r.Lazy...)
+		cmd = tea.Tick(SocialLazyStagger(), func(t time.Time) tea.Msg {
+			return socialLazyTickMsg{Items: items, Index: 0, Tag: tag}
+		})
+	}
+	return m, cmd
+}
+
+// applySocialLazy reserves one secondary item as a watch placeholder (no decode yet).
+// Next items continue on a stagger so stream handling stays light.
+func (m *Model) applySocialLazy(msg socialLazyTickMsg) (tea.Model, tea.Cmd) {
+	if msg.Index < 0 || msg.Index >= len(msg.Items) {
+		return m, nil
+	}
+	if m.lab == nil {
+		m.lab = newLabState()
+	}
+	m.lab.On = true
+	item := msg.Items[msg.Index]
+	// find empty slot (skip active primary)
+	m.lab.EnsurePlaceholders(min(MaxLabFeeds, msg.Index+2))
+	slot := -1
+	for i := range m.lab.Feeds {
+		if m.lab.Feeds[i].IsEmpty() {
+			slot = i
+			break
+		}
+	}
+	if slot < 0 && len(m.lab.Feeds) < MaxLabFeeds {
+		m.lab.EnsurePlaceholders(len(m.lab.Feeds) + 1)
+		for i := range m.lab.Feeds {
+			if m.lab.Feeds[i].IsEmpty() {
+				slot = i
+				break
+			}
+		}
+	}
+	if slot >= 0 {
+		label := item.Title
+		if label == "" {
+			label = item.Kind
+		}
+		if label == "" {
+			label = "lazy"
+		}
+		// tiny placeholder poster (mobile double-stack proportions when flagged)
+		var fr *FramePixels
+		gn := m.glyphN
+		if gn < 13 {
+			gn = 25
+		}
+		if item.Mobile {
+			w, h := MobileGlyphStackSize(min(gn, 25))
+			// smaller poster for lab tile
+			w, h = max(24, w/4), max(32, h/4)
+			if h%2 != 0 {
+				h++
+			}
+			fr = genSocialPoster(w, h, label, item.Kind, item.Platform)
+		} else {
+			fr = genSocialPoster(48, 28, label, item.Kind, item.Platform)
+		}
+		prev := m.lab.Active
+		m.lab.Active = slot
+		m.lab.FillWatchIntoActive(truncate(label, 14), item.URL, fr)
+		m.lab.Active = prev
+		kind := item.Kind
+		if kind == "" {
+			kind = "vod"
+		}
+		m.pushSys(fmt.Sprintf("lazy[%d] %s · %s", slot+1, kind, truncate(label, 28)))
+	}
+	// schedule next
+	next := msg.Index + 1
+	if next < len(msg.Items) {
+		items := msg.Items
+		tag := msg.Tag
+		return m, tea.Tick(SocialLazyStagger(), func(t time.Time) tea.Msg {
+			return socialLazyTickMsg{Items: items, Index: next, Tag: tag}
+		})
+	}
+	m.pushSys("lazy done · n slot · /watch src to take")
 	return m, nil
+}
+
+// genSocialPoster builds a labeled RGB poster for lazy-loaded social slots.
+func genSocialPoster(w, h int, title, kind, platform string) *FramePixels {
+	if w < 16 {
+		w = 16
+	}
+	if h < 8 {
+		h = 8
+	}
+	if h%2 != 0 {
+		h++
+	}
+	rgb := make([]byte, w*h*3)
+	// gradient by platform hue
+	pr, pg, pb := byte(30), byte(40), byte(70)
+	switch normalizeSocialPlatform(platform) {
+	case SocialTwitch:
+		pr, pg, pb = 100, 60, 180
+	case SocialYouTube:
+		pr, pg, pb = 180, 40, 40
+	case SocialKick:
+		pr, pg, pb = 40, 180, 80
+	case SocialTikTok:
+		pr, pg, pb = 20, 220, 200
+	case SocialInstagram:
+		pr, pg, pb = 200, 60, 140
+	case SocialX:
+		pr, pg, pb = 40, 40, 50
+	}
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			i := (y*w + x) * 3
+			fade := float64(y) / float64(h)
+			rgb[i] = byte(float64(pr) * (0.35 + 0.65*fade))
+			rgb[i+1] = byte(float64(pg) * (0.35 + 0.65*fade))
+			rgb[i+2] = byte(float64(pb) * (0.35 + 0.65*fade))
+		}
+	}
+	// bright top bar for kind
+	bar := h / 6
+	if bar < 2 {
+		bar = 2
+	}
+	for y := 0; y < bar; y++ {
+		for x := 0; x < w; x++ {
+			i := (y*w + x) * 3
+			if kind == "live" {
+				rgb[i], rgb[i+1], rgb[i+2] = 220, 40, 40
+			} else {
+				rgb[i] = byte(min(255, int(pr)+40))
+				rgb[i+1] = byte(min(255, int(pg)+40))
+				rgb[i+2] = byte(min(255, int(pb)+40))
+			}
+		}
+	}
+	_ = title
+	return &FramePixels{W: w, H: h, RGB: rgb, Source: "social-lazy", Stamp: time.Now().UnixMilli()}
 }
 
 func (m *Model) stopWatch() {
@@ -2590,6 +2827,9 @@ func (m *Model) stopWatch() {
 	}
 	m.watchPath = ""
 	m.vpipeSeq = 0
+	m.watchMobile = false
+	m.watchLive = false
+	m.watchSocial = ""
 }
 
 func looksLikePattern(line string) bool {
@@ -2805,7 +3045,8 @@ func (m *Model) handleWS(raw []byte) (tea.Model, tea.Cmd) {
 				if err != nil {
 					return m, nil
 				}
-				return m, decodeFrameCmd(jpeg, meta, m.videoCols(), m.videoPxH())
+				dw, dh := m.styleDecodeWH(m.videoCols(), m.videoPxH())
+				return m, decodeFrameCmd(jpeg, meta, dw, dh)
 			}
 		}
 	}
@@ -3030,7 +3271,7 @@ func (m *Model) handleWS(raw []byte) (tea.Model, tea.Cmd) {
 		}
 		maxW, maxH := 64, 64
 		if !m.burstMode {
-			maxW, maxH = m.videoCols(), m.videoPxH()
+			maxW, maxH = m.styleDecodeWH(m.videoCols(), m.videoPxH())
 		}
 		// decode into peer tile (meta burst:nick) without replacing local cam frame path
 		return m, decodeFrameCmd(jpeg, "burst:"+from, maxW, maxH)
@@ -3251,6 +3492,19 @@ func (m *Model) videoPxH() int {
 		return sc.HalfRows * 2
 	}
 	return max(8, min(48, m.height))
+}
+
+// activePixelStyle is lab style when lab is on, else main pixel mode.
+func (m *Model) activePixelStyle() PixelMode {
+	if m.lab != nil && m.lab.On {
+		return m.lab.Style
+	}
+	return m.pixelMode
+}
+
+// styleDecodeWH applies style-aware decode caps for stream/cam under filters.
+func (m *Model) styleDecodeWH(baseW, baseH int) (int, int) {
+	return StyleDecodeBudget(m.activePixelStyle(), baseW, baseH)
 }
 
 // lastScale used by status crumbs

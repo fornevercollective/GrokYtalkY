@@ -122,7 +122,8 @@ modes (prompt bar)
 
 func helpBodyStream() string {
 	return `stream · binary · colossus
-  /watch url|file    ffmpeg video (+ yt-dlp for YT)
+  /watch url|file|@u ffmpeg (+ yt-dlp · live first)
+  /social @user      social handle · lazy lab fill
   /vstop             stop video pipe
   /pause · /seek     +10|-30|90 · /rate 1.5
   /rec · /export f   .gyst|.gyhex|.pcap
@@ -144,7 +145,8 @@ formats
 
 styles
   half hex braille ascii blocks points
-  halftone depth gsplat`
+  halftone depth gsplat edges poster
+  scan dither neon  (heavy styles auto-throttle)`
 }
 
 func helpBodyForge() string {
@@ -207,7 +209,7 @@ func helpBodyCLI() string {
   gy                 companion dock
   gy burst · gy lab  Glyph dual · multi-feed lab
   gy serve · gy join HOST:PORT
-  gy watch file|url
+  gy watch file|url|@user|twitch:name
   gy stream-pub|colossus src
   gy agent · gy venue · gy sfu-bridge · gy chat-bridge
   gy mid-lane --room R --edge URL   edge mid-lane hook

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -67,7 +68,7 @@ func NewHub(addr string, quiet bool, staticDir string) *Hub {
 			}
 		}
 		w.Header().Set("Content-Type", "text/plain")
-		_, _ = w.Write([]byte("GrokYtalkY hub — rooms + program bus\n  gy · ws://HOST/?nick=…&room=global\n  GET /api/rooms · /api/peers?room=\n"))
+		_, _ = w.Write([]byte("GrokYtalkY hub — rooms + program bus\n  gy · ws://HOST/?nick=…&room=global\n  GET /api/rooms · /api/peers?room= · /api/social?q=@user\n"))
 	})
 	mux.HandleFunc("/api/peers", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -80,6 +81,59 @@ func NewHub(addr string, quiet bool, staticDir string) *Hub {
 	mux.HandleFunc("/api/rooms", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"rooms": h.roomList()})
+	})
+	// Social handle resolve: live/broadcast first, lazy secondary list for GrokGlyph/lab.
+	// GET /api/social?q=@user | twitch:name | yt:@channel
+	mux.HandleFunc("/api/social", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		q := strings.TrimSpace(r.URL.Query().Get("q"))
+		if q == "" {
+			q = strings.TrimSpace(r.URL.Query().Get("handle"))
+		}
+		if q == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"error": "missing q — use ?q=@user or ?q=twitch:name",
+			})
+			return
+		}
+		// optional platform pin
+		if plat := strings.TrimSpace(r.URL.Query().Get("platform")); plat != "" && ParseSocialQuery(q) == nil {
+			q = plat + ":" + strings.TrimPrefix(q, "@")
+		}
+		src, err := ResolveMediaTimeout(q, 100*time.Second)
+		if err != nil {
+			w.WriteHeader(http.StatusBadGateway)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": err.Error(), "q": q})
+			return
+		}
+		// mobile double-stack size for GrokGlyph clients
+		gn := 25
+		mw, mh := MobileGlyphStackSize(gn)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"q":        q,
+			"input":    src.Input,
+			"title":    src.Title,
+			"video":    src.Video,
+			"audio":    src.Audio,
+			"via":      src.Via,
+			"live":     src.Live,
+			"platform": src.Platform,
+			"handle":   src.Handle,
+			"mobile":   src.Mobile,
+			"lazy":     src.Lazy,
+			"stack": map[string]any{
+				"glyph_n": gn,
+				"w":       mw,
+				"h":       mh,
+				"mode":    "double",
+			},
+		})
 	})
 	h.server = &http.Server{Addr: addr, Handler: mux}
 	return h

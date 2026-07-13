@@ -80,6 +80,11 @@
     gyroToggle: document.getElementById("gg-gyro-toggle"),
     geoAutoJoin: document.getElementById("gg-geo-autojoin"),
     styleHint: document.getElementById("gg-style-hint"),
+    socialQ: document.getElementById("gg-social-q"),
+    socialGo: document.getElementById("gg-social-go"),
+    socialStack: document.getElementById("gg-social-stack"),
+    socialStatus: document.getElementById("gg-social-status"),
+    socialLazy: document.getElementById("gg-social-lazy"),
   };
 
   const sampleCtx = els.sample
@@ -120,6 +125,11 @@
   let fileOn = false;
   let casting = false;
   let castSession = false; // vburst-start sent
+  /** mobile double-stack GrokGlyph scale (portrait 1:2) */
+  let mobileStack = false;
+  /** @type {Array<{url:string,title:string,kind:string,platform?:string,mobile?:boolean}>} */
+  let socialLazyQueue = [];
+  let socialLazyTimer = 0;
   /** @type {MediaStream | null} */
   let mediaStream = null;
   /** @type {WebSocket | null} */
@@ -277,7 +287,43 @@
     } catch {
       /* continue */
     }
-    sampleCtx.drawImage(src, 0, 0, glyphN, glyphN);
+    // mobile double-stack: center-crop portrait (9:16-ish) into glyph face
+    let sx = 0,
+      sy = 0,
+      sw = 0,
+      sh = 0;
+    try {
+      // @ts-ignore
+      const vw = src.videoWidth || src.naturalWidth || src.width || 0;
+      // @ts-ignore
+      const vh = src.videoHeight || src.naturalHeight || src.height || 0;
+      if (vw > 0 && vh > 0) {
+        if (mobileStack || vh > vw * 1.15) {
+          // portrait source — crop center square from mid-upper (faces) or full double-stack mid
+          const side = Math.min(vw, Math.floor(vh / (mobileStack ? 2 : 1)));
+          const sideSq = Math.min(vw, vh);
+          const use = mobileStack ? Math.min(vw, Math.floor(vh * 0.5)) : sideSq;
+          sw = use;
+          sh = use;
+          sx = Math.floor((vw - sw) / 2);
+          sy = mobileStack ? Math.floor(vh * 0.12) : Math.floor((vh - sh) / 2);
+        } else {
+          // landscape — center square
+          const side = Math.min(vw, vh);
+          sw = side;
+          sh = side;
+          sx = Math.floor((vw - side) / 2);
+          sy = Math.floor((vh - side) / 2);
+        }
+      }
+    } catch {
+      /* draw full */
+    }
+    if (sw > 0 && sh > 0) {
+      sampleCtx.drawImage(src, sx, sy, sw, sh, 0, 0, glyphN, glyphN);
+    } else {
+      sampleCtx.drawImage(src, 0, 0, glyphN, glyphN);
+    }
     let img;
     try {
       img = sampleCtx.getImageData(0, 0, glyphN, glyphN);
@@ -291,6 +337,154 @@
       out[g] = Math.max(0, Math.min(255, Math.pow(L / 255, 0.85) * 255)) | 0;
     }
     return true;
+  }
+
+  function setMobileStack(on) {
+    mobileStack = !!on;
+    document.body.classList.toggle("is-mobile-stack", mobileStack);
+    if (els.socialStack) {
+      els.socialStack.setAttribute("aria-pressed", mobileStack ? "true" : "false");
+      els.socialStack.classList.toggle("is-on", mobileStack);
+    }
+    computeLayout();
+    layoutAndPaint();
+    saveState();
+  }
+
+  /** Hub WS URL → HTTP origin for /api/social */
+  function hubHttpBase() {
+    const raw = (els.hubUrl && els.hubUrl.value.trim()) || defaultHubURL();
+    try {
+      const u = new URL(raw.replace(/^ws/i, (m) => (m.toLowerCase() === "wss" ? "https" : "http")));
+      return u.origin;
+    } catch {
+      return "http://127.0.0.1:9876";
+    }
+  }
+
+  function setSocialStatus(t) {
+    if (els.socialStatus) els.socialStatus.textContent = t || "";
+  }
+
+  async function loadSocialHandle() {
+    const q = (els.socialQ && els.socialQ.value.trim()) || "";
+    if (!q) {
+      setSocialStatus("enter @user · twitch:name · yt:@ch");
+      return;
+    }
+    setSocialStatus("resolving live first…");
+    try {
+      const url = hubHttpBase() + "/api/social?q=" + encodeURIComponent(q);
+      const res = await fetch(url, { headers: { Accept: "application/json" } });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSocialStatus((data && data.error) || "resolve failed · is hub + yt-dlp up?");
+        return;
+      }
+      const live = data.live ? "LIVE" : "vod";
+      const plat = data.platform || "social";
+      const handle = data.handle ? "@" + data.handle : q;
+      setSocialStatus(plat + "/" + handle + " · " + live + " · " + (data.title || "").slice(0, 36));
+      if (data.mobile || (data.stack && data.stack.mode === "double")) {
+        setMobileStack(true);
+      }
+      // try primary stream into file video (CORS may block CDN — still attempt)
+      if (data.video && els.fileVideo) {
+        try {
+          stopCamTracks();
+          camOn = false;
+          els.fileVideo.src = data.video;
+          els.fileVideo.load();
+          await els.fileVideo.play().catch(() => {});
+          fileOn = true;
+          const self = peers.find((p) => p.self);
+          if (self) self.source = "file";
+          setCastLabel("social");
+        } catch (e) {
+          setSocialStatus((els.socialStatus.textContent || "") + " · play blocked (CORS) — use gy /social");
+        }
+      }
+      // lazy secondary: stagger into peer slots + list UI
+      socialLazyQueue = Array.isArray(data.lazy) ? data.lazy.slice() : [];
+      renderSocialLazyList();
+      scheduleSocialLazy();
+    } catch (e) {
+      setSocialStatus("hub unreachable · gy serve · " + (e && e.message ? e.message : e));
+    }
+  }
+
+  function renderSocialLazyList() {
+    if (!els.socialLazy) return;
+    els.socialLazy.innerHTML = "";
+    if (!socialLazyQueue.length) {
+      els.socialLazy.hidden = true;
+      return;
+    }
+    els.socialLazy.hidden = false;
+    socialLazyQueue.forEach((item, i) => {
+      const li = document.createElement("li");
+      if (item.kind === "live") li.classList.add("is-live");
+      const kind = document.createElement("span");
+      kind.className = "gg-lazy-kind" + (item.kind === "live" ? " live" : "");
+      kind.textContent = (item.kind || "vod").slice(0, 5);
+      const title = document.createElement("span");
+      title.textContent = (item.title || item.url || "item").slice(0, 42);
+      title.title = item.url || "";
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "btn ghost";
+      btn.textContent = "open";
+      btn.addEventListener("click", () => {
+        if (item.url) window.open(item.url, "_blank", "noopener");
+      });
+      li.appendChild(kind);
+      li.appendChild(title);
+      li.appendChild(btn);
+      els.socialLazy.appendChild(li);
+      void i;
+    });
+  }
+
+  function scheduleSocialLazy() {
+    if (socialLazyTimer) {
+      clearTimeout(socialLazyTimer);
+      socialLazyTimer = 0;
+    }
+    if (!socialLazyQueue.length) return;
+    let idx = 0;
+    const step = () => {
+      if (idx >= socialLazyQueue.length) {
+        setSocialStatus((els.socialStatus && els.socialStatus.textContent) || "lazy done");
+        return;
+      }
+      const item = socialLazyQueue[idx++];
+      // soft-add peer slot labeled with content (lazy — no heavy decode)
+      const nick = (item.title || item.kind || "lazy").slice(0, 12);
+      const p = {
+        id: "social-" + Date.now() + "-" + idx,
+        nick: nick,
+        dir: DIR_ORDER[idx % 4],
+        on: true,
+        seed: (Math.random() * 1e9) | 0,
+        source: "sim",
+        socialUrl: item.url,
+        socialKind: item.kind,
+      };
+      peers.push(p);
+      ensureLum(p.id);
+      layoutAndPaint();
+      setSocialStatus("lazy " + idx + "/" + socialLazyQueue.length + " · " + nick);
+      socialLazyTimer = window.setTimeout(step, 2800);
+    };
+    socialLazyTimer = window.setTimeout(step, 1200);
+  }
+
+  function stopCamTracks() {
+    if (mediaStream) {
+      mediaStream.getTracks().forEach((t) => t.stop());
+      mediaStream = null;
+    }
+    if (els.localVideo) els.localVideo.srcObject = null;
   }
 
   function ensureLum(id) {
@@ -1084,11 +1278,14 @@
     const minCell = 25;
     let best = { cols: 1, rows: nWant, cell: 1 };
 
+    // mobile double-stack: tiles are 1:2 (width:height) — cell is width
+    const stackH = mobileStack ? 2 : 1;
     for (let cols = 1; cols <= nWant; cols++) {
       const rows = Math.ceil(nWant / cols);
       const cellW = Math.floor((W - (cols - 1) * GAP) / cols);
       const cellH = Math.floor((H - (rows - 1) * GAP) / rows);
-      const cell = Math.max(1, Math.min(cellW, cellH));
+      // in double-stack, height budget is 2× width for portrait faces
+      const cell = Math.max(1, Math.min(cellW, Math.floor(cellH / stackH)));
       if (
         cell > best.cell ||
         (cell === best.cell && Math.abs(cols - rows) < Math.abs(best.cols - best.rows)) ||
@@ -1795,6 +1992,18 @@
         const f = els.videoFile.files && els.videoFile.files[0];
         if (f) loadVideoFile(f);
       });
+    }
+    if (els.socialGo) els.socialGo.addEventListener("click", () => loadSocialHandle());
+    if (els.socialQ) {
+      els.socialQ.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          loadSocialHandle();
+        }
+      });
+    }
+    if (els.socialStack) {
+      els.socialStack.addEventListener("click", () => setMobileStack(!mobileStack));
     }
 
     if (els.drawerToggle) els.drawerToggle.addEventListener("click", toggleDrawer);

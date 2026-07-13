@@ -22,18 +22,30 @@ type ResolvedStream struct {
 	// Optional separate audio URL (yt-dlp often splits YouTube)
 	Audio string
 	// How it was resolved
-	Via string // file | direct | yt-dlp | raw
+	Via string // file | direct | yt-dlp | raw | social
 	// yt-dlp format id string used
 	Format string
+	// Social / live metadata (optional)
+	Live     bool            `json:"live,omitempty"`
+	Platform string          `json:"platform,omitempty"`
+	Handle   string          `json:"handle,omitempty"`
+	Mobile   bool            `json:"mobile,omitempty"` // portrait / double-stack glyph
+	Lazy     []LazyMediaItem `json:"lazy,omitempty"`   // secondary content for slow lab fill
 }
 
-// ResolveMedia turns a path/URL/share-link into ffmpeg-ready stream(s).
-// Auto uses yt-dlp for site pages; passes raw m3u8/mpd/rtsp/etc. straight through.
+// ResolveMedia turns a path/URL/share-link/handle into ffmpeg-ready stream(s).
+// Auto uses yt-dlp for site pages; social handles prefer live/broadcast first.
+// Passes raw m3u8/mpd/rtsp/etc. straight through.
 func ResolveMedia(src string) (*ResolvedStream, error) {
 	src = strings.TrimSpace(strings.Trim(src, `"'`))
 	src = expandPath(src)
 	if src == "" {
 		return nil, fmt.Errorf("empty media source")
+	}
+
+	// social handles: @user · twitch:user · yt:@channel · social:@user
+	if q := ParseSocialQuery(src); q != nil {
+		return ResolveSocial(q)
 	}
 
 	// explicit ytdl prefix
@@ -70,7 +82,13 @@ func ResolveMedia(src string) (*ResolvedStream, error) {
 	}
 
 	// site page / share link → yt-dlp (YouTube, Twitch, X, TikTok, …)
+	// Prefer live formats when the path looks like a live/broadcast URL.
 	if needsYtDlp(src) {
+		if isLivePageURL(src) {
+			if r, err := resolveYtDlpLiveFirst(src); err == nil {
+				return r, nil
+			}
+		}
 		return resolveYtDlp(src)
 	}
 
@@ -159,6 +177,19 @@ func needsYtDlp(s string) bool {
 	return false
 }
 
+func isLivePageURL(s string) bool {
+	low := strings.ToLower(s)
+	for _, k := range []string{
+		"/live", "twitch.tv/", "kick.com/", "/streams", "is_live",
+		"broadcast", "livestream",
+	} {
+		if strings.Contains(low, k) {
+			return true
+		}
+	}
+	return false
+}
+
 func resolveYtDlp(pageURL string) (*ResolvedStream, error) {
 	bin, err := lookYtDlp()
 	if err != nil {
@@ -189,12 +220,66 @@ func resolveYtDlp(pageURL string) (*ResolvedStream, error) {
 		r.Title = title
 		r.Via = "yt-dlp"
 		r.Format = f
+		r.Live = ytDlpIsLive(bin, pageURL)
+		r.Mobile = looksPortraitTitle(title) || isMobileHostURL(pageURL)
 		return r, nil
 	}
 	if lastErr != nil {
 		return nil, fmt.Errorf("yt-dlp: %w", lastErr)
 	}
 	return nil, fmt.Errorf("yt-dlp: no playable formats")
+}
+
+// resolveYtDlpLiveFirst prefers HLS / live-friendly formats for broadcast pages.
+func resolveYtDlpLiveFirst(pageURL string) (*ResolvedStream, error) {
+	bin, err := lookYtDlp()
+	if err != nil {
+		return nil, err
+	}
+	r, err := resolveYtDlpSocial(bin, pageURL, true)
+	if err != nil {
+		return nil, err
+	}
+	r.Via = "yt-dlp"
+	if plat := platformFromURL(pageURL); plat != "" {
+		r.Platform = plat
+		r.Mobile = IsMobileSocialPlatform(plat)
+	}
+	return r, nil
+}
+
+func isMobileHostURL(s string) bool {
+	low := strings.ToLower(s)
+	for _, h := range []string{"tiktok.com", "instagram.com", "vm.tiktok.com", "youtube.com/shorts"} {
+		if strings.Contains(low, h) {
+			return true
+		}
+	}
+	return false
+}
+
+func platformFromURL(s string) string {
+	low := strings.ToLower(s)
+	switch {
+	case strings.Contains(low, "twitch.tv"):
+		return SocialTwitch
+	case strings.Contains(low, "youtube.com"), strings.Contains(low, "youtu.be"):
+		return SocialYouTube
+	case strings.Contains(low, "kick.com"):
+		return SocialKick
+	case strings.Contains(low, "tiktok.com"):
+		return SocialTikTok
+	case strings.Contains(low, "instagram.com"):
+		return SocialInstagram
+	case strings.Contains(low, "x.com"), strings.Contains(low, "twitter.com"):
+		return SocialX
+	case strings.Contains(low, "rumble.com"):
+		return SocialRumble
+	case strings.Contains(low, "facebook.com"):
+		return SocialFacebook
+	default:
+		return ""
+	}
 }
 
 func lookYtDlp() (string, error) {

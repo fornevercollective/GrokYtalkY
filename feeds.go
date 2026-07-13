@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"time"
 )
@@ -290,11 +291,20 @@ func (l *LabState) BudgetLine() string {
 	if n == 0 {
 		n = 1
 	}
-	// display pixels ≈ scale × (scale*10/16), RGB24 × FPS × feeds
+	// display pixels ≈ scale × (scale*10/16), RGB24 × FPS × feeds × style cost
 	pw := l.Scale
 	ph := max(12, pw*10/16)
 	bytesPerFrame := pw * ph * 3
-	bps := float64(bytesPerFrame*l.FPS*n) * 8
+	cost := float64(l.Style.StyleCost())
+	// heavy styles downsample work frames (~0.6–1.0× paint budget)
+	if l.Style.HeavyStyle() {
+		cost *= 0.75
+	}
+	effFPS := float64(l.FPS)
+	if l.Style.HeavyStyle() {
+		effFPS = math.Min(effFPS, 8)
+	}
+	bps := float64(bytesPerFrame)*effFPS*float64(n)*8*math.Max(1, cost*0.35)
 	mbps := bps / 1e6
 	// mesh JPEG burst estimate ~15KB @ min(fps,8)
 	jfps := l.FPS

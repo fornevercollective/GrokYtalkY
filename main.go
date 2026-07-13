@@ -331,7 +331,7 @@ commands
   %s burst                dual Glyph Matrix (you | peer)
   %s lab                  multi-feed video lab
   %s serve | join HOST    headless hub · remote peer
-  %s watch URL|file       ffmpeg terminal video
+  %s watch URL|file|@user ffmpeg terminal video (live first)
   %s stream-pub|colossus  live gyst → hub (sim|pcap|cam)
   %s encode|decode        .gyst|.gyhex|.pcap
   %s agent                thin Glyph/IoT (JSON, no TUI)
@@ -351,7 +351,7 @@ TUI ( ? multi-page help · tab pages )
   F       full/companion        space PTT · [ ] glyph scale · g res
   /forge a.pcap b…   multi-pcap + cgf: marks · dual-left rotate
   /conductor · /take · /preview · /hold · /black · /program
-  /colossus pcap|sim · /watch · /rec · /export · /load
+  /colossus · /watch · /social @user · /rec · /export · /load
 
 venue / 2110
   gy venue --sink st2110 --rtp A --rtp-b B   # 2022-7 dual-dest
@@ -366,7 +366,7 @@ env   XAI_API_KEY · GROK_MODEL · GY_CAP · GY_ROLE · GY_ROOM
       GY_ROOM_MAX · GY_EDGE_URL · GY_EDGE_TOKEN
       GY_PTP_LOCKED · GY_PTP_DOMAIN · GY_PTP_IFACE · GY_NMOS_REGISTRY
       GY_CALLS_WHIP_URL · GY_NO_AUTO_UPDATE=1 · --no-update
-hub   rooms: ?room= · GET /api/rooms · program-per-room
+hub   rooms: ?room= · GET /api/rooms · /api/social?q=@user
       gy mid-lane --room dojo --edge https://…/mid
 install
   gy install                  → ~/.local/bin/gy

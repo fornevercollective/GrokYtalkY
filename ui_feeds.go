@@ -281,27 +281,21 @@ func (m *Model) renderFeedMosaic(w, h int, l *LabState) string {
 }
 
 // tickLabSims paints procedural motion into sim feed frames at lab FPS/scale.
+// Heavy styles (depth/gsplat/halftone) auto-throttle to keep stream responsive.
 func (m *Model) tickLabSims() {
 	if m.lab == nil || !m.lab.On {
 		return
 	}
 	l := m.lab
-	// throttle by FPS
-	interval := time.Second / time.Duration(max(1, l.FPS))
+	// throttle by FPS, scaled by style cost under live filters
+	interval := StyleStreamInterval(l.Style, l.FPS)
 	if !l.lastCap.IsZero() && time.Since(l.lastCap) < interval {
 		return
 	}
 	l.lastCap = time.Now()
 
-	// pixel size from scale (tile-ish)
-	pw := min(l.Scale, 96)
-	if pw < 24 {
-		pw = 24
-	}
-	ph := max(12, pw*10/16)
-	if ph%2 != 0 {
-		ph++
-	}
+	// pixel size from scale, capped further under heavy styles (stream mitigation)
+	pw, ph := StyleSimBudget(l.Style, l.Scale)
 	t := float64(time.Now().UnixMilli())
 
 	for i := range l.Feeds {
@@ -379,5 +373,5 @@ func genSimFrame(w, h int, tMs float64, seed int) *FramePixels {
 			rgb[i+2] = byte(clamp255(b))
 		}
 	}
-	return &FramePixels{W: w, H: h, RGB: rgb, Source: "sim"}
+	return &FramePixels{W: w, H: h, RGB: rgb, Source: "sim", Stamp: int64(tMs)}
 }

@@ -13,12 +13,55 @@ func TestAllStylesListed(t *testing.T) {
 	want := map[string]bool{
 		"half": true, "blocks": true, "points": true, "ascii": true,
 		"halftone": true, "depth": true, "gsplat": true, "hex": true, "braille": true,
+		"edges": true, "poster": true, "scan": true, "dither": true, "neon": true,
+	}
+	if len(want) != int(PixelCount) {
+		t.Fatalf("want map %d PixelCount %d", len(want), PixelCount)
 	}
 	for _, name := range s {
 		if !want[name] {
 			t.Fatalf("unexpected style %s", name)
 		}
 	}
+	// heavy styles cost ≥ 3
+	if !PixelDepth.HeavyStyle() || !PixelGsplat.HeavyStyle() || !PixelHalftone.HeavyStyle() {
+		t.Fatal("heavy flags")
+	}
+	if PixelHalf.HeavyStyle() || PixelScan.HeavyStyle() {
+		t.Fatal("light styles marked heavy")
+	}
+}
+
+func TestStyleGeomScales(t *testing.T) {
+	g := StyleGeomFromBudget(80, 12, 160, 90)
+	if g.Cols != 80 || g.Rows != 12 || g.Cell < 2 {
+		t.Fatalf("%+v", g)
+	}
+	// narrow displays get smaller cells
+	g2 := StyleGeomFromBudget(20, 6, 64, 48)
+	if g2.Cell > g.Cell {
+		t.Fatalf("cell %d > %d", g2.Cell, g.Cell)
+	}
+}
+
+func TestStyleStreamAndDecodeBudget(t *testing.T) {
+	// heavy styles: longer interval = lower effective FPS under stream
+	if StyleStreamInterval(PixelGsplat, 30) <= StyleStreamInterval(PixelHalf, 30) {
+		t.Fatal("gsplat interval should exceed half (throttled)")
+	}
+	w, h := StyleDecodeBudget(PixelGsplat, 200, 150)
+	if w > 64 || h > 48 {
+		t.Fatalf("gsplat decode cap %dx%d", w, h)
+	}
+	w2, h2 := StyleDecodeBudget(PixelHalf, 200, 150)
+	if w2 < w || h2 < h {
+		t.Fatalf("half should allow more than gsplat: %dx%d vs %dx%d", w2, h2, w, h)
+	}
+	sw, sh := StyleSimBudget(PixelDepth, 128)
+	if sw > 64 {
+		t.Fatalf("sim heavy %d", sw)
+	}
+	_ = sh
 }
 
 func TestLabScaleFPSPresets(t *testing.T) {
@@ -123,20 +166,25 @@ func TestLabSideBySideRender(t *testing.T) {
 }
 
 func TestRenderFrameStyles(t *testing.T) {
-	rgb := make([]byte, 32*24*3)
+	rgb := make([]byte, 64*48*3)
 	for i := range rgb {
 		rgb[i] = byte(i)
 	}
-	f := &FramePixels{W: 32, H: 24, RGB: rgb}
-	for mode := PixelMode(0); mode < PixelCount; mode++ {
-		out := RenderFrameH(f, mode, 24, 6)
-		lines := strings.Split(out, "\n")
-		if len(lines) > 6 {
-			t.Fatalf("%s rows %d", mode, len(lines))
-		}
-		for _, ln := range lines {
-			if cellWidth(strings.TrimSuffix(ln, "\x1b[0m")) > 24 {
-				t.Fatalf("%s wide", mode)
+	f := &FramePixels{W: 64, H: 48, RGB: rgb, Stamp: 1}
+	// every style must honor width×rows at multiple scales
+	for _, budget := range [][2]int{{16, 4}, {24, 6}, {40, 10}, {64, 14}} {
+		cols, rows := budget[0], budget[1]
+		for mode := PixelMode(0); mode < PixelCount; mode++ {
+			out := RenderFrameH(f, mode, cols, rows)
+			lines := strings.Split(out, "\n")
+			if len(lines) > rows {
+				t.Fatalf("%s@%dx%d rows %d", mode, cols, rows, len(lines))
+			}
+			for _, ln := range lines {
+				// strip common ANSI reset when measuring cells
+				if cellWidth(stripANSI(ln)) > cols {
+					t.Fatalf("%s@%d wide: %d", mode, cols, cellWidth(stripANSI(ln)))
+				}
 			}
 		}
 	}

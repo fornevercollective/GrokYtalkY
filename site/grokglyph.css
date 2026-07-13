@@ -884,3 +884,53 @@ html, body.gg-body {
   .gg-header { padding-left: max(0.55rem, env(safe-area-inset-left));
                padding-right: max(0.55rem, env(safe-area-inset-right)); }
 }
+
+/* ── social handle · mobile double-stack ──────────────────── */
+.gg-social-lazy {
+  list-style: none;
+  margin: 0.45rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  max-height: 9rem;
+  overflow: auto;
+}
+.gg-social-lazy li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+  padding: 0.28rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(255,255,255,0.02);
+}
+.gg-social-lazy li.is-live { border-color: rgba(240, 70, 70, 0.45); }
+.gg-social-lazy li button {
+  margin-left: auto;
+  font-size: 0.68rem;
+  padding: 0.15rem 0.4rem;
+}
+.gg-social-lazy .gg-lazy-kind {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  min-width: 2.4rem;
+}
+.gg-social-lazy .gg-lazy-kind.live { color: #f05555; }
+
+/* double-stack: portrait 1:2 tiles (two glyph faces tall) */
+.gg-body.is-mobile-stack .gg-stage {
+  --gg-aspect: 1 / 2;
+}
+.gg-body.is-mobile-stack .gg-tile {
+  aspect-ratio: 1 / 2;
+}
+.gg-body.is-mobile-stack .gg-tile canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
