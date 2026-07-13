@@ -252,7 +252,14 @@
 
       const details = document.createElement('details');
       details.className = 'ln-region';
-      details.open = reg.id === 'us' || reg.id === 'weather' || reg.id === 'public' || reg.id === 'world';
+      details.open =
+        reg.id === 'us' ||
+        reg.id === 'weather' ||
+        reg.id === 'public' ||
+        reg.id === 'world' ||
+        reg.id === 'earthcam' ||
+        reg.id === 'earthcam-us' ||
+        reg.id === 'earthcam-highway';
       details.setAttribute('data-persist', 'ln-' + reg.id);
       details.dataset.region = reg.id;
 
@@ -585,7 +592,20 @@
   allSources().forEach(ensureRec);
   buildSections();
   // default main: mix of us news + weather + world
-  mainIds = ['cnn', 'bbc', 'aje', 'reu', 'weatherch', 'nhc', 'cspan', 'nhk', 'dw', 'abc', 'bbg', 'nasa']
+  mainIds = [
+    'cnn',
+    'bbc',
+    'aje',
+    'reu',
+    'weatherch',
+    'earthcam',
+    'ec-timessq',
+    'ec-ggbridge',
+    'ec-eiffel',
+    'ec-shibuya',
+    'ec-traffic-la',
+    'nasa',
+  ]
     .filter((id) => NS.findById(id))
     .slice(0, MAIN_CAP);
   renderMain();

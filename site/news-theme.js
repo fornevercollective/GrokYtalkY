@@ -80,12 +80,15 @@
       const src = NS.findById(id);
       let theme = (m && m.theme) || 'unsorted';
       // seed from static tags when no caption yet
-      if ((!m || !m.caption) && src && src.tags) {
-        if (src.kind === 'weather' || src.tags.indexOf('weather') >= 0) theme = 'weather';
-        else if (src.kind === 'public' || src.tags.indexOf('public') >= 0) theme = 'local';
-        else if (src.tags.indexOf('markets') >= 0) theme = 'markets';
-        else if (src.tags.indexOf('politics') >= 0) theme = 'politics';
-        else if (src.tags.indexOf('breaking') >= 0) theme = 'breaking';
+      if ((!m || !m.caption) && src) {
+        const tags = src.tags || [];
+        if (src.kind === 'earthcam' || tags.indexOf('earthcam') >= 0 || tags.indexOf('monument') >= 0 || tags.indexOf('highway') >= 0)
+          theme = 'earthcam';
+        else if (src.kind === 'weather' || tags.indexOf('weather') >= 0) theme = 'weather';
+        else if (src.kind === 'public' || tags.indexOf('public') >= 0) theme = 'local';
+        else if (tags.indexOf('markets') >= 0) theme = 'markets';
+        else if (tags.indexOf('politics') >= 0) theme = 'politics';
+        else if (tags.indexOf('breaking') >= 0) theme = 'breaking';
       }
       if (!buckets[theme]) buckets[theme] = [];
       buckets[theme].push({

@@ -111,7 +111,7 @@ public-access / PEG / government streams as **25×25 Glyph Matrix** tiles.
 
 | Feature | Detail |
 |---------|--------|
-| Catalog | `site/news-sources.js` (world regions + weather + public) |
+| Catalog | `site/news-sources.js` (news + weather + public + EarthCam monuments/highways) |
 | Sections | Collapsible rows · **↻ refresh** each · **→ main** swaps section into mosaic |
 | Main column | Speakers-style Glyph grid · pin / shuffle / cycle / fill from sort |
 | Theme AI | Captions/transcripts → `news-theme.js` clusters (breaking, politics, markets, weather…) |

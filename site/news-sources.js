@@ -1,7 +1,7 @@
 /**
  * Global live news / weather / public-access catalog for livenews.html.
  * Mirrors + expands news_wall.go MajorNewsSources / ExtendedNewsSources.
- * kind: news | weather | public
+ * kind: news | weather | public | earthcam
  * Streams may geo-restrict or go offline; wall keeps posters + refresh.
  */
 (function (global) {
@@ -208,6 +208,122 @@
     S('bundestag', 'Deutscher Bundestag', 'https://www.youtube.com/@bundestag/live', 'public', 'public', 230, ['public', 'germany', 'politics']),
     S('assemblee', 'Assemblée nationale', 'https://www.youtube.com/@AssembleeNationale/live', 'public', 'public', 215, ['public', 'france', 'politics']),
     S('congreso', 'Congreso de los Diputados', 'https://www.youtube.com/@CongresoDiputados/live', 'public', 'public', 10, ['public', 'spain', 'politics']),
+
+    // ══════════════════════════════════════════════════════════
+    // EarthCam-style · monuments · highways · cityscapes · nature
+    // Prefer YouTube /live pages (yt-dlp). Many cams rotate offline.
+    // ══════════════════════════════════════════════════════════
+
+    // ── EarthCam network / hubs ──
+    S('earthcam', 'EarthCam Live', 'https://www.youtube.com/@EarthCam/live', 'earthcam', 'earthcam', 40, ['earthcam', 'landmark', 'city']),
+    S('earthcamyt', 'EarthCam Network', 'https://www.youtube.com/@earthcamdotcom/live', 'earthcam', 'earthcam', 45, ['earthcam', 'landmark']),
+    S('skylinewebcams', 'SkylineWebcams', 'https://www.youtube.com/@SkylineWebcams/live', 'earthcam', 'earthcam', 200, ['earthcam', 'landmark', 'city']),
+    S('webcamtaxi', 'Webcam Taxi', 'https://www.youtube.com/@WebcamTaxi/live', 'earthcam', 'earthcam', 190, ['earthcam', 'city']),
+    S('liveworldcams', 'Live World Cams', 'https://www.youtube.com/@LiveWorldCams/live', 'earthcam', 'earthcam', 180, ['earthcam', 'city']),
+
+    // ── USA · monuments & icons ──
+    S('ec-timessq', 'Times Square · NYC', 'https://www.youtube.com/@EarthCam/live', 'earthcam-us', 'earthcam', 10, ['earthcam', 'monument', 'nyc', 'us']),
+    S('ec-brooklyn', 'Brooklyn Bridge · NYC', 'https://www.youtube.com/results?search_query=brooklyn+bridge+live+cam', 'earthcam-us', 'earthcam', 200, ['earthcam', 'monument', 'nyc', 'us']),
+    S('ec-statue', 'Statue of Liberty · NYC', 'https://www.youtube.com/results?search_query=statue+of+liberty+live+cam', 'earthcam-us', 'earthcam', 210, ['earthcam', 'monument', 'nyc', 'us']),
+    S('ec-empire', 'Empire State Building', 'https://www.youtube.com/results?search_query=empire+state+building+live+cam', 'earthcam-us', 'earthcam', 220, ['earthcam', 'monument', 'nyc', 'us']),
+    S('ec-centralpark', 'Central Park · NYC', 'https://www.youtube.com/results?search_query=central+park+live+cam', 'earthcam-us', 'earthcam', 140, ['earthcam', 'nature', 'nyc', 'us']),
+    S('ec-whouse', 'White House area · DC', 'https://www.youtube.com/results?search_query=white+house+live+cam', 'earthcam-us', 'earthcam', 200, ['earthcam', 'monument', 'dc', 'us']),
+    S('ec-natmall', 'National Mall · DC', 'https://www.youtube.com/results?search_query=national+mall+live+cam', 'earthcam-us', 'earthcam', 205, ['earthcam', 'monument', 'dc', 'us']),
+    S('ec-ggbridge', 'Golden Gate Bridge', 'https://www.youtube.com/results?search_query=golden+gate+bridge+live+cam', 'earthcam-us', 'earthcam', 195, ['earthcam', 'monument', 'sf', 'us']),
+    S('ec-sf', 'San Francisco Skyline', 'https://www.youtube.com/results?search_query=san+francisco+live+cam', 'earthcam-us', 'earthcam', 200, ['earthcam', 'city', 'sf', 'us']),
+    S('ec-hollywood', 'Hollywood Sign · LA', 'https://www.youtube.com/results?search_query=hollywood+sign+live+cam', 'earthcam-us', 'earthcam', 30, ['earthcam', 'monument', 'la', 'us']),
+    S('ec-santamonica', 'Santa Monica Pier', 'https://www.youtube.com/results?search_query=santa+monica+pier+live+cam', 'earthcam-us', 'earthcam', 200, ['earthcam', 'landmark', 'la', 'us']),
+    S('ec-vegas', 'Las Vegas Strip', 'https://www.youtube.com/results?search_query=las+vegas+strip+live+cam', 'earthcam-us', 'earthcam', 280, ['earthcam', 'city', 'vegas', 'us']),
+    S('ec-bellagio', 'Bellagio Fountains · Vegas', 'https://www.youtube.com/results?search_query=bellagio+fountains+live+cam', 'earthcam-us', 'earthcam', 290, ['earthcam', 'landmark', 'vegas', 'us']),
+    S('ec-miami', 'Miami Beach / Ocean Drive', 'https://www.youtube.com/results?search_query=miami+beach+live+cam', 'earthcam-us', 'earthcam', 190, ['earthcam', 'city', 'miami', 'us']),
+    S('ec-chicago', 'Chicago Bean / Millennium', 'https://www.youtube.com/results?search_query=chicago+live+cam+skyline', 'earthcam-us', 'earthcam', 210, ['earthcam', 'city', 'chicago', 'us']),
+    S('ec-seattle', 'Seattle Space Needle', 'https://www.youtube.com/results?search_query=space+needle+live+cam', 'earthcam-us', 'earthcam', 200, ['earthcam', 'monument', 'seattle', 'us']),
+    S('ec-nola', 'New Orleans French Quarter', 'https://www.youtube.com/results?search_query=french+quarter+live+cam', 'earthcam-us', 'earthcam', 40, ['earthcam', 'city', 'nola', 'us']),
+    S('ec-boston', 'Boston Harbor', 'https://www.youtube.com/results?search_query=boston+harbor+live+cam', 'earthcam-us', 'earthcam', 200, ['earthcam', 'city', 'boston', 'us']),
+    S('ec-niagara', 'Niagara Falls', 'https://www.youtube.com/results?search_query=niagara+falls+live+cam', 'earthcam-us', 'earthcam', 195, ['earthcam', 'nature', 'monument', 'us']),
+    S('ec-grandcanyon', 'Grand Canyon', 'https://www.youtube.com/results?search_query=grand+canyon+live+cam', 'earthcam-us', 'earthcam', 30, ['earthcam', 'nature', 'monument', 'us']),
+    S('ec-yosemite', 'Yosemite Valley', 'https://www.youtube.com/results?search_query=yosemite+live+cam', 'earthcam-us', 'earthcam', 140, ['earthcam', 'nature', 'us']),
+    S('ec-yellowstone', 'Yellowstone', 'https://www.youtube.com/results?search_query=yellowstone+live+cam', 'earthcam-us', 'earthcam', 120, ['earthcam', 'nature', 'us']),
+    S('ec-hawaii', 'Waikiki Beach · Hawaii', 'https://www.youtube.com/results?search_query=waikiki+live+cam', 'earthcam-us', 'earthcam', 200, ['earthcam', 'nature', 'hawaii', 'us']),
+    S('ec-disney', 'Disney parks live', 'https://www.youtube.com/results?search_query=disney+world+live+cam', 'earthcam-us', 'earthcam', 280, ['earthcam', 'landmark', 'us']),
+
+    // ── USA · highways / traffic (DOT / city cams) ──
+    S('ec-traffic-nyc', 'NYC Traffic cams', 'https://www.youtube.com/results?search_query=nyc+traffic+live+cam', 'earthcam-highway', 'earthcam', 20, ['earthcam', 'highway', 'nyc', 'us']),
+    S('ec-traffic-la', 'LA Freeways', 'https://www.youtube.com/results?search_query=los+angeles+freeway+live+cam', 'earthcam-highway', 'earthcam', 25, ['earthcam', 'highway', 'la', 'us']),
+    S('ec-traffic-sf', 'Bay Area Traffic', 'https://www.youtube.com/results?search_query=bay+area+traffic+live+cam', 'earthcam-highway', 'earthcam', 200, ['earthcam', 'highway', 'sf', 'us']),
+    S('ec-traffic-chi', 'Chicago Traffic', 'https://www.youtube.com/results?search_query=chicago+traffic+live+cam', 'earthcam-highway', 'earthcam', 210, ['earthcam', 'highway', 'chicago', 'us']),
+    S('ec-traffic-atl', 'Atlanta Highways', 'https://www.youtube.com/results?search_query=atlanta+traffic+live+cam', 'earthcam-highway', 'earthcam', 15, ['earthcam', 'highway', 'us']),
+    S('ec-traffic-dfw', 'DFW Highways', 'https://www.youtube.com/results?search_query=dallas+traffic+live+cam', 'earthcam-highway', 'earthcam', 30, ['earthcam', 'highway', 'us']),
+    S('ec-traffic-hou', 'Houston Freeways', 'https://www.youtube.com/results?search_query=houston+traffic+live+cam', 'earthcam-highway', 'earthcam', 35, ['earthcam', 'highway', 'us']),
+    S('ec-traffic-sea', 'Seattle Traffic', 'https://www.youtube.com/results?search_query=seattle+traffic+live+cam', 'earthcam-highway', 'earthcam', 200, ['earthcam', 'highway', 'us']),
+    S('ec-traffic-den', 'Denver I-25 / I-70', 'https://www.youtube.com/results?search_query=denver+traffic+live+cam', 'earthcam-highway', 'earthcam', 220, ['earthcam', 'highway', 'us']),
+    S('ec-traffic-phx', 'Phoenix Freeways', 'https://www.youtube.com/results?search_query=phoenix+traffic+live+cam', 'earthcam-highway', 'earthcam', 40, ['earthcam', 'highway', 'us']),
+    S('ec-i95', 'I-95 corridor cams', 'https://www.youtube.com/results?search_query=I-95+traffic+live+cam', 'earthcam-highway', 'earthcam', 10, ['earthcam', 'highway', 'us']),
+    S('ec-i405', 'I-405 · SoCal', 'https://www.youtube.com/results?search_query=I-405+traffic+live+cam', 'earthcam-highway', 'earthcam', 25, ['earthcam', 'highway', 'us']),
+    S('ec-i5', 'I-5 West Coast', 'https://www.youtube.com/results?search_query=I-5+traffic+live+cam', 'earthcam-highway', 'earthcam', 200, ['earthcam', 'highway', 'us']),
+    S('ec-gwb', 'George Washington Bridge', 'https://www.youtube.com/results?search_query=george+washington+bridge+live+cam', 'earthcam-highway', 'earthcam', 205, ['earthcam', 'highway', 'monument', 'nyc', 'us']),
+    S('ec-holland', 'Holland Tunnel / NJ', 'https://www.youtube.com/results?search_query=holland+tunnel+traffic+live', 'earthcam-highway', 'earthcam', 210, ['earthcam', 'highway', 'nyc', 'us']),
+    S('ec-airport-jfk', 'JFK Airport area', 'https://www.youtube.com/results?search_query=JFK+airport+live+cam', 'earthcam-highway', 'earthcam', 220, ['earthcam', 'airport', 'nyc', 'us']),
+    S('ec-airport-lax', 'LAX area cams', 'https://www.youtube.com/results?search_query=LAX+live+cam', 'earthcam-highway', 'earthcam', 30, ['earthcam', 'airport', 'la', 'us']),
+    S('ec-airport-ord', 'O\'Hare area', 'https://www.youtube.com/results?search_query=ohare+airport+live+cam', 'earthcam-highway', 'earthcam', 210, ['earthcam', 'airport', 'chicago', 'us']),
+
+    // ── Europe · monuments ──
+    S('ec-eiffel', 'Eiffel Tower · Paris', 'https://www.youtube.com/results?search_query=eiffel+tower+live+cam', 'earthcam-eu', 'earthcam', 210, ['earthcam', 'monument', 'paris', 'eu']),
+    S('ec-louvre', 'Louvre / Louvre Pyramid', 'https://www.youtube.com/results?search_query=louvre+live+cam', 'earthcam-eu', 'earthcam', 215, ['earthcam', 'monument', 'paris', 'eu']),
+    S('ec-notredame', 'Notre-Dame · Paris', 'https://www.youtube.com/results?search_query=notre+dame+paris+live+cam', 'earthcam-eu', 'earthcam', 220, ['earthcam', 'monument', 'paris', 'eu']),
+    S('ec-arc', 'Arc de Triomphe', 'https://www.youtube.com/results?search_query=arc+de+triomphe+live+cam', 'earthcam-eu', 'earthcam', 200, ['earthcam', 'monument', 'paris', 'eu']),
+    S('ec-london', 'London Eye / Thames', 'https://www.youtube.com/results?search_query=london+eye+live+cam', 'earthcam-eu', 'earthcam', 200, ['earthcam', 'monument', 'london', 'uk']),
+    S('ec-bigben', 'Big Ben / Parliament', 'https://www.youtube.com/results?search_query=big+ben+live+cam', 'earthcam-eu', 'earthcam', 205, ['earthcam', 'monument', 'london', 'uk']),
+    S('ec-towerbridge', 'Tower Bridge · London', 'https://www.youtube.com/results?search_query=tower+bridge+live+cam', 'earthcam-eu', 'earthcam', 210, ['earthcam', 'monument', 'london', 'uk']),
+    S('ec-piccadilly', 'Piccadilly Circus', 'https://www.youtube.com/results?search_query=piccadilly+circus+live+cam', 'earthcam-eu', 'earthcam', 15, ['earthcam', 'city', 'london', 'uk']),
+    S('ec-abbeyroad', 'Abbey Road Crossing', 'https://www.youtube.com/results?search_query=abbey+road+live+cam', 'earthcam-eu', 'earthcam', 40, ['earthcam', 'landmark', 'london', 'uk']),
+    S('ec-colosseum', 'Colosseum · Rome', 'https://www.youtube.com/results?search_query=colosseum+live+cam', 'earthcam-eu', 'earthcam', 30, ['earthcam', 'monument', 'rome', 'eu']),
+    S('ec-vatican', 'St. Peter\'s Square', 'https://www.youtube.com/results?search_query=st+peters+square+live+cam', 'earthcam-eu', 'earthcam', 220, ['earthcam', 'monument', 'vatican', 'eu']),
+    S('ec-venice', 'Venice Grand Canal', 'https://www.youtube.com/results?search_query=venice+grand+canal+live+cam', 'earthcam-eu', 'earthcam', 200, ['earthcam', 'city', 'venice', 'eu']),
+    S('ec-duomo', 'Duomo · Florence / Milan', 'https://www.youtube.com/results?search_query=duomo+live+cam', 'earthcam-eu', 'earthcam', 210, ['earthcam', 'monument', 'italy', 'eu']),
+    S('ec-sagrada', 'Sagrada Família · Barcelona', 'https://www.youtube.com/results?search_query=sagrada+familia+live+cam', 'earthcam-eu', 'earthcam', 15, ['earthcam', 'monument', 'barcelona', 'eu']),
+    S('ec-ramblas', 'Las Ramblas · Barcelona', 'https://www.youtube.com/results?search_query=las+ramblas+live+cam', 'earthcam-eu', 'earthcam', 20, ['earthcam', 'city', 'barcelona', 'eu']),
+    S('ec-acropolis', 'Acropolis · Athens', 'https://www.youtube.com/results?search_query=acropolis+live+cam', 'earthcam-eu', 'earthcam', 40, ['earthcam', 'monument', 'athens', 'eu']),
+    S('ec-brandenburg', 'Brandenburg Gate · Berlin', 'https://www.youtube.com/results?search_query=brandenburg+gate+live+cam', 'earthcam-eu', 'earthcam', 220, ['earthcam', 'monument', 'berlin', 'eu']),
+    S('ec-neuschwanstein', 'Neuschwanstein Castle', 'https://www.youtube.com/results?search_query=neuschwanstein+live+cam', 'earthcam-eu', 'earthcam', 200, ['earthcam', 'monument', 'germany', 'eu']),
+    S('ec-prague', 'Prague Old Town / Astronomical Clock', 'https://www.youtube.com/results?search_query=prague+astronomical+clock+live+cam', 'earthcam-eu', 'earthcam', 30, ['earthcam', 'monument', 'prague', 'eu']),
+    S('ec-amsterdam', 'Amsterdam Canals', 'https://www.youtube.com/results?search_query=amsterdam+canals+live+cam', 'earthcam-eu', 'earthcam', 200, ['earthcam', 'city', 'amsterdam', 'eu']),
+    S('ec-vienna', 'Vienna Stephansplatz', 'https://www.youtube.com/results?search_query=vienna+stephansplatz+live+cam', 'earthcam-eu', 'earthcam', 210, ['earthcam', 'city', 'vienna', 'eu']),
+    S('ec-moscow', 'Red Square · Moscow', 'https://www.youtube.com/results?search_query=red+square+live+cam', 'earthcam-eu', 'earthcam', 0, ['earthcam', 'monument', 'moscow']),
+    S('ec-istanbul', 'Hagia Sophia / Bosphorus', 'https://www.youtube.com/results?search_query=hagia+sophia+live+cam', 'earthcam-eu', 'earthcam', 40, ['earthcam', 'monument', 'istanbul']),
+    S('ec-m25', 'London M25 traffic', 'https://www.youtube.com/results?search_query=M25+traffic+live+cam', 'earthcam-highway', 'earthcam', 200, ['earthcam', 'highway', 'london', 'uk']),
+    S('ec-peripherique', 'Paris Périphérique', 'https://www.youtube.com/results?search_query=peripherique+paris+live+cam', 'earthcam-highway', 'earthcam', 210, ['earthcam', 'highway', 'paris', 'eu']),
+
+    // ── Asia · monuments & cityscapes ──
+    S('ec-shibuya', 'Shibuya Crossing · Tokyo', 'https://www.youtube.com/results?search_query=shibuya+crossing+live+cam', 'earthcam-asia', 'earthcam', 330, ['earthcam', 'city', 'tokyo', 'japan']),
+    S('ec-shinjuku', 'Shinjuku · Tokyo', 'https://www.youtube.com/results?search_query=shinjuku+live+cam', 'earthcam-asia', 'earthcam', 335, ['earthcam', 'city', 'tokyo', 'japan']),
+    S('ec-tokyo-tower', 'Tokyo Tower / Skytree', 'https://www.youtube.com/results?search_query=tokyo+skytree+live+cam', 'earthcam-asia', 'earthcam', 340, ['earthcam', 'monument', 'tokyo', 'japan']),
+    S('ec-fuji', 'Mount Fuji', 'https://www.youtube.com/results?search_query=mount+fuji+live+cam', 'earthcam-asia', 'earthcam', 200, ['earthcam', 'nature', 'monument', 'japan']),
+    S('ec-kyoto', 'Fushimi Inari / Kyoto', 'https://www.youtube.com/results?search_query=fushimi+inari+live+cam', 'earthcam-asia', 'earthcam', 20, ['earthcam', 'monument', 'kyoto', 'japan']),
+    S('ec-seoul', 'Myeongdong / Seoul', 'https://www.youtube.com/results?search_query=seoul+live+cam', 'earthcam-asia', 'earthcam', 210, ['earthcam', 'city', 'seoul', 'korea']),
+    S('ec-hongkong', 'Hong Kong Victoria Harbour', 'https://www.youtube.com/results?search_query=victoria+harbour+live+cam', 'earthcam-asia', 'earthcam', 200, ['earthcam', 'city', 'hongkong']),
+    S('ec-shanghai', 'Shanghai Bund', 'https://www.youtube.com/results?search_query=shanghai+bund+live+cam', 'earthcam-asia', 'earthcam', 15, ['earthcam', 'city', 'shanghai', 'china']),
+    S('ec-greatwall', 'Great Wall of China', 'https://www.youtube.com/results?search_query=great+wall+live+cam', 'earthcam-asia', 'earthcam', 20, ['earthcam', 'monument', 'china']),
+    S('ec-taj', 'Taj Mahal', 'https://www.youtube.com/results?search_query=taj+mahal+live+cam', 'earthcam-asia', 'earthcam', 40, ['earthcam', 'monument', 'india']),
+    S('ec-dubai', 'Burj Khalifa / Dubai Marina', 'https://www.youtube.com/results?search_query=burj+khalifa+live+cam', 'earthcam-asia', 'earthcam', 200, ['earthcam', 'monument', 'dubai', 'me']),
+    S('ec-singapore', 'Marina Bay Sands', 'https://www.youtube.com/results?search_query=marina+bay+sands+live+cam', 'earthcam-asia', 'earthcam', 190, ['earthcam', 'monument', 'singapore']),
+    S('ec-bangkok', 'Bangkok Skyline', 'https://www.youtube.com/results?search_query=bangkok+live+cam', 'earthcam-asia', 'earthcam', 40, ['earthcam', 'city', 'bangkok']),
+    S('ec-sydney', 'Sydney Opera House / Harbour', 'https://www.youtube.com/results?search_query=sydney+opera+house+live+cam', 'earthcam-asia', 'earthcam', 200, ['earthcam', 'monument', 'sydney', 'oceania']),
+    S('ec-harbourbridge', 'Sydney Harbour Bridge', 'https://www.youtube.com/results?search_query=sydney+harbour+bridge+live+cam', 'earthcam-asia', 'earthcam', 205, ['earthcam', 'monument', 'sydney', 'oceania']),
+
+    // ── LatAm · Africa · Middle East · world icons ──
+    S('ec-riodejaneiro', 'Christ the Redeemer / Rio', 'https://www.youtube.com/results?search_query=christ+the+redeemer+live+cam', 'earthcam-world', 'earthcam', 120, ['earthcam', 'monument', 'rio', 'latam']),
+    S('ec-copacabana', 'Copacabana Beach', 'https://www.youtube.com/results?search_query=copacabana+live+cam', 'earthcam-world', 'earthcam', 200, ['earthcam', 'nature', 'rio', 'latam']),
+    S('ec-machupicchu', 'Machu Picchu', 'https://www.youtube.com/results?search_query=machu+picchu+live+cam', 'earthcam-world', 'earthcam', 100, ['earthcam', 'monument', 'peru', 'latam']),
+    S('ec-mexico', 'Zócalo · Mexico City', 'https://www.youtube.com/results?search_query=zocalo+mexico+live+cam', 'earthcam-world', 'earthcam', 140, ['earthcam', 'city', 'mexico', 'latam']),
+    S('ec-pyramids', 'Giza Pyramids', 'https://www.youtube.com/results?search_query=giza+pyramids+live+cam', 'earthcam-world', 'earthcam', 40, ['earthcam', 'monument', 'egypt', 'africa']),
+    S('ec-tablemt', 'Table Mountain · Cape Town', 'https://www.youtube.com/results?search_query=table+mountain+live+cam', 'earthcam-world', 'earthcam', 200, ['earthcam', 'nature', 'southafrica', 'africa']),
+    S('ec-jerusalem', 'Western Wall / Jerusalem', 'https://www.youtube.com/results?search_query=western+wall+live+cam', 'earthcam-world', 'earthcam', 45, ['earthcam', 'monument', 'jerusalem', 'me']),
+    S('ec-petra', 'Petra', 'https://www.youtube.com/results?search_query=petra+jordan+live+cam', 'earthcam-world', 'earthcam', 30, ['earthcam', 'monument', 'jordan', 'me']),
+    S('ec-antarctica', 'Antarctica research cams', 'https://www.youtube.com/results?search_query=antarctica+live+cam', 'earthcam-world', 'earthcam', 200, ['earthcam', 'nature', 'world']),
+    S('ec-northernlights', 'Aurora / Northern Lights', 'https://www.youtube.com/results?search_query=northern+lights+live+cam', 'earthcam-world', 'earthcam', 260, ['earthcam', 'nature', 'world']),
+    S('ec-volcano', 'Volcano live cams', 'https://www.youtube.com/results?search_query=volcano+live+cam', 'earthcam-world', 'earthcam', 10, ['earthcam', 'nature', 'world']),
+    S('ec-iss', 'ISS / Earth from space', 'https://www.youtube.com/@NASA/live', 'earthcam-world', 'earthcam', 220, ['earthcam', 'science', 'space', 'world']),
   ];
 
   const REGIONS = [
@@ -223,6 +339,12 @@
     { id: 'world', label: 'World · Wire · Multilateral', kinds: ['news', 'public'] },
     { id: 'weather', label: 'Weather · All regions', kinds: ['weather'] },
     { id: 'public', label: 'Public access · PEG · Government', kinds: ['public'] },
+    { id: 'earthcam', label: 'EarthCam · Network hubs', kinds: ['earthcam'] },
+    { id: 'earthcam-us', label: 'EarthCam · US monuments & cities', kinds: ['earthcam'] },
+    { id: 'earthcam-highway', label: 'EarthCam · Highways · Traffic · Airports', kinds: ['earthcam'] },
+    { id: 'earthcam-eu', label: 'EarthCam · Europe monuments', kinds: ['earthcam'] },
+    { id: 'earthcam-asia', label: 'EarthCam · Asia · Oceania', kinds: ['earthcam'] },
+    { id: 'earthcam-world', label: 'EarthCam · World icons · Nature', kinds: ['earthcam'] },
   ];
 
   /** Theme buckets for AI caption / transcript clustering. */
@@ -236,6 +358,7 @@
     { id: 'science', label: 'Science · Space', keywords: ['nasa', 'space', 'launch', 'science', 'climate', 'research'] },
     { id: 'local', label: 'Local · Public', keywords: ['city', 'council', 'county', 'mayor', 'hearing', 'public access'] },
     { id: 'culture', label: 'Culture', keywords: ['culture', 'sport', 'film', 'music', 'festival'] },
+    { id: 'earthcam', label: 'EarthCam · Scenic', keywords: ['cam', 'live cam', 'traffic', 'monument', 'bridge', 'skyline', 'beach', 'highway', 'landmark', 'earthcam'] },
     { id: 'unsorted', label: 'Unsorted', keywords: [] },
   ];
 

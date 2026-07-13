@@ -77,6 +77,14 @@ func ExtendedNewsSources() []NewsSource {
 		{ID: "nyctv", Label: "NYC Media", URL: "https://www.youtube.com/@NYCMedia/live", Region: "public"},
 		{ID: "cbc", Label: "CBC News", URL: "https://www.youtube.com/@CBCNews/live", Region: "ca"},
 		{ID: "abcau", Label: "ABC News AU", URL: "https://www.youtube.com/@abcnewsaustralia/live", Region: "oceania"},
+		// EarthCam-style landmarks (full catalog: site/news-sources.js)
+		{ID: "earthcam", Label: "EarthCam Live", URL: "https://www.youtube.com/@EarthCam/live", Region: "earthcam"},
+		{ID: "skylinewebcams", Label: "SkylineWebcams", URL: "https://www.youtube.com/@SkylineWebcams/live", Region: "earthcam"},
+		{ID: "ec-timessq", Label: "Times Square", URL: "https://www.youtube.com/@EarthCam/live", Region: "earthcam-us"},
+		{ID: "ec-ggbridge", Label: "Golden Gate", URL: "https://www.youtube.com/results?search_query=golden+gate+bridge+live+cam", Region: "earthcam-us"},
+		{ID: "ec-eiffel", Label: "Eiffel Tower", URL: "https://www.youtube.com/results?search_query=eiffel+tower+live+cam", Region: "earthcam-eu"},
+		{ID: "ec-shibuya", Label: "Shibuya", URL: "https://www.youtube.com/results?search_query=shibuya+crossing+live+cam", Region: "earthcam-asia"},
+		{ID: "ec-traffic-la", Label: "LA Freeways", URL: "https://www.youtube.com/results?search_query=los+angeles+freeway+live+cam", Region: "earthcam-highway"},
 	}
 }
 
