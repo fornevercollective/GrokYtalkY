@@ -210,6 +210,8 @@ func helpOverlay(width, height int) string {
   /rate 1.5         playback speed
   /rec · /export f  record frames → .gyst|.gyhex|.pcap
   /load stream.gyst binary-level load & play
+  /colossus pcap|sim live TUI ingest + hub gyst publish
+  /colossus stop    stop loop + publish
   /hexdump          current frame as hex line
 
   scrub: k/space pause · j/l ±5s · J/L ±30s · 0 start · <> rate
