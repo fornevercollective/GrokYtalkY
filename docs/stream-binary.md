@@ -87,8 +87,6 @@ gy serve
 
 # terminal B — headless publisher
 gy stream-pub sim --kind hexlum --hex 25 --fps 12 --nick colossus
-# or replay a pcap live:
-gy stream-pub capture.pcap --loop --fps 10
 # or video file:
 gy stream-pub clip.mp4 --kind rgb24 --w 96 --h 54 --loop
 
@@ -96,6 +94,36 @@ gy stream-pub clip.mp4 --kind rgb24 --w 96 --h 54 --loop
 gy --nick viewer
 # incoming gyst frames render (hexlum prefers hex style)
 ```
+
+## Colossus / DOJO pcap loop
+
+Continuous live replay of a capture (default **loop on** for stream files):
+
+```bash
+# build a capture once
+gy encode clip.mp4 /tmp/dojo.pcap
+# or /rec + /export out.pcap from TUI
+
+# Colossus loop → hub (timestamp pacing when present)
+gy colossus /tmp/dojo.pcap --hub 127.0.0.1:9876
+# same as:
+gy stream-pub /tmp/dojo.pcap --loop --pace auto --kind auto --nick colossus
+
+# peers
+gy --nick viewer
+
+# optional SFU glyph bridge
+gy sfu-bridge --sfu 'ws://127.0.0.1:9880/ws?room=dojo&nick=bridge'
+```
+
+| Flag | Colossus default |
+|------|------------------|
+| `--loop` | **on** for `.pcap`/`.gyst`/`.gyhex` |
+| `--pace auto` | use packet `TimeMS` deltas when useful, else `--fps` |
+| `--kind auto` | keep packet kind from file (hexlum stays hexlum) |
+| `--no-loop` | single pass |
+
+Wire format stays mesh `type: gyst` — file loop and live sim share the same path.
 
 Mesh envelope (`type: gyst`):
 

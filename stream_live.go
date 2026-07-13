@@ -166,55 +166,67 @@ func RGBToHexLum(rgb []byte, w, h, n int) []byte {
 
 // StreamPubOpts headless live publisher.
 type StreamPubOpts struct {
-	Src    string // file/url/sim/cam / .pcap|.gyst replay
-	Hub    string // host:port
-	Nick   string
-	Kind   string // rgb24 | hexlum
-	W, H   int
-	HexN   int // hexlum side
-	FPS    int
-	Loop   bool
-	Quiet  bool
-	MaxSec int // 0 = until signal
+	Src      string // file/url/sim/cam / .pcap|.gyst replay
+	Hub      string // host:port
+	Nick     string
+	Kind     string // auto | rgb24 | hexlum
+	W, H     int
+	HexN     int  // hexlum side
+	FPS      int  // fallback pace when packet timestamps missing/equal
+	Loop     bool // default true for stream codec files (pcap/gyst)
+	Quiet    bool
+	MaxSec   int  // 0 = until signal
+	Pace     string // auto | fps | ts  (ts = use packet TimeMS deltas)
+	Colossus bool // preset: pcap loop + hexlum aesthetic when possible
 }
 
 // runStreamPubCmd: gy stream-pub [src] [flags]
+// Aliases colossus / stream-live use DOJO pcap-loop defaults.
 func runStreamPubCmd(args []string) error {
+	// detect alias for presets (caller passes only args after command)
+	colossus := false
+	// when invoked as `gy colossus`, main still routes here; optional flag
 	fs := newBridgeFlagSet("stream-pub")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `gy stream-pub — live headless GYST → hub (no file required)
 
   gy stream-pub [src] [flags]
+  gy colossus file.pcap [flags]   # DOJO pcap loop preset
 
   src:  video/url | sim | cam | stream.pcap|.gyst|.gyhex
   --hub host:port     default 127.0.0.1:9876
-  --nick name         publisher nick
-  --kind rgb24|hexlum default hexlum (DOJO aesthetic)
+  --nick name         publisher nick (default colossus)
+  --kind auto|rgb24|hexlum   auto = keep packet kind from pcap
   --w --h             rgb capture size (default 80×48)
-  --hex 25|13         hexlum grid (default 25)
-  --fps 12
-  --loop              loop file sources
+  --hex 25|13         hexlum grid when converting (default 25)
+  --fps 12            pace when timestamps missing
+  --pace auto|ts|fps  auto: use pcap TimeMS deltas when present
+  --loop / --no-loop  stream files default to loop
   --max-sec N         stop after N seconds (0=forever)
+  --colossus          force pcap-loop preset
 
 Examples:
   gy serve
   gy stream-pub sim --kind hexlum --hex 25
-  gy stream-pub clip.mp4 --kind rgb24 --w 96 --h 54 --fps 10 --loop
-  gy stream-pub out.pcap --loop          # live replay of pcap packets
-  # peers: gy  (renders incoming gyst frames)
+  gy colossus capture.pcap --hub 127.0.0.1:9876
+  gy stream-pub out.pcap --pace ts --loop
+  gy stream-pub clip.mp4 --kind rgb24 --w 96 --h 54 --loop
+  # peers: gy  (renders type:gyst)
 `)
 	}
 	hub := fs.String("hub", "127.0.0.1:9876", "hub host:port")
 	nick := fs.String("nick", "colossus", "publisher nick")
-	kind := fs.String("kind", "hexlum", "rgb24|hexlum")
+	kind := fs.String("kind", "auto", "auto|rgb24|hexlum")
 	w := fs.Int("w", 80, "rgb width")
 	h := fs.Int("h", 48, "rgb height")
 	hexN := fs.Int("hex", 25, "hexlum N×N")
-	fps := fs.Int("fps", 12, "frames per second")
-	loop := fs.Bool("loop", false, "loop file sources")
+	fps := fs.Int("fps", 12, "fallback frames per second")
+	pace := fs.String("pace", "auto", "auto|ts|fps")
+	loop := fs.Bool("loop", false, "loop file sources (default on for pcap/gyst)")
+	noLoop := fs.Bool("no-loop", false, "disable loop even for stream files")
+	col := fs.Bool("colossus", false, "DOJO pcap loop preset")
 	quiet := fs.Bool("quiet", false, "less logging")
 	maxSec := fs.Int("max-sec", 0, "stop after seconds (0=forever)")
-	// Go flag stops at first non-flag — allow `src` before or after flags.
 	src, flagArgs := splitSrcAndFlags(args)
 	if err := fs.Parse(flagArgs); err != nil {
 		if err == flag.ErrHelp {
@@ -229,10 +241,36 @@ Examples:
 			src = "sim"
 		}
 	}
+	colossus = *col || colossus
+	path := expandPath(src)
+	isStream := IsStreamCodecPath(path) || DetectStreamFile(path) != "unknown"
+	doLoop := *loop
+	if isStream && !*noLoop {
+		// Colossus/DOJO: pcap loops by default
+		doLoop = true
+	}
+	if *noLoop {
+		doLoop = false
+	}
+	k := *kind
+	if colossus {
+		if k == "auto" {
+			k = "auto" // keep packet kinds from capture
+		}
+		if *nick == "colossus" {
+			// keep
+		}
+		doLoop = !*noLoop
+	}
+	// sim default kind hexlum when auto
+	if (src == "sim" || src == "test" || src == "") && k == "auto" {
+		k = "hexlum"
+	}
 	return RunStreamPub(StreamPubOpts{
-		Src: src, Hub: *hub, Nick: *nick, Kind: *kind,
+		Src: src, Hub: *hub, Nick: *nick, Kind: k,
 		W: *w, H: *h, HexN: *hexN, FPS: *fps,
-		Loop: *loop, Quiet: *quiet, MaxSec: *maxSec,
+		Loop: doLoop, Quiet: *quiet, MaxSec: *maxSec,
+		Pace: *pace, Colossus: colossus || isStream,
 	})
 }
 
@@ -268,13 +306,19 @@ func RunStreamPub(opts StreamPubOpts) error {
 	// wait for connect
 	time.Sleep(400 * time.Millisecond)
 
-	if !opts.Quiet {
-		fmt.Fprintf(os.Stderr, "stream-pub · src=%s kind=%s hub=%s nick=%s\n",
-			opts.Src, opts.Kind, opts.Hub, opts.Nick)
+	path := expandPath(opts.Src)
+	isStream := IsStreamCodecPath(path) || DetectStreamFile(path) != "unknown"
+	if isStream && !opts.Loop && opts.Colossus {
+		opts.Loop = true // safety
 	}
 
-	// replay stream file
-	if IsStreamCodecPath(opts.Src) || DetectStreamFile(opts.Src) != "unknown" {
+	if !opts.Quiet {
+		fmt.Fprintf(os.Stderr, "stream-pub · src=%s kind=%s hub=%s nick=%s loop=%v pace=%s\n",
+			opts.Src, opts.Kind, opts.Hub, opts.Nick, opts.Loop, opts.Pace)
+	}
+
+	// replay stream file (pcap / gyst / gyhex) — Colossus/DOJO loop
+	if isStream {
 		return publishStreamFile(ctx, client, opts)
 	}
 
@@ -321,40 +365,142 @@ func publishSim(ctx context.Context, c *MeshClient, opts StreamPubOpts) error {
 }
 
 func publishStreamFile(ctx context.Context, c *MeshClient, opts StreamPubOpts) error {
-	pkts, err := LoadStreamFile(expandPath(opts.Src))
+	path := expandPath(opts.Src)
+	pkts, err := LoadStreamFile(path)
 	if err != nil {
 		return err
 	}
 	if len(pkts) == 0 {
 		return fmt.Errorf("no packets in %s", opts.Src)
 	}
-	delay := time.Second / time.Duration(opts.FPS)
+	// video-only packets for pacing (skip pure pcm for frame clock)
+	video := make([]StreamPacket, 0, len(pkts))
+	for _, p := range pkts {
+		if p.Kind == KindRGB24 || p.Kind == KindJPEG || p.Kind == KindHexLum {
+			video = append(video, p)
+		}
+	}
+	if len(video) == 0 {
+		video = pkts // meta/pcm-only still publish
+	}
+
+	useTS := opts.Pace == "ts" || (opts.Pace == "auto" || opts.Pace == "")
+	if useTS && !packetTimelineUseful(video) {
+		useTS = false
+	}
+	fpsDelay := time.Second / time.Duration(opts.FPS)
+	if fpsDelay < time.Millisecond {
+		fpsDelay = time.Millisecond
+	}
+
+	if !opts.Quiet {
+		fmt.Fprintf(os.Stderr, "stream-pub · loaded %d packets (%d video) from %s · loop=%v pace=%s\n",
+			len(pkts), len(video), path, opts.Loop, map[bool]string{true: "ts", false: "fps"}[useTS])
+	}
+
 	var seq uint32
+	var loops int
 	for {
-		for _, p := range pkts {
+		var prevTS uint64
+		for i, p := range video {
 			select {
 			case <-ctx.Done():
+				if !opts.Quiet {
+					fmt.Fprintf(os.Stderr, "stream-pub · stopped after %d loops · seq=%d\n", loops, seq)
+				}
 				return nil
 			default:
 			}
-			seq++
-			p.Seq = seq
-			p.TimeMS = uint64(time.Now().UnixMilli())
-			// optional convert rgb→hexlum for DOJO
-			if strings.HasPrefix(strings.ToLower(opts.Kind), "hex") && p.Kind == KindRGB24 {
-				lum := RGBToHexLum(p.Payload, int(p.Width), int(p.Height), opts.HexN)
-				p = PacketFromHexLum(lum, opts.HexN, seq)
+			// pace
+			if useTS && i > 0 && p.TimeMS > prevTS {
+				d := time.Duration(p.TimeMS-prevTS) * time.Millisecond
+				if d > 2*time.Second {
+					d = 2 * time.Second // clamp gaps
+				}
+				if d > 0 {
+					timer := time.NewTimer(d)
+					select {
+					case <-ctx.Done():
+						timer.Stop()
+						return nil
+					case <-timer.C:
+					}
+				}
+			} else if i > 0 || loops > 0 {
+				timer := time.NewTimer(fpsDelay)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return nil
+				case <-timer.C:
+				}
 			}
-			publishPacket(c, p, opts.Quiet)
-			time.Sleep(delay)
+			if p.TimeMS > 0 {
+				prevTS = p.TimeMS
+			}
+
+			seq++
+			out := transformPubPacket(p, opts, seq)
+			publishPacket(c, out, opts.Quiet)
+			if !opts.Quiet && seq%uint32(max(1, opts.FPS)) == 0 {
+				fmt.Fprintf(os.Stderr, "stream-pub · seq=%d %s %dx%d loop=%d\n",
+					seq, out.KindName(), out.Width, out.Height, loops)
+			}
 		}
+		loops++
 		if !opts.Loop {
+			if !opts.Quiet {
+				fmt.Fprintf(os.Stderr, "stream-pub · finished %d packets (no loop)\n", seq)
+			}
 			return nil
 		}
 		if !opts.Quiet {
-			fmt.Fprintf(os.Stderr, "stream-pub · loop %s\n", opts.Src)
+			fmt.Fprintf(os.Stderr, "stream-pub · loop %d · %s\n", loops, path)
 		}
 	}
+}
+
+// transformPubPacket applies kind conversion (rgb→hexlum) and seq/time stamps.
+func transformPubPacket(p StreamPacket, opts StreamPubOpts, seq uint32) StreamPacket {
+	p.Seq = seq
+	p.TimeMS = uint64(time.Now().UnixMilli())
+	k := strings.ToLower(opts.Kind)
+	if k == "auto" || k == "" {
+		return p
+	}
+	if strings.HasPrefix(k, "hex") && p.Kind == KindRGB24 {
+		lum := RGBToHexLum(p.Payload, int(p.Width), int(p.Height), opts.HexN)
+		return PacketFromHexLum(lum, opts.HexN, seq)
+	}
+	if strings.HasPrefix(k, "hex") && p.Kind == KindJPEG {
+		// decode then hexlum if possible
+		if fp, err := FrameFromPacket(&p); err == nil && fp != nil {
+			lum := RGBToHexLum(fp.RGB, fp.W, fp.H, opts.HexN)
+			return PacketFromHexLum(lum, opts.HexN, seq)
+		}
+	}
+	return p
+}
+
+func packetTimelineUseful(pkts []StreamPacket) bool {
+	if len(pkts) < 2 {
+		return false
+	}
+	var prev uint64
+	gaps := 0
+	for i, p := range pkts {
+		if p.TimeMS == 0 {
+			continue
+		}
+		if i > 0 && prev > 0 && p.TimeMS > prev {
+			d := p.TimeMS - prev
+			if d >= 5 && d <= 2000 {
+				gaps++
+			}
+		}
+		prev = p.TimeMS
+	}
+	return gaps >= 1
 }
 
 func publishFFmpeg(ctx context.Context, c *MeshClient, opts StreamPubOpts) error {
