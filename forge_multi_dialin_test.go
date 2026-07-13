@@ -178,9 +178,12 @@ func TestForgeScaleSlots(t *testing.T) {
 			if !found {
 				t.Fatalf("status no %d marked: %v", n, sysTexts(m))
 			}
-			// cap: 7th path truncated
+			// cap: MaxLabFeeds+1 paths truncated
 			if n == 6 {
-				extra := append(paths, path)
+				extra := make([]string, 0, MaxLabFeeds+1)
+				for len(extra) < MaxLabFeeds+1 {
+					extra = append(extra, path)
+				}
 				m2 := NewModel(Options{Nick: "cap", Host: "127.0.0.1:0"})
 				_, _ = m2.startMultiPcapForge(extra)
 				trunc := false

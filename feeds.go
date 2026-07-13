@@ -10,7 +10,7 @@ import (
 // Multi-feed video lab — FPS / scale / style / layout controls with feeds
 // listed beside chat (overview VFL / site vwall vocabulary).
 
-const MaxLabFeeds = 6
+const MaxLabFeeds = 12 // news wall mosaic (was 6); still soft-capped in UI helpers
 
 // FeedLayout arranges the video wall relative to chat.
 type FeedLayout int
@@ -44,15 +44,17 @@ var scalePresets = []int{32, 48, 64, 80, 96, 112, 128}
 // FPS presets for cam/lab redraw.
 var fpsPresets = []int{4, 6, 8, 12, 15, 20, 24, 30}
 
-// FeedSlot is one simulcast tile (sim / camera / watch / remote / pcap / empty).
+// FeedSlot is one simulcast tile (sim / camera / watch / remote / pcap / news / empty).
 type FeedSlot struct {
 	ID    string
 	Label string
-	Kind  string // empty | sim | cam | watch | remote | burst | pcap
+	Kind  string // empty | sim | cam | watch | remote | burst | pcap | news
 	Frame *FramePixels
 	Seed  int
 	// WatchSrc keeps original path/URL for re-open / capacity accounting
 	WatchSrc string
+	// Per-tile pixel style (news wall GrokGlyph variety); 0 = use lab.Style
+	TileStyle PixelMode
 	// Pcap loop (multi-pcap orchestration)
 	PcapPkts []StreamPacket
 	PcapIdx  int
@@ -78,6 +80,8 @@ type LabState struct {
 	// cam capture interval derived from FPS
 	lastCap time.Time
 	uid     int
+	// News wall (GrokGlyph-style multi-agency glyph mosaic)
+	News *NewsWallState
 }
 
 func newLabState() *LabState {

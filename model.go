@@ -180,6 +180,18 @@ type (
 		Index int
 		Tag   string // platform/@handle
 	}
+	// newsWallLoadMsg starts next broadcaster pipe after stagger.
+	newsWallLoadMsg struct {
+		Index int
+		Region string
+		MaxN  int
+	}
+	newsWallReadyMsg struct {
+		Index int
+		Label string
+		Pipe  *NewsTilePipe
+		Err   string
+	}
 	grokReplyMsg struct {
 		Text    string
 		Err     string
@@ -647,6 +659,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case socialLazyTickMsg:
 		return m.applySocialLazy(msg)
+
+	case newsWallLoadMsg:
+		return m.loadNewsWallIndex(msg)
+
+	case newsWallReadyMsg:
+		return m.applyNewsWallReady(msg)
 
 	case liveHitMsg:
 		m.liveHit = fmt.Sprintf("%s %s", msg.Ev.Kind, msg.Ev.Sound)
@@ -1516,6 +1534,13 @@ func (m *Model) slash(line string) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "overlay", "grok-cap", "grokcap", "grok-fx", "grokfx":
 		return m.handleOverlayCmd(cmd, arg)
+	case "newswall", "news-wall", "news", "vwall", "agencies":
+		return m.startNewsWall(arg)
+	case "newswall-stop", "news-stop", "stopnews":
+		m.stopNewsWall()
+		m.pushSys("news wall stop")
+		m.status = "news off"
+		return m, nil
 	case "social", "handle":
 		src := arg
 		if src == "" {
@@ -3032,6 +3057,207 @@ func (m *Model) stopWatch() {
 	m.watchSocial = ""
 }
 
+// startNewsWall opens lab grid of major broadcaster glyph tiles (GrokGlyph-style).
+// arg: empty|all|us|eu|me|asia|world · optional count e.g. "eu 6"
+func (m *Model) startNewsWall(arg string) (tea.Model, tea.Cmd) {
+	region := "all"
+	maxN := 8
+	fields := strings.Fields(strings.TrimSpace(arg))
+	for _, f := range fields {
+		switch strings.ToLower(f) {
+		case "all", "us", "eu", "me", "asia", "world", "intl":
+			region = strings.ToLower(f)
+		case "stop", "off":
+			m.stopNewsWall()
+			m.pushSys("news wall stop")
+			return m, nil
+		default:
+			if n, err := strconv.Atoi(f); err == nil && n > 0 {
+				maxN = n
+			}
+		}
+	}
+	if maxN > MaxNewsWallFeeds {
+		maxN = MaxNewsWallFeeds
+	}
+	if maxN < 2 {
+		maxN = 4
+	}
+	srcs := FilterNewsSources(region, maxN)
+	if len(srcs) == 0 {
+		m.pushSys("news wall: no sources")
+		return m, nil
+	}
+
+	// stop previous wall pipes
+	m.stopNewsWall()
+
+	if m.lab == nil {
+		m.lab = newLabState()
+	}
+	m.lab.On = true
+	m.lab.Layout = LayoutGrid
+	m.lab.ShowList = false
+	m.lab.Scale = 48 // compact tiles for mosaic wall
+	m.lab.FPS = 8
+	m.lab.Style = PixelHalf // matrix default (GrokGlyph)
+	m.burstMode = false
+	m.compact = false
+	m.promptMode = ModeLab
+	m.videoOn = true
+
+	// rebuild feeds as news posters
+	m.lab.Feeds = nil
+	m.lab.uid = 0
+	m.lab.EnsurePlaceholders(len(srcs))
+	nw := &NewsWallState{
+		On:        true,
+		Sources:   srcs,
+		StyleBase: PixelHalf,
+		Pipes:     make([]*NewsTilePipe, len(srcs)),
+		loading:   true,
+	}
+	m.lab.News = nw
+	for i, s := range srcs {
+		style := NewsWallStyleLadder[i%len(NewsWallStyleLadder)]
+		poster := newsPoster(s.Label, s.Region, i+1)
+		if i < len(m.lab.Feeds) {
+			m.lab.Feeds[i] = FeedSlot{
+				ID: fmt.Sprintf("news-%s", s.ID), Label: s.Label, Kind: "news",
+				Frame: poster, Seed: i + 1, WatchSrc: s.URL, TileStyle: style,
+			}
+		}
+	}
+	m.lab.Active = 0
+	m.status = fmt.Sprintf("news wall · %d · %s", len(srcs), region)
+	m.pushSys(fmt.Sprintf("◈ news wall · %d agencies · GrokGlyph tiles · staggered live", len(srcs)))
+	m.pushSys("  styles matrix·hex·braille·ascii·blocks · m cycle · L layout · /news stop")
+	// kick first resolve
+	return m, tea.Tick(400*time.Millisecond, func(t time.Time) tea.Msg {
+		return newsWallLoadMsg{Index: 0, Region: region, MaxN: len(srcs)}
+	})
+}
+
+// loadNewsWallIndex resolves + starts one broadcaster pipe (async-friendly).
+func (m *Model) loadNewsWallIndex(msg newsWallLoadMsg) (tea.Model, tea.Cmd) {
+	if m.lab == nil || m.lab.News == nil || !m.lab.News.On {
+		return m, nil
+	}
+	nw := m.lab.News
+	if msg.Index < 0 || msg.Index >= len(nw.Sources) {
+		nw.loading = false
+		m.pushSys("news wall · all slots queued")
+		return m, nil
+	}
+	src := nw.Sources[msg.Index]
+	m.pushSys(fmt.Sprintf("news · resolve %s…", src.Label))
+	idx := msg.Index
+	label := src.Label
+	page := src.URL
+	style := NewsWallStyleLadder[idx%len(NewsWallStyleLadder)]
+	// async resolve + start pipe
+	return m, func() tea.Msg {
+		r, err := ResolveMediaTimeout(page, 75*time.Second)
+		if err != nil {
+			return newsWallReadyMsg{Index: idx, Label: label, Err: err.Error()}
+		}
+		// prefer live HLS
+		vid := r.Video
+		if vid == "" {
+			return newsWallReadyMsg{Index: idx, Label: label, Err: "no video url"}
+		}
+		tp, err := StartNewsTile(label, vid, style)
+		if err != nil {
+			return newsWallReadyMsg{Index: idx, Label: label, Err: err.Error()}
+		}
+		return newsWallReadyMsg{Index: idx, Label: label, Pipe: tp}
+	}
+}
+
+func (m *Model) applyNewsWallReady(msg newsWallReadyMsg) (tea.Model, tea.Cmd) {
+	if m.lab == nil || m.lab.News == nil {
+		if msg.Pipe != nil {
+			msg.Pipe.Stop()
+		}
+		return m, nil
+	}
+	nw := m.lab.News
+	if !nw.On {
+		if msg.Pipe != nil {
+			msg.Pipe.Stop()
+		}
+		return m, nil
+	}
+	if msg.Err != "" {
+		m.pushSys(fmt.Sprintf("news · %s fail: %s", msg.Label, truncate(msg.Err, 50)))
+	} else if msg.Pipe != nil {
+		// stop old pipe at index
+		if msg.Index >= 0 && msg.Index < len(nw.Pipes) && nw.Pipes[msg.Index] != nil {
+			nw.Pipes[msg.Index].Stop()
+		}
+		if msg.Index >= len(nw.Pipes) {
+			// grow
+			for len(nw.Pipes) <= msg.Index {
+				nw.Pipes = append(nw.Pipes, nil)
+			}
+		}
+		if msg.Index >= 0 && msg.Index < len(nw.Pipes) {
+			nw.Pipes[msg.Index] = msg.Pipe
+		}
+		if msg.Index >= 0 && msg.Index < len(m.lab.Feeds) {
+			m.lab.Feeds[msg.Index].Kind = "news"
+			m.lab.Feeds[msg.Index].Label = msg.Label
+			if fr := msg.Pipe.Snapshot(); fr != nil {
+				m.lab.Feeds[msg.Index].Frame = fr
+			}
+		}
+		m.pushSys(fmt.Sprintf("news · live %s · %s", msg.Label, NewsWallStyleName(msg.Pipe.Style)))
+	}
+	// schedule next
+	next := msg.Index + 1
+	if next < len(nw.Sources) {
+		return m, tea.Tick(NewsWallStagger(), func(t time.Time) tea.Msg {
+			return newsWallLoadMsg{Index: next}
+		})
+	}
+	nw.loading = false
+	m.status = fmt.Sprintf("news wall · %d live", len(nw.Sources))
+	m.pushSys("news wall ready · GrokGlyph mosaic · m style · n next")
+	return m, nil
+}
+
+// syncNewsWallFrames copies latest tile pipe frames into lab feeds.
+func (m *Model) syncNewsWallFrames() {
+	if m.lab == nil || m.lab.News == nil || !m.lab.News.On {
+		return
+	}
+	nw := m.lab.News
+	for i, tp := range nw.Pipes {
+		if tp == nil || i >= len(m.lab.Feeds) {
+			continue
+		}
+		if fr := tp.Snapshot(); fr != nil {
+			m.lab.Feeds[i].Frame = fr
+			m.lab.Feeds[i].Kind = "news"
+		}
+	}
+}
+
+// stopNewsWall tears down tile pipes and clears news state.
+func (m *Model) stopNewsWall() {
+	if m.lab == nil || m.lab.News == nil {
+		return
+	}
+	for _, tp := range m.lab.News.Pipes {
+		if tp != nil {
+			tp.Stop()
+		}
+	}
+	m.lab.News.On = false
+	m.lab.News.Pipes = nil
+	m.lab.News = nil
+}
+
 // popOutPlayer opens current (or arg) media in macOS QuickTime Player + PiP.
 func (m *Model) popOutPlayer(arg string) (tea.Model, tea.Cmd) {
 	if !PopOutSupported() {
@@ -3328,6 +3554,7 @@ func (m *Model) shutdown() {
 	if m.live != nil {
 		m.live.Stop()
 	}
+	m.stopNewsWall()
 	m.stopWatch()
 	if m.player != nil {
 		m.player.Close()

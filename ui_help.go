@@ -99,6 +99,7 @@ func helpBodyKeys() string {
   tab / ⇧tab     cycle tabs
   1–7            chat live grok watch lab burst phone
   V lab · b burst · P phone · g glyph N · G phone-v
+  /news wall     AlJazeera·DW·Sky·ABC… GrokGlyph tiles
                  · in help: next/prev help page
                  · in lab: next feed
   enter          send chat · eval live · watch path · grok ask
@@ -126,6 +127,7 @@ func helpBodyStream() string {
 	return `stream · binary · colossus
   /watch url|file|@u ffmpeg (+ yt-dlp · live first)
   /pip · /popout · O  macOS QuickTime PiP pop-out
+  /news [us|eu|all N]  glyph news wall (agencies)
   /social @user      social handle · lazy lab fill
   /duplex            open-mic full duplex (RX duck)
   /meshmidi          Strudel/walkie → hub type:midi

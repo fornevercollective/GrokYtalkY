@@ -100,6 +100,7 @@ gy lab                 # or V inside companion
 # live:   gy stream-pub sim|cam|- --kind hexlum --room dojo --dual
 # jam:    /duplex · /meshmidi · /overlay auto · /grok-cap · /grok-fx
 # phone:  gy serve → open http://LAN:9876/phone.html on phone (same Wi‑Fi)
+# news:   /news [us|eu|all 8]  · glyph wall of live agencies (GrokGlyph styles)
 # layouts: side | stack | grid | focus
 ```
 

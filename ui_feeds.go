@@ -221,7 +221,12 @@ func (m *Model) renderFeedMosaic(w, h int, l *LabState) string {
 		}
 		var body string
 		if f.Frame != nil && !f.IsEmpty() {
-			body = fitHalfBlock(RenderFrameH(f.Frame, l.Style, tileW, half), tileW, half)
+			// per-tile style for news wall (GrokGlyph variety); else lab.Style
+			st := l.Style
+			if f.Kind == "news" && f.TileStyle >= 0 && f.TileStyle < PixelCount {
+				st = f.TileStyle
+			}
+			body = fitHalfBlock(RenderFrameH(f.Frame, st, tileW, half), tileW, half)
 		} else {
 			// empty placeholder — drop target for cam / video
 			ph := make([]string, half)
@@ -282,6 +287,7 @@ func (m *Model) renderFeedMosaic(w, h int, l *LabState) string {
 
 // tickLabSims paints procedural motion into sim feed frames at lab FPS/scale.
 // Heavy styles (depth/gsplat/halftone) auto-throttle to keep stream responsive.
+// News wall tiles pull snapshots from per-agency NewsTilePipe captures.
 func (m *Model) tickLabSims() {
 	if m.lab == nil || !m.lab.On {
 		return
@@ -297,6 +303,11 @@ func (m *Model) tickLabSims() {
 	// pixel size from scale, capped further under heavy styles (stream mitigation)
 	pw, ph := StyleSimBudget(l.Style, l.Scale)
 	t := float64(time.Now().UnixMilli())
+
+	// news wall: pull live glyph frames from tile pipes
+	if l.News != nil && l.News.On {
+		m.syncNewsWallFrames()
+	}
 
 	for i := range l.Feeds {
 		f := &l.Feeds[i]
@@ -315,6 +326,8 @@ func (m *Model) tickLabSims() {
 			if m.vpipe != nil && m.frame != nil && (f.Frame == nil || f.Label == m.watchPath || strings.Contains(m.watchPath, f.Label)) {
 				f.Frame = m.frame
 			}
+		case "news":
+			// frames synced above from NewsTilePipe
 		case "pcap":
 			// multi-pcap orchestration: advance per lab FPS
 			if len(f.PcapPkts) == 0 {
