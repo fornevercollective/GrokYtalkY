@@ -109,7 +109,15 @@ On-air control plane for jam + future venue adapters (NDI / ST 2110).
 
 ```
 conductor TUI ──type:program──► hub ──► gy agent (JSON program events)
-                              └──► venue adapter (later: NDI/2110)
+                              └──► gy venue (VenueSink: log-stub → NDI/2110 later)
+```
+
+### Venue adapter stub (v1.27+)
+
+```bash
+gy venue --json          # log-stub sink; stdout program/glyph when on-air
+# VenueSink interface: OnProgram / OnGlyph / OnBlack / OnHold
+# Lattice pass-through; filters by program bus mark/nick
 ```
 
 Scaffold: [`sfu/`](../sfu/README.md) (`make sfu-media` for webrtc-rs track + DataChannel fan-out) · [`chat/`](../chat/README.md) · site: [docs.html#streams-scale](https://fornevercollective.github.io/GrokYtalkY/docs.html#streams-scale)

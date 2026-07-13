@@ -86,6 +86,8 @@ func run(args []string) error {
 		return runSfuBridgeCmd(args)
 	case "agent", "glyph-agent", "iot":
 		return runGlyphAgentCmd(args)
+	case "venue", "venue-adapter", "sink":
+		return runVenueCmd(args)
 	case "update", "upgrade":
 		checkOnly := false
 		for _, a := range args {
@@ -284,6 +286,7 @@ func printHelp() {
   %s chat-bridge     DOJO hub → public Space captions
   %s sfu-bridge      hub vburst|gyst hexlum → SFU glyph/hex
   %s agent           thin Glyph/IoT client (cap handshake, no TUI)
+  %s venue           venue adapter stub (program bus + glyph)
   %s version         version + build info
   %s update          check & install latest
   %s update --check  check only (exit 2 if outdated)
@@ -307,7 +310,7 @@ func printHelp() {
   keys:  [ ] scale · g res · space PTT  (matches GlyphMatrix-Developer-Kit layout)
   env:   XAI_API_KEY · GROK_MODEL · GROK_CLI_URL · GY_CAP · GY_ROLE
          GY_NO_AUTO_UPDATE=1 · GY_AUTO_UPDATE=0|check  (TUI launch auto-update)
-`, Version, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd)
+`, Version, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd)
 }
 
 func runHubOnly(bind string, port int) error {

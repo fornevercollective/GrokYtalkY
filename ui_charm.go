@@ -218,7 +218,7 @@ func helpOverlay(width, height int) string {
   /take [slot] · /preview [slot] · /hold · /black
   /program              show PGM/PVW + venue adapter hint
   forge RX → dual Glyph · dual-local left · peer right holds
-  cap handshake · gy agent · auto-update on TUI launch
+  cap handshake · gy agent · gy venue · auto-update on TUI launch
   /hexdump          current frame as hex line
 
   scrub: k/space pause · j/l ±5s · J/L ±30s · 0 start · <> rate
