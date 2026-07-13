@@ -229,7 +229,7 @@ TUI launches auto-update by default (check GitHub → install → re-exec).
 			fmt.Print(FormatSpaceDoctor(Spaces()))
 			return nil
 		case "vision", "see":
-			fmt.Print(FormatVisionDoctor(Vision()))
+			fmt.Print(FormatVisionBackboneDoctor(Vision()))
 			return nil
 		}
 		fmt.Print(StreamDoctor())

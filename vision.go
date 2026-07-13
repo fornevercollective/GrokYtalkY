@@ -76,10 +76,11 @@ func LoadVisionConfig() VisionConfig {
 	return c
 }
 
-// VisionBus process-wide vision state (observable).
+// VisionBus process-wide vision state (observable) + backbone registry.
 type VisionBus struct {
 	mu         sync.Mutex
 	cfg        VisionConfig
+	reg        *VisionRegistry
 	inflight   int
 	lastTake   GrokTake
 	lastTheme  string
@@ -88,6 +89,8 @@ type VisionBus struct {
 	lastAt     time.Time
 	lastErr    string
 	lastBytes  int
+	lastProv   string
+	lastLatMs  int64
 	takes      int64
 	drops      int64
 	errors     int64
@@ -103,15 +106,53 @@ var (
 	metricVisionDrops atomic.Int64
 )
 
-// Vision returns the global bus (lazy init from env).
+// Vision returns the global bus (lazy init from env + provider registry).
 func Vision() *VisionBus {
 	visionOnce.Do(func() {
 		visionBus = &VisionBus{
 			cfg:    LoadVisionConfig(),
+			reg:    newVisionRegistry(),
 			themes: make(map[string]string),
 		}
+		// bridge plugins that implement VisionHook
+		for _, p := range Plugins().List() {
+			if vh, ok := p.(interface{ VisionHook() VisionHook }); ok && vh.VisionHook() != nil {
+				visionBus.reg.RegisterHook(vh.VisionHook())
+			}
+		}
+		// builtin theme logger hook (observable)
+		visionBus.reg.RegisterHook(&visionLogHook{})
 	})
 	return visionBus
+}
+
+// Registry returns the provider/hook registry (never nil after Vision()).
+func (v *VisionBus) Registry() *VisionRegistry {
+	if v == nil {
+		return newVisionRegistry()
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.reg == nil {
+		v.reg = newVisionRegistry()
+	}
+	return v.reg
+}
+
+// visionLogHook soft-logs takes for doctor (no-op heavy work).
+type visionLogHook struct{}
+
+func (visionLogHook) Name() string { return "vision-log" }
+func (visionLogHook) OnVision(ev VisionEvent) {
+	// keep last provider latency on bus without locking long
+	if ev.Type != "vision-take" {
+		return
+	}
+	v := Vision()
+	v.mu.Lock()
+	v.lastProv = ev.Provider
+	v.lastLatMs = ev.LatencyMs
+	v.mu.Unlock()
 }
 
 // Config snapshot.
@@ -186,6 +227,11 @@ func (v *VisionBus) End() {
 
 // RecordSuccess stores last take.
 func (v *VisionBus) RecordSuccess(feed string, take GrokTake, jpegBytes int) {
+	v.RecordSuccessFull(feed, take, jpegBytes, "", 0)
+}
+
+// RecordSuccessFull stores take + provider latency.
+func (v *VisionBus) RecordSuccessFull(feed string, take GrokTake, jpegBytes int, provider string, latencyMs int64) {
 	if v == nil {
 		return
 	}
@@ -196,6 +242,12 @@ func (v *VisionBus) RecordSuccess(feed string, take GrokTake, jpegBytes int) {
 	v.lastAt = time.Now()
 	v.lastErr = ""
 	v.lastBytes = jpegBytes
+	if provider != "" {
+		v.lastProv = provider
+	}
+	if latencyMs > 0 {
+		v.lastLatMs = latencyMs
+	}
 	v.takes++
 	metricVisionTakes.Add(1)
 	if take.Theme != "" {
@@ -244,22 +296,25 @@ func (v *VisionBus) LastTheme() string {
 
 // Snapshot for doctor / status.
 type VisionSnapshot struct {
-	Enabled   bool
-	Inflight  int
-	Takes     int64
-	Drops     int64
-	Errors    int64
-	LastFeed  string
-	LastTheme string
-	LastMute  string
-	LastErr   string
-	LastAt    time.Time
-	LastBytes int
-	Interval  time.Duration
-	MaxW      int
-	MaxH      int
-	Model     string
-	Summary   string
+	Enabled    bool
+	Inflight   int
+	Takes      int64
+	Drops      int64
+	Errors     int64
+	LastFeed   string
+	LastTheme  string
+	LastMute   string
+	LastErr    string
+	LastAt     time.Time
+	LastBytes  int
+	LastProv   string
+	LastLatMs  int64
+	Interval   time.Duration
+	MaxW       int
+	MaxH       int
+	Model      string
+	Summary    string
+	Primary    string
 }
 
 // Snapshot copies bus state.
@@ -274,10 +329,14 @@ func (v *VisionBus) Snapshot() VisionSnapshot {
 		Takes: v.takes, Drops: v.drops, Errors: v.errors,
 		LastFeed: v.lastFeed, LastTheme: v.lastTheme, LastMute: v.lastMute,
 		LastErr: v.lastErr, LastAt: v.lastAt, LastBytes: v.lastBytes,
+		LastProv: v.lastProv, LastLatMs: v.lastLatMs,
 		Interval: v.cfg.Interval, MaxW: v.cfg.MaxW, MaxH: v.cfg.MaxH,
 		Model: v.cfg.Model,
 	}
 	s.Summary = v.lastTake.TakeSummary()
+	if v.reg != nil && v.reg.PrimaryTakeProvider() != nil {
+		s.Primary = v.reg.PrimaryTakeProvider().Name()
+	}
 	return s
 }
 
@@ -288,13 +347,14 @@ func FormatVisionDoctor(v *VisionBus) string {
 	}
 	s := v.Snapshot()
 	var b strings.Builder
-	fmt.Fprintf(&b, "vision · enabled=%v model=%s\n", s.Enabled, s.Model)
-	fmt.Fprintf(&b, "  budget    %dx%d jpeg q · interval %s · max_inflight %d\n",
+	fmt.Fprintf(&b, "vision · enabled=%v primary=%s model=%s\n", s.Enabled, emptyDash(s.Primary), s.Model)
+	fmt.Fprintf(&b, "  budget    %dx%d jpeg · interval %s · max_inflight %d\n",
 		s.MaxW, s.MaxH, s.Interval, v.Config().MaxInflight)
 	fmt.Fprintf(&b, "  takes     %d  drops %d  errors %d  inflight %d\n",
 		s.Takes, s.Drops, s.Errors, s.Inflight)
 	fmt.Fprintf(&b, "  last_feed %s\n", emptyDash(s.LastFeed))
 	fmt.Fprintf(&b, "  last_take %s\n", emptyDash(s.Summary))
+	fmt.Fprintf(&b, "  last_prov %s · %d ms\n", emptyDash(s.LastProv), s.LastLatMs)
 	fmt.Fprintf(&b, "  theme     %s\n", emptyDash(s.LastTheme))
 	fmt.Fprintf(&b, "  mute_hint %s\n", emptyDash(s.LastMute))
 	if !s.LastAt.IsZero() {
@@ -303,8 +363,7 @@ func FormatVisionDoctor(v *VisionBus) string {
 	if s.LastErr != "" {
 		fmt.Fprintf(&b, "  last_err  %s\n", s.LastErr)
 	}
-	b.WriteString("  env       GY_VISION=1 · GY_VISION_INTERVAL_MS · GY_VISION_MAX_W/H\n")
-	b.WriteString("  note      Aito SAM/MediaPipe/gsplat booth stays external; this is xAI vision→orch only\n")
+	b.WriteString("  env       GY_VISION=1 · GY_VISION_PROVIDER=grok|offline · GY_VISION_AITO_URL\n")
 	return b.String()
 }
 

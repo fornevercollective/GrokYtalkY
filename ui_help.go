@@ -133,8 +133,8 @@ func helpBodyStream() string {
   /media · H           ffmpeg supervisor health
   R restart tile · K kill pipe (lab/news)
   /orch [hint] · *     Grok take: STYLE/CAPTION/PATTERN/GLYPH
-  /vision [on|off|auto]  focus-feed Grok vision → THEME/MUTE_HINT/STYLE
-  GY_VISION=1 · INTERVAL_MS · MAX_W/H · MODEL  vision budgets
+  /vision [on|off|status]  vision-first backbone → orch take
+  GY_VISION=1 · PROVIDER · AITO_URL · INTERVAL_MS  vision budgets
   /plugin list|on|off|reload|style   in-process style + mesh hooks
   /space mute|listeners|key --pull   X Spaces host controls + key pull
   /space offer · guest <nick>        gy as X.com stream asset

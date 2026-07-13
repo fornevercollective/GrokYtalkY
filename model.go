@@ -3815,6 +3815,19 @@ func (m *Model) handleWS(raw []byte) (tea.Model, tea.Cmd) {
 	if t, _ := msg["type"].(string); strings.HasPrefix(t, "space-") {
 		ApplySpaceMeshInbound(msg)
 	}
+	// vision-take mesh → theme bus (browser + peers)
+	if t, _ := msg["type"].(string); t == "vision-take" {
+		theme, _ := msg["theme"].(string)
+		feed, _ := msg["feed"].(string)
+		if theme != "" {
+			Vision().mu.Lock()
+			Vision().lastTheme = normalizeThemeToken(theme)
+			if feed != "" {
+				Vision().themes[feed] = Vision().lastTheme
+			}
+			Vision().mu.Unlock()
+		}
+	}
 	switch msg["type"] {
 	case "hello":
 		// quiet — status already shows nick when connected
@@ -4638,65 +4651,51 @@ func (m *Model) startVisionTake(hint string) (tea.Model, tea.Cmd) {
 		m.pushSys("vision OFF")
 		m.status = "vision off"
 		return m, nil
-	case "status", "doctor", "show", "":
-		if hint == "" {
-			// empty → one-shot take if possible, else status
-			break
-		}
-		for _, ln := range strings.Split(strings.TrimRight(FormatVisionDoctor(v), "\n"), "\n") {
+	case "status", "doctor", "show", "backbone":
+		for _, ln := range strings.Split(strings.TrimRight(FormatVisionBackboneDoctor(v), "\n"), "\n") {
 			m.pushSys(ln)
 		}
 		m.status = "vision"
 		return m, nil
-	case "status!", "doc":
-		for _, ln := range strings.Split(strings.TrimRight(FormatVisionDoctor(v), "\n"), "\n") {
-			m.pushSys(ln)
-		}
+	case "":
+		// one-shot take
+	}
+	// offline provider works without API key
+	prov := v.Registry().PrimaryTakeProvider()
+	if prov == nil || !prov.Available() {
+		m.pushSys("vision: no provider available · set XAI_API_KEY or GY_VISION_OFFLINE=1")
 		return m, nil
 	}
-	if !m.grokCfg.Available() || m.grokCfg.APIKey == "" {
-		m.pushSys("vision: requires XAI_API_KEY (multimodal) · " + v.Config().Model)
-		return m, nil
-	}
-	frame, label, kind := FocusFrameFromModel(m)
+	frame, label, _ := FocusFrameFromModel(m)
 	if frame == nil {
 		m.pushSys("vision: no focus frame · open lab/news/watch first")
-		for _, ln := range strings.Split(strings.TrimRight(FormatVisionDoctor(v), "\n"), "\n") {
+		for _, ln := range strings.Split(strings.TrimRight(FormatVisionBackboneDoctor(v), "\n"), "\n") {
 			m.pushSys(ln)
 		}
 		return m, nil
 	}
-	if !v.TryBegin() {
-		m.pushSys(fmt.Sprintf("vision drop · backpressure (inflight/interval) · drops=%d", v.Snapshot().Drops))
-		m.status = "vision drop"
-		return m, nil
-	}
-	cfg := m.grokCfg
-	ctx := m.feedOrchestrateContext(hint)
-	ctx.Active = label
-	if kind != "" {
-		ctx.Kind = kind
-	}
-	ctx.Live = true
-	cfgVision := v.Config()
 	m.grokThinking = true
 	m.status = "vision…"
-	m.pushSys("✦ vision " + truncate(label, 28) + " · " + cfgVision.Model)
+	m.pushSys("✦ vision " + truncate(label, 28) + " · " + prov.Name())
+	hintCopy := hint
 	return m, func() tea.Msg {
-		defer v.End()
-		dataURL, nB, err := FrameToJPEGBase64(frame, cfgVision.MaxW, cfgVision.MaxH, cfgVision.JPEGQ)
+		res, err := RunVisionPipeline(m, hintCopy)
 		if err != nil {
-			v.RecordError(err.Error())
-			return grokReplyMsg{Err: "vision jpeg: " + err.Error(), Orchestrate: true}
+			return grokReplyMsg{Err: err.Error(), Orchestrate: true, Vision: true}
 		}
-		take, err := AskGrokVisionOrchestrate(cfg, ctx, dataURL)
-		if err != nil {
-			v.RecordError(err.Error())
-			return grokReplyMsg{Err: err.Error(), Orchestrate: true}
+		// mesh emit backbone event
+		if m.client != nil {
+			ev := VisionEvent{
+				Type: "vision-take", At: time.Now(),
+				Feed: res.Frame.Feed, Kind: res.Frame.Kind, Provider: res.Provider,
+				Take: res.Take, Theme: res.Take.Theme, MuteHint: res.Take.MuteHint,
+				Caption: res.Take.Caption, Style: res.Take.Style,
+				LatencyMs: res.Latency.Milliseconds(), JPEGBytes: res.Frame.JPEGBytes,
+				Depth: res.Depth,
+			}
+			_ = m.client.SendJSON(ev.MeshJSON(m.nick))
 		}
-		take.Vision = true
-		v.RecordSuccess(label, take, nB)
-		return grokReplyMsg{Text: take.Raw, Orchestrate: true, Vision: true, Feed: label}
+		return grokReplyMsg{Text: res.Take.Raw, Orchestrate: true, Vision: true, Feed: res.Frame.Feed}
 	}
 }
 

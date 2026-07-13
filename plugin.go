@@ -49,6 +49,13 @@ type Plugin interface {
 	Mesh() MeshHook
 }
 
+// VisionPlugin is an optional plugin that also receives vision events.
+// Implement VisionHook() on a Plugin to auto-register with Vision().Registry().
+type VisionPlugin interface {
+	Plugin
+	VisionHook() VisionHook
+}
+
 // PluginRegistry holds registered plugins.
 type PluginRegistry struct {
 	mu   sync.RWMutex

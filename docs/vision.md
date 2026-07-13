@@ -1,17 +1,47 @@
-# Vision bus (v1.68) — focus-feed Grok takes
+# Vision-first backbone (v1.68–1.69)
 
-**Vision first.** Structured take path fits the existing orchestrator and media supervisor — no new mesh primitives beyond `THEME` / `MUTE_HINT` lines and `news-caption` theme stamps.
+**Vision first.** Structured take path fits the existing orchestrator and media supervisor.
 
-## What it does
+## Pipeline
 
-1. Picks **one focus frame** (lab active tile → main watch frame → burst local)
-2. Downsamples to **JPEG budget** (`GY_VISION_MAX_W/H`)
-3. Calls **xAI vision** (`grok-2-vision-latest` by default)
-4. Parses `STYLE` / `CAPTION` / `THEME` / `MUTE_HINT` / …
-5. Applies via **`applyGrokTake`** (style wall, captions, optional overlay)
-6. Stamps theme for news clustering; mesh `news-caption` for Live News browser
+```
+capture → encode (JPEG budget) → infer (provider) → parse take → apply → emit
+```
 
-Backpressure: **max inflight 1**, min **interval**, drops counted when saturated.
+| Stage | Role |
+|-------|------|
+| capture | focus feed (lab active → main → burst) |
+| encode | `GY_VISION_MAX_W/H` · JPEG q |
+| infer | pluggable **VisionProvider** |
+| apply | `applyGrokTake` STYLE/CAPTION/THEME/MUTE_HINT |
+| emit | plugin **VisionHook** + mesh `type:vision-take` |
+
+Backpressure: **max inflight 1**, min **interval**, drops counted.
+
+## Providers (backbone)
+
+| Name | Kind | When |
+|------|------|------|
+| `grok` | take | `XAI_API_KEY` · multimodal |
+| `offline` | take | no key / `GY_VISION_OFFLINE=1` · deterministic |
+| `aito-depth` | depth | `GY_VISION_AITO_URL` zipdepth sidecar (:8766) |
+| `depth-proxy` | depth | local gsplat-style hint (always) |
+
+```bash
+export GY_VISION_PROVIDER=grok   # or offline
+export GY_VISION_AITO_URL=http://127.0.0.1:8766
+```
+
+**Future slots (interfaces ready):** SAM segment, MediaPipe pose/IK, gsplat booth — as Aito sidecars implementing `VisionProvider`, no new stage primitives.
+
+## Event stream (plugins)
+
+```go
+Vision().Registry().Subscribe(func(ev VisionEvent) { ... })
+// or Plugin implementing VisionHook() VisionHook
+```
+
+Mesh: `type:vision-take` · `theme` · `caption` · `style` · `mute_hint` · `depth`
 
 ## Env
 
