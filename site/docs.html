@@ -60,7 +60,7 @@
     </aside>
 
     <article class="docs-main">
-      <p class="eyebrow">docs · fornevercollective/GrokYtalkY · v1.41+</p>
+      <p class="eyebrow">docs · fornevercollective/GrokYtalkY · v1.42+</p>
       <h1>Documentation</h1>
       <p class="lede docs-lede">
         Companion dock, dual Glyph walkie, forge multi-pcap marks, conductor program bus,
@@ -378,6 +378,7 @@ gy sfu-bridge --sfu 'ws://127.0.0.1:9880/ws?room=dojo&amp;nick=bridge&amp;token=
         <pre class="code-block"><code>gy serve
 cd chat/worker && npx wrangler dev
 gy chat-bridge --hosts YOUR_NICK
+gy chat-bridge --hosts YOUR_NICK --program-caption   # host chat → rich on-air caption/ANC
 # open chat.html → Public Space · stage lines from gy ↗ bridge</code></pre>
       </section>
 
@@ -429,7 +430,7 @@ export GROK_CLI_URL=http://127.0.0.1:3000   # optional notes backend</code></pre
             <tr><td><code>stream-pub</code> · <code>colossus</code></td><td>Live gyst publish</td></tr>
             <tr><td><code>agent</code></td><td>Thin Glyph/IoT JSON client</td></tr>
             <tr><td><code>venue</code></td><td>NDI / ST 2110 / 2022-7 sinks</td></tr>
-            <tr><td><code>sfu-bridge</code> · <code>chat-bridge</code></td><td>Hub → SFU / Space</td></tr>
+            <tr><td><code>sfu-bridge</code> · <code>chat-bridge</code></td><td>Hub → SFU / Space · optional <code>--program-caption</code></td></tr>
             <tr><td><code>doctor st2110|sync|cameras</code></td><td>Suite · PTP · tether matrix</td></tr>
             <tr><td><code>update</code> · <code>upgrade</code></td><td>Channel install (TUI also auto-updates)</td></tr>
             <tr><td><code>install</code> · <code>uninstall</code> · <code>clean install</code></td><td>Local package lifecycle</td></tr>

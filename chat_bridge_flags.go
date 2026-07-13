@@ -20,16 +20,20 @@ func newBridgeFlagSet(name string) *bridgeFlagSet {
 
   gy chat-bridge [flags]
 
-  --hub     DOJO hub WS (default ws://127.0.0.1:9876/)
-  --space   public Space chat WS (wrangler dev default :8787)
-  --hosts   comma-separated nicks to mirror (empty = all, dev only)
-  --dry-run log only, do not send to Space
-  --quiet   less logging
+  --hub               DOJO hub WS (default ws://127.0.0.1:9876/)
+  --space             public Space chat WS (wrangler dev default :8787)
+  --hosts             comma-separated nicks to mirror (empty = all, dev only)
+  --program-caption   merge host chat → program bus rich caption (ANC 0x05)
+                      does not change PGM/PVW/mode (conductor take authority)
+  --caption-event     emit type:caption for UI (no program authority)
+  --dry-run           log only, do not send to Space
+  --quiet             less logging
 
 Full flow:
   gy serve
   cd chat/worker && npx wrangler dev
   gy chat-bridge --hosts yournick
+  gy chat-bridge --hosts dir --program-caption   # chat → on-air caption/ANC
   open site/chat.html  (or Pages chat demo)
 `)
 	}

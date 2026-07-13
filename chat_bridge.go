@@ -19,11 +19,13 @@ import (
 // ChatBridgeOpts: thin DOJO hub → public Space chat caption bridge.
 // Host (or allowlisted) chat lines only — never dumps 1k viewers into the hub.
 type ChatBridgeOpts struct {
-	HubWS   string   // ws://127.0.0.1:9876/?role=bridge&nick=caption
-	SpaceWS string   // ws://127.0.0.1:8787/ws?room=space:demo&nick=bridge&role=host
-	Hosts   []string // empty = mirror all hub chat (dev); prod = host nicks only
-	DryRun  bool     // log only, do not send to Space
-	Quiet   bool
+	HubWS           string   // ws://127.0.0.1:9876/?role=bridge&nick=caption
+	SpaceWS         string   // ws://127.0.0.1:8787/ws?room=space:demo&nick=bridge&role=host
+	Hosts           []string // empty = mirror all hub chat (dev); prod = host nicks only
+	DryRun          bool     // log only, do not send to Space
+	Quiet           bool
+	ProgramCaption  bool // merge allowlisted chat → program bus caption (ANC 0x05 rich)
+	InformationalCap bool // also fan type:caption (UI; no program authority)
 }
 
 // runChatBridgeCmd parses flags after `gy chat-bridge`.
@@ -35,6 +37,8 @@ func runChatBridgeCmd(args []string) error {
 	hosts := fs.String("hosts", "", "comma-separated host nicks to mirror (empty=all, dev only)")
 	dry := fs.Bool("dry-run", false, "log captions without forwarding to Space")
 	quiet := fs.Bool("quiet", false, "less logging")
+	progCap := fs.Bool("program-caption", false, "merge host chat → program bus rich caption (ANC)")
+	infoCap := fs.Bool("caption-event", false, "also emit type:caption for UI (no PGM authority)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -51,11 +55,13 @@ func runChatBridgeCmd(args []string) error {
 		"nick": "caption-bridge",
 	})
 	return RunChatBridge(ChatBridgeOpts{
-		HubWS:   hubURL,
-		SpaceWS: *space,
-		Hosts:   hostList,
-		DryRun:  *dry,
-		Quiet:   *quiet,
+		HubWS:            hubURL,
+		SpaceWS:          *space,
+		Hosts:            hostList,
+		DryRun:           *dry,
+		Quiet:            *quiet,
+		ProgramCaption:   *progCap,
+		InformationalCap: *infoCap || *progCap, // program path implies soft caption event
 	})
 }
 
@@ -119,6 +125,9 @@ func RunChatBridge(opts ChatBridgeOpts) error {
 	})
 	if !opts.Quiet {
 		log.Printf("chat-bridge · linked · forwarding host chat DOJO→Space")
+		if opts.ProgramCaption {
+			log.Printf("chat-bridge · program-caption ON (host chat → bus caption / ANC)")
+		}
 	}
 
 	// drain Space inbound (welcome/peer events) so the buffer never blocks
@@ -169,16 +178,52 @@ func RunChatBridge(opts ChatBridgeOpts) error {
 				"role": "host",
 				"meta": map[string]any{"bridged": true, "source": "dojo-hub"},
 			}
+			// rich caption payload (chat → on-air path when enabled)
+			cap := CaptionFromChatLine(from, text)
+			if opts.ProgramCaption || opts.InformationalCap {
+				out["meta"].(map[string]any)["caption"] = map[string]any{
+					"text": cap.Text, "lang": cap.Lang, "role": cap.Role,
+					"speaker": cap.Speaker, "source": cap.Source,
+				}
+			}
 			if opts.DryRun {
 				log.Printf("chat-bridge · dry %s: %s", from, truncateRunes(text, 80))
+				if opts.ProgramCaption {
+					log.Printf("chat-bridge · dry program-caption %s", FormatCaptionLine(cap))
+				}
 				continue
 			}
 			if err := space.sendJSON(out); err != nil {
 				log.Printf("chat-bridge · space send: %v", err)
-				continue
-			}
-			if !opts.Quiet {
+				// still try caption path
+			} else if !opts.Quiet {
 				log.Printf("chat-bridge · → space %s: %s", from, truncateRunes(text, 60))
+			}
+			// caption-only program bus merge (venue ANC) — no take/preview authority
+			if opts.ProgramCaption && !cap.IsEmpty() {
+				pcm := map[string]any{
+					"type":         "program-caption",
+					"from":         "caption-bridge",
+					"text":         cap.Text,
+					"caption":      cap.Text,
+					"lang":         cap.Lang,
+					"role":         cap.Role,
+					"speaker":      cap.Speaker,
+					"source":       cap.Source,
+					"caption_meta": cap,
+					"t":            time.Now().UnixMilli(),
+				}
+				if err := hub.sendJSON(pcm); err != nil {
+					log.Printf("chat-bridge · program-caption: %v", err)
+				} else if !opts.Quiet {
+					log.Printf("chat-bridge · → program %s", FormatCaptionLine(cap))
+				}
+			} else if opts.InformationalCap && !cap.IsEmpty() {
+				_ = hub.sendJSON(map[string]any{
+					"type": "caption", "from": from, "text": cap.Text,
+					"lang": cap.Lang, "role": cap.Role, "speaker": cap.Speaker,
+					"source": cap.Source, "t": time.Now().UnixMilli(),
+				})
 			}
 		}
 	}

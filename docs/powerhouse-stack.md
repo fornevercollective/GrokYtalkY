@@ -32,6 +32,7 @@ Clean route for DOJO / venue / research / jam without duplicating authority.
 | Concern | Owner |
 |---------|--------|
 | On-air PGM/PVW/caption | **gy program bus** (`/conductor` · `/take` · `/caption`) |
+| Chat → caption (opt-in) | **chat-bridge `--program-caption`** merges caption only (no take) |
 | Forge identity | **cgf:** marks + lattice on hexlum |
 | ANC mark/tally/preview/caption | **OnANC** from program bus only |
 | Research notes / AI iterate | overview / blank / grok-cli |

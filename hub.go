@@ -274,6 +274,31 @@ func (h *Hub) route(from *websocket.Conn, meta *peerMeta, data []byte) {
 		h.program = msg
 		h.mu.Unlock()
 		h.broadcast(from, mustJSON(msg))
+	case "program-caption", "caption-set":
+		// caption-only merge — does not change PGM/PVW/mode (conductor take authority)
+		if _, ok := msg["from"]; !ok {
+			msg["from"] = meta.Nick
+		}
+		cap, ok := ParseCaptionFromMesh(msg)
+		if !ok {
+			// empty = clear caption on bus
+			cap = CaptionPayload{}
+		}
+		h.mu.Lock()
+		stored := h.program
+		h.mu.Unlock()
+		next := ApplyProgramCaption(stored, coalesce(msg["from"], meta.Nick), cap)
+		h.mu.Lock()
+		h.program = next
+		h.mu.Unlock()
+		h.broadcast(from, mustJSON(next))
+	case "caption":
+		// informational caption event (UI / GrokGlyph) — no program authority
+		if _, ok := msg["from"]; !ok {
+			msg["from"] = meta.Nick
+		}
+		msg["type"] = "caption"
+		h.broadcast(from, mustJSON(msg))
 	case "audio":
 		h.broadcast(from, data)
 	default:

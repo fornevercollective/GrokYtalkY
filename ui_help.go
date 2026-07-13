@@ -164,6 +164,7 @@ func helpBodyForge() string {
   /caption text|clear   on-air → ANC 0x05
   /caption lang=en role=lower speaker=x Hello
   /caption en: Hello    rich caption_meta (compat plain UDW)
+  gy chat-bridge --program-caption   host chat → bus caption (no take)
   /hold · /black · /program
     program bus → hub type:program (venue on-air)
     ANC: mark·tally·bus·preview·caption (0xC1+JSON when rich)
