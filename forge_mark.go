@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -206,4 +207,61 @@ func markBits(id string) uint16 {
 func FormatMarkLine(m ForgeMark) string {
 	return fmt.Sprintf("◈ forge %s · slot %d · %s · %s",
 		truncate(m.ID, 20), m.Slot, truncate(m.Source, 16), m.Content)
+}
+
+// ShortMarkID is cgf: + first 8 hex of commitment (fit dual Glyph titles).
+func ShortMarkID(id string) string {
+	if id == "" {
+		return ""
+	}
+	// "cgf:" + 16 hex → show cgf: + 8 hex
+	if strings.HasPrefix(id, ForgeIDSpace+":") && len(id) >= 4+8 {
+		return id[:4+8]
+	}
+	return truncate(id, 12)
+}
+
+// BurstForgePeerLabel dual-Glyph peer title: nick + short cgf id.
+func BurstForgePeerLabel(from string, mark *ForgeMark) string {
+	if mark == nil || mark.ID == "" {
+		if from != "" {
+			return from
+		}
+		return "peer"
+	}
+	base := from
+	if base == "" {
+		base = "forge"
+	}
+	return truncate(base+" "+ShortMarkID(mark.ID), 18)
+}
+
+// BurstForgeStatusLine status under dual Glyph when a forge mark is live RX.
+func BurstForgeStatusLine(w int, tx bool, rx, nick string, peers int, mark *ForgeMark) string {
+	if mark == nil || mark.ID == "" {
+		return BurstStatusLine(w, tx, rx, nick, peers)
+	}
+	var left string
+	switch {
+	case tx:
+		left = styErr().Reverse(true).Render(" BURST ") + styDim().Render(" · forge TX")
+	case rx != "":
+		left = styLive().Render("◈ forge") + styDim().Render(fmt.Sprintf(" %s · slot %d · %s",
+			ShortMarkID(mark.ID), mark.Slot, truncate(mark.Source, 10)))
+	default:
+		left = styTitle().Render("◈ forge") + styDim().Render(" "+ShortMarkID(mark.ID)+" · dual Glyph")
+	}
+	right := styDim().Render(fmt.Sprintf("%d peer", peers))
+	if peers != 1 {
+		right = styDim().Render(fmt.Sprintf("%d peers", peers))
+	}
+	need := cellWidth(stripANSI(left)) + cellWidth(stripANSI(right)) + 1
+	if need > w {
+		return clampCells(left, w)
+	}
+	gap := w - need
+	if gap < 1 {
+		gap = 1
+	}
+	return clampCells(left+strings.Repeat(" ", gap)+right, w)
 }

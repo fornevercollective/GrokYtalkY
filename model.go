@@ -92,6 +92,11 @@ type Model struct {
 	glyphScale      int // cells per LED pitch; 0 = auto-fit terminal
 	lastGlyph       []int // last brightness grid for debug / Android bridge
 
+	// Cursor-Grok Forge dual Glyph receive (live hub meta + stamped hexlum)
+	forgeRX     *ForgeMark // latest peer mark (dual right chrome)
+	forgeRXFrom string     // peer nick that owns forgeRX
+	forgeLocal  *ForgeMark // local multi-pcap mark for dual left chrome
+
 	// Live depth + gsplat (ZipDepth sidecar / zip-lite / overview-style stack)
 	depth *depthSession
 
@@ -483,14 +488,23 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case frameReady:
 		m.frame = msg.F
 		m.frameMeta = msg.Meta
-		// dual burst: tag local vs peer by meta
-		if m.burstMode && msg.F != nil {
-			if strings.HasPrefix(msg.Meta, "burst:") {
+		// dual burst / forge RX: peer tiles always stick so dual Glyph can open late
+		if msg.F != nil {
+			if strings.HasPrefix(msg.Meta, "burst:") || strings.HasPrefix(msg.Meta, "forge:") {
 				m.burstPeerFrame = msg.F
-				if nick := strings.TrimPrefix(msg.Meta, "burst:"); nick != "" {
+				nick := msg.Meta
+				if strings.HasPrefix(nick, "burst:") {
+					nick = strings.TrimPrefix(nick, "burst:")
+				} else {
+					nick = strings.TrimPrefix(nick, "forge:")
+				}
+				if i := strings.IndexByte(nick, ' '); i > 0 {
+					nick = nick[:i]
+				}
+				if nick != "" {
 					m.burstRemote = nick
 				}
-			} else if msg.Meta == "local" || msg.Meta == "burst-local" || m.talking || m.camOn {
+			} else if m.burstMode && (msg.Meta == "local" || msg.Meta == "burst-local" || m.talking || m.camOn) {
 				m.burstLocalFrame = msg.F
 			}
 		}
@@ -1428,6 +1442,8 @@ func (m *Model) slash(line string) (tea.Model, tea.Cmd) {
 					}
 				}
 			}
+			m.forgeLocal = nil
+			// keep forgeRX / peer frame so dual still shows last remote mark
 			m.pushSys("■ forge multi-pcap stop")
 			return m, nil
 		}
@@ -1715,16 +1731,22 @@ func (m *Model) startMultiPcapForge(paths []string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// set primary frame from active slot
+	// set primary frame from active slot + dual Glyph local tile
 	if af := m.lab.ActiveFeed(); af != nil && af.Frame != nil {
 		m.frame = af.Frame
 		m.videoOn = true
+		m.burstLocalFrame = af.Frame
 		if af.Forge != nil {
+			cp := *af.Forge
+			m.forgeLocal = &cp
 			// hexlum glyph for Nothing path
 			if af.Frame.W == af.Frame.H && af.Frame.W <= 49 {
 				m.pixelMode = PixelHex
 			}
 		}
+	} else if len(marks) > 0 {
+		cp := marks[0]
+		m.forgeLocal = &cp
 	}
 
 	// hub publish: rotate slots, stamp forge mark + frames
@@ -1740,6 +1762,35 @@ func (m *Model) startMultiPcapForge(paths []string) (tea.Model, tea.Cmd) {
 	}
 	m.status = fmt.Sprintf("forge ×%d", n)
 	return m, nil
+}
+
+// acceptForgeRX stores peer forge mark for dual Glyph chrome. True when ID/from is new.
+func (m *Model) acceptForgeRX(from string, mark ForgeMark) bool {
+	if mark.ID == "" {
+		return false
+	}
+	isNew := m.forgeRX == nil || m.forgeRX.ID != mark.ID || m.forgeRXFrom != from
+	cp := mark
+	m.forgeRX = &cp
+	m.forgeRXFrom = from
+	return isNew
+}
+
+// ensureBurstForForgeRX opens dual Glyph on first forge hexlum frame. True if just opened.
+func (m *Model) ensureBurstForForgeRX(from string) bool {
+	if m.burstMode {
+		if from != "" {
+			m.burstRemote = from
+		}
+		return false
+	}
+	m.burstMode = true
+	m.compact = false
+	if from != "" {
+		m.burstRemote = from
+		m.remoteTX = from
+	}
+	return true
 }
 
 func (m *Model) pushForgeStatus() {
@@ -2323,13 +2374,16 @@ func (m *Model) handleWS(raw []byte) (tea.Model, tea.Cmd) {
 		}
 	case "gyst", "gyst-frame":
 		// live headless stream (DOJO/Colossus): rgb24|hexlum|jpeg over mesh
+		// Cursor-Grok Forge: meta marks + stamped hexlum → dual Glyph peer pane
 		from, _ := msg["from"].(string)
 		if from == m.nick {
 			return m, nil
 		}
-		// Cursor-Grok Forge NFT-style mark
+		// Cursor-Grok Forge NFT-style mark (meta or embedded on frame)
 		if mark, ok := ParseForgeFromMesh(msg); ok {
-			m.pushSys(FormatMarkLine(mark))
+			if m.acceptForgeRX(from, mark) {
+				m.pushSys(FormatMarkLine(mark) + " · dual Glyph")
+			}
 			// meta-only mark packets may lack frame payload
 			if b64, _ := msg["b64"].(string); b64 == "" && msg["kind"] == "meta" {
 				return m, nil
@@ -2345,11 +2399,13 @@ func (m *Model) handleWS(raw []byte) (tea.Model, tea.Cmd) {
 		}
 		if pkt.Kind == KindMeta {
 			if mark, ok := ParseForgeMark(pkt.Payload); ok {
-				m.pushSys(FormatMarkLine(mark))
+				if m.acceptForgeRX(from, mark) {
+					m.pushSys(FormatMarkLine(mark) + " · dual Glyph")
+				}
 			}
 			return m, nil
 		}
-		// hexlum also feeds glyph consumers
+		// hexlum also feeds glyph consumers (Nothing / lastGlyph bridge)
 		if pkt.Kind == KindHexLum && len(pkt.Payload) > 0 {
 			ints := make([]int, len(pkt.Payload))
 			for i, b := range pkt.Payload {
@@ -2365,8 +2421,26 @@ func (m *Model) handleWS(raw []byte) (tea.Model, tea.Cmd) {
 		if pkt.Kind == KindHexLum && m.pixelMode == PixelHalf {
 			m.pixelMode = PixelHex
 		}
-		meta := fmt.Sprintf("gyst:%s %s %dx%d", from, pkt.KindName(), fp.W, fp.H)
 		m.videoOn = true
+
+		// Live dual Glyph receive of forge stream (stamped hexlum / frames)
+		forgePeer := m.forgeRX != nil && m.forgeRXFrom == from
+		meta := fmt.Sprintf("gyst:%s %s %dx%d", from, pkt.KindName(), fp.W, fp.H)
+		if forgePeer {
+			opened := m.ensureBurstForForgeRX(from)
+			if opened {
+				m.pushSys(fmt.Sprintf("◈ forge → dual Glyph · %s", BurstForgePeerLabel(from, m.forgeRX)))
+			}
+			// peer tile + burst meta so frameReady sticks dual right
+			m.burstPeerFrame = fp
+			m.burstRemote = from
+			m.remoteTX = from
+			meta = "burst:" + from
+			// local dual left: show lab/active forge tile when we have one
+			if m.forgeLocal != nil && m.burstLocalFrame == nil && m.frame != nil {
+				m.burstLocalFrame = m.frame
+			}
+		}
 		return m, func() tea.Msg {
 			return frameReady{F: fp, Meta: meta}
 		}

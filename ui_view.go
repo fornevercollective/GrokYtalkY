@@ -59,6 +59,11 @@ func (m *Model) renderBurstOrb(w, h int) string {
 	if rx == "" {
 		rx = m.remoteTX
 	}
+	// Cursor-Grok Forge dual Glyph: peer title carries short cgf id
+	rxLabel := rx
+	if m.forgeRX != nil {
+		rxLabel = BurstForgePeerLabel(rx, m.forgeRX)
+	}
 	local := m.burstLocalFrame
 	if local == nil {
 		local = m.frame
@@ -67,10 +72,14 @@ func (m *Model) renderBurstOrb(w, h int) string {
 
 	var parts []string
 	parts = append(parts, clampCells(m.headerLine(cols), cols))
-	parts = append(parts, clampCells(BurstStatusLine(cols, tx, rx, m.nick, len(m.peers)), cols))
+	if m.forgeRX != nil {
+		parts = append(parts, clampCells(BurstForgeStatusLine(cols, tx, rx, m.nick, len(m.peers), m.forgeRX), cols))
+	} else {
+		parts = append(parts, clampCells(BurstStatusLine(cols, tx, rx, m.nick, len(m.peers)), cols))
+	}
 
 	// panelH is exact remaining rows for title+matrix — dual must not exceed it
-	dual := RenderBurstDualGlyphScaled(panelCols, panelH, local, peer, tx, rx, m.nick, displayN, displayScale)
+	dual := RenderBurstDualGlyphScaled(panelCols, panelH, local, peer, tx, rxLabel, m.nick, displayN, displayScale)
 	dualLines := strings.Split(dual, "\n")
 	// hard-cap panel so we never steal vu/hint or clip mid-circle
 	if len(dualLines) > panelH {
