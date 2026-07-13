@@ -83,23 +83,26 @@ func NewST211040Sink(opts ST211040Opts) (VenueSink, error) {
 
 func (s *st211040Sink) Name() string { return "st2110-40" }
 
+// OnProgram/OnHold/OnBlack: store bus only.
+// ANC emission is solely VenueRuntime → OnANC(ProgramBusToANC) — avoids double fire.
 func (s *st211040Sink) OnProgram(bus ProgramBus) {
 	s.mu.Lock()
 	s.lastBus = bus
 	s.mu.Unlock()
-	s.emitANC(bus)
 }
 
-func (s *st211040Sink) OnGlyph(VenueGlyphFrame) {
-	// ANC is event-driven from program bus, not per video frame
-}
+func (s *st211040Sink) OnGlyph(VenueGlyphFrame) {}
 
 func (s *st211040Sink) OnBlack(bus ProgramBus) {
-	s.OnProgram(bus) // black tally packet
+	s.mu.Lock()
+	s.lastBus = bus
+	s.mu.Unlock()
 }
 
 func (s *st211040Sink) OnHold(bus ProgramBus) {
-	s.OnProgram(bus)
+	s.mu.Lock()
+	s.lastBus = bus
+	s.mu.Unlock()
 }
 
 func (s *st211040Sink) OnANC(pkts []ANCPacket) {
@@ -117,11 +120,6 @@ func (s *st211040Sink) OnANC(pkts []ANCPacket) {
 		}
 	}
 	s.sendRTP(pkts)
-}
-
-func (s *st211040Sink) emitANC(bus ProgramBus) {
-	pkts := ProgramBusToANC(bus)
-	s.OnANC(pkts)
 }
 
 func (s *st211040Sink) sendRTP(pkts []ANCPacket) {

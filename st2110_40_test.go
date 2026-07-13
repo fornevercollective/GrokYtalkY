@@ -87,7 +87,8 @@ func TestST211040SinkJSONL(t *testing.T) {
 	mk := NewForgeMark(1, "a.pcap", []byte("j"))
 	bus := NewProgramBus()
 	bus.Take(SourceFromForge("x", &mk, LaneGlyph), "c")
-	s.OnProgram(bus)
+	// emission is OnANC-only (runtime authority path)
+	s.OnANC(ProgramBusToANC(bus))
 	path := filepath.Join(dir, "st2110-40-anc.jsonl")
 	b, err := os.ReadFile(path)
 	if err != nil {
