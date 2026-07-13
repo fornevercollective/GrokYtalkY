@@ -127,6 +127,18 @@ gy sfu-bridge --sfu 'ws://127.0.0.1:9880/ws?room=dojo&nick=bridge'
 
 Wire format stays mesh `type: gyst` — file loop and live sim share the same path.
 
+### Live TUI ingest (one window)
+
+Inside companion (`gy`), with hub connected:
+
+```text
+/colossus examples/dojo.pcap   # local loop + hub publish
+/colossus sim                  # hexlum sim → hub
+/colossus stop                 # stop both
+```
+
+Local-only (no mesh): still loops pcap via the packet player. Multi-pcap orchestration (lab slots × sources) is the follow-on.
+
 Mesh envelope (`type: gyst`):
 
 ```json

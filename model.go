@@ -101,6 +101,10 @@ type Model struct {
 	// Binary/hex/pcap packet player + recorder
 	pktPlayer *PacketPlayer
 	recorder  *RecordSession
+
+	// Live TUI ingest: hub stream-pub cancel (Colossus/DOJO pcap or sim)
+	streamPubCancel context.CancelFunc
+	streamPubSrc    string
 }
 
 type peerInfo struct {
@@ -1371,6 +1375,38 @@ func (m *Model) slash(line string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.startPacketWatch(arg)
+	case "colossus", "stream-pub", "pcap-loop", "gyst-pub":
+		// Live TUI ingest: local loop + optional hub publish (Colossus/DOJO)
+		// /colossus [path|sim]   /colossus stop
+		arg = strings.TrimSpace(arg)
+		if arg == "stop" || arg == "off" || arg == "0" {
+			m.stopStreamPub()
+			if m.pktPlayer != nil {
+				m.pktPlayer.Stop()
+			}
+			m.pushSys("■ colossus / stream-pub stop")
+			m.status = "stream stop"
+			return m, nil
+		}
+		src := arg
+		if src == "" {
+			// prefer repo sample, then last watch path
+			if _, err := os.Stat("examples/dojo.pcap"); err == nil {
+				src = "examples/dojo.pcap"
+			} else if m.watchPath != "" && (IsStreamCodecPath(m.watchPath) || DetectStreamFile(m.watchPath) != "unknown") {
+				src = m.watchPath
+			} else {
+				src = "sim"
+			}
+		}
+		return m.startColossusIngest(src)
+	case "stream-stop":
+		m.stopStreamPub()
+		if m.pktPlayer != nil {
+			m.pktPlayer.Stop()
+		}
+		m.pushSys("■ stream-stop")
+		return m, nil
 	case "hexdump":
 		// /hexdump — dump current frame as gyhex lines to chat
 		if m.frame == nil {
@@ -1527,6 +1563,192 @@ func (m *Model) startPacketWatch(path string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// startColossusIngest: local packet loop (if stream file) + hub live publish.
+// One-window DOJO: /colossus examples/dojo.pcap
+func (m *Model) startColossusIngest(src string) (tea.Model, tea.Cmd) {
+	src = strings.Trim(src, `"'`)
+	low := strings.ToLower(src)
+	isSim := low == "sim" || low == "test" || low == "cam" || low == "camera"
+	path := expandPath(src)
+
+	// stop prior hub publisher
+	m.stopStreamPub()
+
+	// Local loop for stream files (pcap/gyst) — same player as /load
+	if !isSim {
+		if IsStreamCodecPath(path) || DetectStreamFile(path) != "unknown" {
+			mod, cmd := m.startPacketWatch(path)
+			m = mod.(*Model)
+			// continue to hub publish
+			_ = cmd
+		} else if !isVideoPath(path) && !looksLikeVideoArg(path) {
+			// try as stream anyway
+			if _, err := LoadStreamFile(path); err != nil {
+				m.pushSys("colossus: " + err.Error())
+				m.pushSys("usage: /colossus examples/dojo.pcap | sim | path.pcap")
+				return m, nil
+			}
+			return m.startPacketWatch(path)
+		}
+	}
+
+	// Hub publish when mesh client exists
+	if m.client == nil {
+		if isSim {
+			m.pushSys("colossus sim needs hub — connect first or /load path.pcap for local")
+		} else {
+			m.pushSys("▶ local colossus loop · connect mesh to also publish gyst")
+		}
+		m.status = "colossus local"
+		return m, nil
+	}
+
+	kind := "auto"
+	if isSim {
+		kind = "hexlum"
+	}
+	hub := m.host
+	if hub == "" {
+		hub = "127.0.0.1:9876"
+	}
+	opts := StreamPubOpts{
+		Src: src, Hub: hub, Nick: m.nick,
+		Kind: kind, W: 80, H: 48, HexN: m.glyphN, FPS: 12,
+		Loop: true, Quiet: true, Pace: "auto", Colossus: true,
+	}
+	if m.glyphN >= 13 {
+		opts.HexN = m.glyphN
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.streamPubCancel = cancel
+	m.streamPubSrc = src
+	go func() {
+		_ = m.publishViaMeshClient(ctx, opts)
+	}()
+
+	m.videoOn = true
+	m.pushSys(fmt.Sprintf("◎ colossus → hub %s · src=%s · /colossus stop", hub, src))
+	m.status = "colossus " + filepath.Base(src)
+	return m, nil
+}
+
+func (m *Model) stopStreamPub() {
+	if m.streamPubCancel != nil {
+		m.streamPubCancel()
+		m.streamPubCancel = nil
+	}
+	m.streamPubSrc = ""
+}
+
+func (m *Model) publishViaMeshClient(ctx context.Context, opts StreamPubOpts) error {
+	path := expandPath(opts.Src)
+	isStream := IsStreamCodecPath(path) || DetectStreamFile(path) != "unknown"
+	if isStream {
+		return m.publishFileViaClient(ctx, opts)
+	}
+	if opts.Src == "sim" || opts.Src == "test" || opts.Src == "" {
+		return m.publishSimViaClient(ctx, opts)
+	}
+	// ffmpeg/cam needs dedicated process — use RunStreamPub (own WS client)
+	return RunStreamPub(opts)
+}
+
+func (m *Model) publishFileViaClient(ctx context.Context, opts StreamPubOpts) error {
+	pkts, err := LoadStreamFile(expandPath(opts.Src))
+	if err != nil {
+		return err
+	}
+	video := make([]StreamPacket, 0, len(pkts))
+	for _, p := range pkts {
+		if p.Kind == KindRGB24 || p.Kind == KindJPEG || p.Kind == KindHexLum {
+			video = append(video, p)
+		}
+	}
+	if len(video) == 0 {
+		video = pkts
+	}
+	useTS := packetTimelineUseful(video)
+	fpsDelay := time.Second / time.Duration(max(1, opts.FPS))
+	var seq uint32
+	for {
+		var prev uint64
+		for i, p := range video {
+			select {
+			case <-ctx.Done():
+				return nil
+			default:
+			}
+			if useTS && i > 0 && p.TimeMS > prev {
+				d := time.Duration(p.TimeMS-prev) * time.Millisecond
+				if d > 2*time.Second {
+					d = 2 * time.Second
+				}
+				if d > 0 {
+					t := time.NewTimer(d)
+					select {
+					case <-ctx.Done():
+						t.Stop()
+						return nil
+					case <-t.C:
+					}
+				}
+			} else if i > 0 {
+				t := time.NewTimer(fpsDelay)
+				select {
+				case <-ctx.Done():
+					t.Stop()
+					return nil
+				case <-t.C:
+				}
+			}
+			if p.TimeMS > 0 {
+				prev = p.TimeMS
+			}
+			seq++
+			out := transformPubPacket(p, opts, seq)
+			if m.client != nil {
+				_ = m.client.SendGystPacket(out)
+			}
+		}
+		if !opts.Loop {
+			return nil
+		}
+	}
+}
+
+func (m *Model) publishSimViaClient(ctx context.Context, opts StreamPubOpts) error {
+	tick := time.NewTicker(time.Second / time.Duration(max(1, opts.FPS)))
+	defer tick.Stop()
+	var seq uint32
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case tm := <-tick.C:
+			seq++
+			fp := genSimFrame(opts.W, opts.H, float64(tm.UnixMilli()), int(seq))
+			var p StreamPacket
+			if strings.HasPrefix(strings.ToLower(opts.Kind), "hex") {
+				n := opts.HexN
+				if n < 5 {
+					n = 25
+				}
+				lum := RGBToHexLum(fp.RGB, fp.W, fp.H, n)
+				p = PacketFromHexLum(lum, n, seq)
+			} else {
+				p = PacketFromFramePixels(fp, seq)
+			}
+			if m.client != nil {
+				_ = m.client.SendGystPacket(p)
+			}
+			// local preview
+			if m.prog != nil {
+				m.prog.Send(frameReady{F: fp, Meta: "colossus:sim"})
+			}
+		}
+	}
+}
+
 // applyDepthToFrame runs live mono depth / gsplat on the current RGB frame.
 func (m *Model) applyDepthToFrame() {
 	if m.depth == nil || m.frame == nil {
@@ -1606,6 +1828,7 @@ func (m *Model) startWatch(src string, withAudio bool) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) stopWatch() {
+	m.stopStreamPub()
 	if m.vpipe != nil {
 		m.vpipe.Stop()
 		m.vpipe = nil
