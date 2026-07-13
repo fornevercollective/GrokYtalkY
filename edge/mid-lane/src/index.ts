@@ -6,7 +6,7 @@
  * State:   GET /state?room=dojo
  *
  * Interactive jam stays on gy hub / gy-sfu (16–32).
- * This path is edge fan-out of program + hexlum mid-lane only — never HD.
+ * Ladder: glyph/hex (tiny) · mid (program JSON) · full (WHIP/playback URLs only — HD lives in CF Calls).
  */
 
 export { MidLaneRoom } from "./room-do";
@@ -16,6 +16,9 @@ export interface Env {
   SERVICE?: string;
   /** Shared secret; also accepted as EDGE_TOKEN binding / secret */
   EDGE_TOKEN?: string;
+  /** Optional Cloudflare Calls / WHIP base for HD ladder documentation */
+  CALLS_WHIP_URL?: string;
+  CALLS_PLAYBACK_URL?: string;
 }
 
 function roomId(raw: string | null): string {
@@ -47,8 +50,14 @@ export default {
         ok: true,
         service: env.SERVICE || "gy-mid-lane",
         plane: "public-mid-lane",
+        ladder: ["glyph", "mid", "full"],
         dojo: "use gy serve + rooms for interactive jam",
         auth: env.EDGE_TOKEN ? "token-required" : "open-dev",
+        calls: {
+          whip: env.CALLS_WHIP_URL || null,
+          playback: env.CALLS_PLAYBACK_URL || null,
+          note: "HD via WHIP/Calls — gy mid-lane only announces URLs, does not encode",
+        },
       });
     }
 
@@ -96,11 +105,13 @@ export default {
           "gy-mid-lane — GrokYtalkY public mid-lane edge (CF)",
           "  GET  /health",
           "  POST /mid              ← gy mid-lane --edge (token if set)",
-          "  GET  /state?room=dojo  ← last program + hexlum",
+          "  GET  /state?room=dojo  ← last program + hexlum + full ladder",
           "  WS   /ws?room=dojo&nick=viewer",
           "",
-          "DOJO interactive: gy serve · GY_ROOM=dojo gy",
-          "Bridge: gy mid-lane --room dojo --edge http://127.0.0.1:8788/mid",
+          "Ladder: glyph (hexlum) · mid (program JSON) · full (WHIP/playback URLs)",
+          "DOJO: gy serve · GY_ROOM=dojo gy",
+          "Bridge: gy mid-lane --room dojo --edge http://127.0.0.1:8788/mid \\",
+          "          --whip $GY_CALLS_WHIP_URL --playback $GY_CALLS_PLAYBACK_URL",
         ].join("\n"),
         { headers: { "content-type": "text/plain; charset=utf-8" } },
       );

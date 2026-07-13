@@ -18,10 +18,15 @@ Basis coverage for venue IP (GrokYtalkY `gy venue`) and production planning.
 
 ```bash
 gy doctor st2110     # suite + PTP gaps
-gy doctor sync       # synclock report
+gy doctor sync       # synclock report (honors GY_PTP_*)
+gy doctor nmos       # IS-04/05 scaffold + senders
 gy doctor cameras    # manufacturer tether matrix
 gy venue --sink st2110 --profile 2110-20 \
   --audio-rtp rtp://239.100.1.10:5006
+
+# facility PTP lock (honest when GM attached via ptp4l/BC):
+export GY_PTP_LOCKED=1 GY_PTP_DOMAIN=127 GY_PTP_OFFSET_NS=200 GY_PTP_IFACE=eth0
+# optional registry post: GY_NMOS_REGISTRY=http://registry:8080 GY_NMOS_POST=1 gy doctor nmos
 ```
 
 ## PTP dependency (non-optional for production 2110)
@@ -34,6 +39,7 @@ gy venue --sink st2110 --profile 2110-20 \
    - channel-order in SDP: `channel-order=SMPTE2110.(ST)` etc.
 4. Software `gy venue` defaults to **free-run** + `ts-refclk:localmac` until a grandmaster is attached. That is honest; it is **not** production-compliant timing.
 5. Hybrid plants: PTP → sync-pulse generators still feed SDI islands (blackburst / tri-level / word-clock).
+6. **NMOS** (IS-04 discovery / IS-05 connection): `gy doctor nmos` emits a resource bundle (node, 2110-20/30/40 + mid-lane senders). Set `GY_NMOS_REGISTRY` + `GY_NMOS_POST=1` to POST; full controller is facility-side.
 
 ### Broadcast synclock stack
 

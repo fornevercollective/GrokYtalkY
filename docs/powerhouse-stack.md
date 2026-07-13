@@ -35,6 +35,8 @@ Clean route for DOJO / venue / research / jam without duplicating authority.
 | Chat → caption (opt-in) | **chat-bridge `--program-caption`** merges caption only (no take) |
 | Edge mid-lane | **gy mid-lane** → `edge/mid-lane` worker (program + hexlum) |
 | Jam WebRTC | **gy-sfu** (`make sfu-media`) · token · TURN · `/metrics` |
+| Facility PTP/NMOS | **`gy doctor nmos`** · `GY_PTP_*` · `GY_NMOS_REGISTRY` |
+| HD public ladder | **mid-lane** `--whip` / `--playback` (CF Calls) — encode off-hub |
 | Forge identity | **cgf:** marks + lattice on hexlum |
 | ANC mark/tally/preview/caption | **OnANC** from program bus only |
 | Research notes / AI iterate | overview / blank / grok-cli |

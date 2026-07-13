@@ -99,7 +99,7 @@ func DefaultSyncClockReport() SyncClockReport {
 		"PTP ST 2059-2 follower not locked (attach GM / ptp4l / facility BC)",
 		"video genlock not derived from PTP (ST 2059-1 alignment pending)",
 		"audio word-clock not locked to media clock (2110-30 requires media↔RTP offset 0)",
-		"NMOS IS-04/05 registration not implemented (discovery/connection mgmt facility-side)",
+		"NMOS IS-04/05: scaffold via gy doctor nmos · set GY_NMOS_REGISTRY to post",
 	}
 	return SyncClockReport{
 		PTP:            ptp,

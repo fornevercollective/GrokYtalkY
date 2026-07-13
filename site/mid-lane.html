@@ -60,6 +60,8 @@
       <h2>On-air</h2>
       <div class="mid-cap" id="caption">—</div>
       <div class="mid-meta" id="meta">mode · mark · seq</div>
+      <div class="mid-meta" id="ladder">ladder · glyph · mid · full</div>
+      <p id="hd-link" class="mid-meta" style="margin-top:0.5rem"></p>
       <canvas id="hex-canvas" width="200" height="200" aria-label="Hexlum preview"></canvas>
     </div>
     <div class="mid-log" id="log"></div>
@@ -105,7 +107,7 @@
       }
       if (msg.type !== "mid-lane" && msg.lane == null) return;
       const lane = msg.lane || "";
-      if (lane === "program" || msg.program) {
+      if (lane === "program" || lane === "full" || msg.program) {
         const bus = (msg.program && msg.program.bus) || msg.program || {};
         const cap = msg.caption || bus.caption || (bus.caption_meta && bus.caption_meta.text) || "—";
         $("caption").textContent = cap;
@@ -117,7 +119,17 @@
           (msg.seq != null ? msg.seq : bus.seq != null ? bus.seq : "—") +
           " · " +
           (msg.room || "—");
-        log("program seq=" + (msg.seq || "") + " cap=" + String(cap).slice(0, 40));
+        const ladder = msg.ladder || lane || "mid";
+        $("ladder").textContent = "ladder · " + ladder + (msg.whip_url ? " · whip set" : "");
+        const play = msg.playback_url || msg.play_url;
+        if (play) {
+          $("hd-link").innerHTML = 'HD playback: <a href="' + play + '" rel="noopener">' + play + "</a>";
+        } else if (msg.whip_url) {
+          $("hd-link").textContent = "HD WHIP (publisher): " + msg.whip_url;
+        } else {
+          $("hd-link").textContent = "";
+        }
+        log("program seq=" + (msg.seq || "") + " ladder=" + ladder + " cap=" + String(cap).slice(0, 40));
       }
       if (lane === "hex" || lane === "hexlum" || msg.gyst) {
         const g = msg.gyst || msg;

@@ -248,6 +248,8 @@ func helpBodyDocs() string {
                site/mid-lane.html · wrangler dev --port 8788
   sfu          make sfu-media · GY_SFU_TOKEN · GY_SFU_TURN_URLS
                GET :9880/health · /metrics · outbox backpressure
+  facility     gy doctor nmos · GY_PTP_LOCKED · GY_NMOS_REGISTRY
+  HD ladder    gy mid-lane --whip --playback (CF Calls URLs)
 
 
   powerhouse stack (overview · blank · grok-cli · Qbpm)

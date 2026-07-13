@@ -96,15 +96,28 @@ gy mid-lane --room dojo --edge https://gy-mid-lane.<you>.workers.dev/mid --token
 
 Open [`../../site/mid-lane.html`](../../site/mid-lane.html) (or Pages) → set worker origin + room → Connect.
 
+## HD ladder (CF Calls / WHIP)
+
+Mid-lane never encodes HD. Announce Calls URLs with the bridge:
+
+```bash
+export GY_CALLS_WHIP_URL='https://rtc.example/whip/dojo'
+export GY_CALLS_PLAYBACK_URL='https://cdn.example/dojo/play.m3u8'
+gy mid-lane --room dojo --edge http://127.0.0.1:8788/mid \
+  --whip "$GY_CALLS_WHIP_URL" --playback "$GY_CALLS_PLAYBACK_URL"
+```
+
+Worker `/state` exposes `ladder.full` + `whip_url` / `playback_url`. Viewer `mid-lane.html` links HD playback when present. Encode/publish HD with your Calls/ffmpeg WHIP pipeline separately.
+
 ## What this is not
 
 - Not DOJO mesh authority (conductor stays on `gy`)
 - Not Space chat (see `chat/worker`)
-- Not SFU media tracks (see `sfu/` — jam scale next rung)
-- Not NMOS / ST 2110 (venue plant path)
+- Not SFU media tracks (see `sfu/`)
+- Not a PTP grandmaster or full NMOS registry (see `gy doctor nmos`)
 
-## Sequencing
+## Stack rungs
 
-1. **This worker** — public audience path (done)  
-2. **SFU hardening** — jam 50–200 (TURN, metrics, multi-room)  
-3. Facility PTP/NMOS when a real plant is attached  
+1. Hub rooms + program-per-room · mid-lane hook · this worker · HD URL ladder  
+2. SFU jam hardening (shipped)  
+3. Facility PTP lock env + NMOS scaffold (`gy doctor nmos`)

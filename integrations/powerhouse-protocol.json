@@ -1,6 +1,6 @@
 {
   "name": "GrokYtalkY powerhouse protocol",
-  "version": "1.45.0",
+  "version": "1.48.0",
   "hub": {
     "default": "ws://127.0.0.1:9876/",
     "env": "GY_HUB",
@@ -25,7 +25,14 @@
       "fields": ["room", "lane", "program", "gyst", "caption", "mark", "seq"],
       "edge_env": ["GY_EDGE_URL", "GY_EDGE_TOKEN"],
       "reference_worker": "edge/mid-lane (CF DO fan-out)",
-      "viewer": "site/mid-lane.html · WS /ws?room="
+      "viewer": "site/mid-lane.html · WS /ws?room=",
+      "ladder": ["glyph", "mid", "full"],
+      "hd_env": ["GY_CALLS_WHIP_URL", "GY_CALLS_PLAYBACK_URL"]
+    },
+    "facility": {
+      "ptp_env": ["GY_PTP_LOCKED", "GY_PTP_MODE", "GY_PTP_DOMAIN", "GY_PTP_OFFSET_NS", "GY_PTP_IFACE"],
+      "nmos_env": ["GY_NMOS_REGISTRY", "GY_NMOS_POST", "GY_NMOS_HREF", "GY_NMOS_LABEL"],
+      "doctor": "gy doctor nmos | sync | st2110"
     },
     "program-caption": {
       "owner": "chat-bridge --program-caption (opt-in)",

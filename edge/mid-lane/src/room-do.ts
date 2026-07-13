@@ -16,6 +16,9 @@ export interface MidLaneEnvelope {
   caption?: string;
   mark?: string;
   mode?: string;
+  ladder?: string; // glyph | mid | full
+  whip_url?: string;
+  playback_url?: string;
   via?: string;
 }
 
@@ -31,6 +34,7 @@ export class MidLaneRoom implements DurableObject {
   private roomName = "global";
   private lastProgram: MidLaneEnvelope | null = null;
   private lastHex: MidLaneEnvelope | null = null;
+  private lastFull: MidLaneEnvelope | null = null; // HD ladder metadata (WHIP/playback)
   private ring: MidLaneEnvelope[] = [];
 
   constructor(
@@ -52,6 +56,15 @@ export class MidLaneRoom implements DurableObject {
         room: this.roomName,
         program: this.lastProgram,
         hexlum: this.lastHex,
+        full: this.lastFull,
+        ladder: {
+          glyph: !!this.lastHex,
+          mid: !!this.lastProgram,
+          full: !!this.lastFull,
+          whip_url: this.lastFull?.whip_url || this.lastProgram?.whip_url || null,
+          playback_url:
+            this.lastFull?.playback_url || this.lastProgram?.playback_url || null,
+        },
         viewers: this.viewers.size,
         recent: this.ring.slice(-16),
       });
@@ -99,28 +112,35 @@ export class MidLaneRoom implements DurableObject {
 
     if (lane === "program") {
       this.lastProgram = env;
+      if (env.ladder === "full" || env.whip_url || env.playback_url) {
+        this.lastFull = { ...env, lane: "full", ladder: "full" };
+      }
     } else if (lane === "hex" || lane === "hexlum") {
       this.lastHex = env;
+    } else if (lane === "full" || lane === "mid") {
+      if (lane === "full") this.lastFull = env;
+      if (lane === "mid" && !this.lastProgram) this.lastProgram = env;
     }
 
     this.ring.push(env);
     if (this.ring.length > MAX_RING) this.ring = this.ring.slice(-MAX_RING);
 
-    // fan-out to public viewers (compact — full gyst data can be large; still pass-through)
+    // fan-out to public viewers
     this.broadcast({
       type: "mid-lane",
       room: this.roomName,
       lane: env.lane,
+      ladder: env.ladder || (lane === "hex" || lane === "hexlum" ? "glyph" : "mid"),
       from: env.from,
       t: env.t,
       seq: env.seq,
       caption: env.caption,
       mark: env.mark,
       mode: env.mode,
-      // program bus snapshot (conducted on-air)
       program: env.program,
-      // hexlum/gyst for Glyph-scale web tiles (already low-res)
       gyst: env.gyst,
+      whip_url: env.whip_url,
+      playback_url: env.playback_url,
       via: env.via,
     });
 
@@ -128,6 +148,7 @@ export class MidLaneRoom implements DurableObject {
       ok: true,
       room: this.roomName,
       lane: env.lane,
+      ladder: env.ladder || null,
       viewers: this.viewers.size,
       seq: env.seq,
     });
@@ -155,9 +176,10 @@ export class MidLaneRoom implements DurableObject {
       t: Date.now(),
       viewers: this.viewers.size,
     });
-    // catch-up: last program then last hex
+    // catch-up: last program, hex, then full-ladder hints
     if (this.lastProgram) this.send(server, this.lastProgram);
     if (this.lastHex) this.send(server, this.lastHex);
+    if (this.lastFull) this.send(server, this.lastFull);
 
     return new Response(null, { status: 101, webSocket: client });
   }

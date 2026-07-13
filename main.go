@@ -171,7 +171,7 @@ TUI launches auto-update by default (check GitHub → install → re-exec).
 			fmt.Println()
 			fmt.Print(FormatST20227Basis())
 			fmt.Println()
-			fmt.Print(FormatSyncClockReport(DefaultSyncClockReport()))
+			fmt.Print(FormatSyncClockReport(SyncClockFromEnv()))
 			return nil
 		case "cameras", "camera", "tether":
 			fmt.Print(FormatCameraTetherMatrix())
@@ -179,7 +179,18 @@ TUI launches auto-update by default (check GitHub → install → re-exec).
 		case "sync", "ptp":
 			fmt.Print(FormatPTPDependencyBasis())
 			fmt.Println()
-			fmt.Print(FormatSyncClockReport(DefaultSyncClockReport()))
+			fmt.Print(FormatSyncClockReport(SyncClockFromEnv()))
+			return nil
+		case "nmos", "is04", "is-04", "is05":
+			bundle := BuildNMOSResources()
+			fmt.Print(FormatNMOSReport(bundle))
+			if envTruthy("GY_NMOS_POST") {
+				if err := PostNMOSRegistration(bundle); err != nil {
+					fmt.Printf("  post: %v\n", err)
+				} else {
+					fmt.Println("  post: ok")
+				}
+			}
 			return nil
 		}
 		fmt.Print(StreamDoctor())
@@ -188,7 +199,7 @@ TUI launches auto-update by default (check GitHub → install → re-exec).
 		fmt.Printf("gy binary: %s\n", versionLine())
 		cap := DetectCapProfile(80, 24)
 		fmt.Println(cap.SummaryLine())
-		fmt.Println("doctor st2110 · doctor cameras · doctor sync")
+		fmt.Println("doctor st2110 · sync · cameras · nmos")
 		if p, err := os.Executable(); err == nil {
 			fmt.Printf("path: %s\n", p)
 		}
@@ -328,7 +339,7 @@ commands
   %s sfu-bridge           hub hexlum/vburst → SFU glyph|hex
   %s chat-bridge          hub → Space captions
   %s mid-lane             edge mid-lane hook (program/hex → HTTP)
-  %s doctor [st2110|sync|cameras]
+  %s doctor [st2110|sync|cameras|nmos]
   %s update | upgrade [--check]
   %s install | uninstall | clean-install
   %s install dependencies [--yes]
@@ -345,15 +356,16 @@ TUI ( ? multi-page help · tab pages )
 venue / 2110
   gy venue --sink st2110 --rtp A --rtp-b B   # 2022-7 dual-dest
   gy venue --audio-rtp … --depth 10 --tp 2110TPN
-  gy doctor st2110 | sync | cameras
+  gy doctor st2110 | sync | cameras | nmos
 
 docs  https://fornevercollective.github.io/GrokYtalkY/
-      docs.html · dojo · chat · burst · grokglyph (PWA)
+      docs.html · dojo · chat · burst · grokglyph · mid-lane
   repo docs/streams-capacity.md · st2110-sync-cameras.md
 
 env   XAI_API_KEY · GROK_MODEL · GY_CAP · GY_ROLE · GY_ROOM
       GY_ROOM_MAX · GY_EDGE_URL · GY_EDGE_TOKEN
-      GY_NO_AUTO_UPDATE=1 · --no-update
+      GY_PTP_LOCKED · GY_PTP_DOMAIN · GY_PTP_IFACE · GY_NMOS_REGISTRY
+      GY_CALLS_WHIP_URL · GY_NO_AUTO_UPDATE=1 · --no-update
 hub   rooms: ?room= · GET /api/rooms · program-per-room
       gy mid-lane --room dojo --edge https://…/mid
 install

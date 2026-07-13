@@ -24,33 +24,40 @@ import (
 //	  --token $GY_EDGE_TOKEN
 
 // MidLaneEnvelope is the stable JSON edge ingest contract.
+// Ladder: glyph/hex (terminal) · mid (web tiles) · full (CF Calls/WHIP HD — edge only).
 type MidLaneEnvelope struct {
-	Type    string         `json:"type"` // mid-lane
-	Room    string         `json:"room"`
-	Lane    string         `json:"lane"` // mid|hex|glyph|program
-	From    string         `json:"from,omitempty"`
-	T       int64          `json:"t"`
-	Seq     uint32         `json:"seq,omitempty"`
-	Program map[string]any `json:"program,omitempty"` // bus snapshot when present
-	Gyst    map[string]any `json:"gyst,omitempty"`    // hexlum/meta pass-through
-	Caption string         `json:"caption,omitempty"`
-	Mark    string         `json:"mark,omitempty"`
-	Mode    string         `json:"mode,omitempty"`
-	Via     string         `json:"via"` // gy-mid-lane
+	Type     string         `json:"type"` // mid-lane
+	Room     string         `json:"room"`
+	Lane     string         `json:"lane"` // program|hex|glyph|mid|full
+	From     string         `json:"from,omitempty"`
+	T        int64          `json:"t"`
+	Seq      uint32         `json:"seq,omitempty"`
+	Program  map[string]any `json:"program,omitempty"`
+	Gyst     map[string]any `json:"gyst,omitempty"`
+	Caption  string         `json:"caption,omitempty"`
+	Mark     string         `json:"mark,omitempty"`
+	Mode     string         `json:"mode,omitempty"`
+	Ladder   string         `json:"ladder,omitempty"`    // glyph|mid|full
+	WhipURL  string         `json:"whip_url,omitempty"`  // optional HD WHIP publish hint
+	PlayURL  string         `json:"playback_url,omitempty"` // HLS/WHEP viewer hint
+	Via      string         `json:"via"`                    // gy-mid-lane
 }
 
 // MidLaneOpts configures the edge publisher.
 type MidLaneOpts struct {
-	HubWS   string
-	Room    string
-	EdgeURL string // https://… or http://…
-	Token   string // Bearer / X-GY-Edge-Token
-	Quiet   bool
-	DryRun  bool
-	// which hub events to forward
-	Program bool // type:program
-	Hexlum  bool // type:gyst kind=hexlum
-	AllGyst bool // any gyst
+	HubWS    string
+	Room     string
+	EdgeURL  string // https://… mid ingest
+	Token    string
+	Quiet    bool
+	DryRun   bool
+	Program  bool
+	Hexlum   bool
+	AllGyst  bool
+	// HD ladder (never on hub): announce WHIP/playback URLs with program events
+	WhipURL  string // GY_CALLS_WHIP_URL — Cloudflare Calls / WHIP ingest
+	PlayURL  string // GY_CALLS_PLAYBACK_URL — viewer HLS/WHEP
+	FullEdge string // optional second POST for lane=full metadata
 }
 
 func runMidLaneCmd(args []string) error {
@@ -70,13 +77,14 @@ func runMidLaneCmd(args []string) error {
   --dry-run  log envelopes only
   --quiet
 
-Forwards compact mid-lane JSON for Cloudflare / custom edge SFU ladders.
-Does not encode 1080p. Pair with hub rooms + program-per-room.
+Forwards compact mid-lane JSON for Cloudflare / custom edge ladders.
+Does not put 1080p on the hub. Optional --whip / --playback announce HD Calls ladder.
 
 Example:
   gy serve
-  gy mid-lane --room dojo --edge https://worker.example/mid --token secret
-  # conductor: /take · edge receives {type:mid-lane,lane:program,…}
+  cd edge/mid-lane && npx wrangler dev --port 8788
+  gy mid-lane --room dojo --edge http://127.0.0.1:8788/mid
+  # HD (edge only): --whip https://calls…/whip --playback https://…/play.m3u8
 `)
 	}
 	hub := fs.String("hub", "ws://127.0.0.1:9876/", "hub WebSocket")
@@ -86,6 +94,9 @@ Example:
 	noProg := fs.Bool("no-program", false, "skip program bus events")
 	noHex := fs.Bool("no-hexlum", false, "skip hexlum gyst")
 	allGyst := fs.Bool("all-gyst", false, "forward all gyst kinds")
+	whip := fs.String("whip", os.Getenv("GY_CALLS_WHIP_URL"), "CF Calls / WHIP URL (HD ladder hint)")
+	play := fs.String("playback", os.Getenv("GY_CALLS_PLAYBACK_URL"), "viewer HLS/WHEP URL")
+	fullEdge := fs.String("full-edge", os.Getenv("GY_EDGE_FULL_URL"), "optional POST for lane=full metadata")
 	dry := fs.Bool("dry-run", false, "log only")
 	quiet := fs.Bool("quiet", false, "less logging")
 	if err := fs.Parse(args); err != nil {
@@ -108,15 +119,18 @@ Example:
 		"room": r,
 	})
 	return RunMidLane(MidLaneOpts{
-		HubWS:   hubURL,
-		Room:    r,
-		EdgeURL: strings.TrimSpace(*edge),
-		Token:   strings.TrimSpace(*token),
-		Quiet:   *quiet,
-		DryRun:  *dry,
-		Program: !*noProg,
-		Hexlum:  !*noHex,
-		AllGyst: *allGyst,
+		HubWS:    hubURL,
+		Room:     r,
+		EdgeURL:  strings.TrimSpace(*edge),
+		Token:    strings.TrimSpace(*token),
+		Quiet:    *quiet,
+		DryRun:   *dry,
+		Program:  !*noProg,
+		Hexlum:   !*noHex,
+		AllGyst:  *allGyst,
+		WhipURL:  strings.TrimSpace(*whip),
+		PlayURL:  strings.TrimSpace(*play),
+		FullEdge: strings.TrimSpace(*fullEdge),
 	})
 }
 
@@ -138,6 +152,9 @@ func RunMidLane(opts MidLaneOpts) error {
 			log.Printf("mid-lane · dry-run")
 		} else {
 			log.Printf("mid-lane · edge=%s", opts.EdgeURL)
+		}
+		if opts.WhipURL != "" {
+			log.Printf("mid-lane · HD ladder whip=%s", opts.WhipURL)
 		}
 	}
 
@@ -220,6 +237,7 @@ func MapHubToMidLane(msg map[string]any, room string, opts MidLaneOpts) (MidLane
 			return env, false
 		}
 		env.Lane = "program"
+		env.Ladder = "mid"
 		if bus, ok := ParseProgramBus(msg); ok {
 			env.Seq = bus.Seq
 			env.Mode = bus.Mode
@@ -227,13 +245,18 @@ func MapHubToMidLane(msg map[string]any, room string, opts MidLaneOpts) (MidLane
 			if eff := bus.EffectiveCaption(); !eff.IsEmpty() {
 				env.Caption = eff.Display()
 			}
-			// compact program map for edge
 			raw, _ := json.Marshal(msg)
 			var m map[string]any
 			_ = json.Unmarshal(raw, &m)
 			env.Program = m
 		} else {
 			env.Program = msg
+		}
+		// HD ladder hints (edge/CF Calls — never encode HD here)
+		env.WhipURL = opts.WhipURL
+		env.PlayURL = opts.PlayURL
+		if opts.WhipURL != "" || opts.PlayURL != "" {
+			env.Ladder = "full"
 		}
 		return env, true
 	case "gyst", "gyst-frame":
@@ -243,8 +266,10 @@ func MapHubToMidLane(msg map[string]any, room string, opts MidLaneOpts) (MidLane
 			if env.Lane == "" {
 				env.Lane = "gyst"
 			}
+			env.Ladder = "mid"
 		} else if opts.Hexlum && (kind == "hexlum" || kind == "hex") {
 			env.Lane = LaneHex
+			env.Ladder = "glyph" // terminal / Glyph scale
 		} else {
 			return env, false
 		}
@@ -254,8 +279,8 @@ func MapHubToMidLane(msg map[string]any, room string, opts MidLaneOpts) (MidLane
 		env.Gyst = msg
 		return env, true
 	case "mid-lane":
-		// already edge-shaped — re-post if wanted
 		env.Lane = coalesce(msg["lane"], "mid")
+		env.Ladder = coalesce(msg["ladder"], "mid")
 		return env, true
 	default:
 		return env, false
@@ -263,15 +288,32 @@ func MapHubToMidLane(msg map[string]any, room string, opts MidLaneOpts) (MidLane
 }
 
 func postMidLane(ctx context.Context, client *http.Client, opts MidLaneOpts, env MidLaneEnvelope) error {
+	if err := postMidLaneURL(ctx, client, opts, opts.EdgeURL, env); err != nil {
+		return err
+	}
+	// optional second hop: full-ladder metadata (WHIP/playback announce)
+	if opts.FullEdge != "" && (env.Lane == "program" || env.Ladder == "full") {
+		full := env
+		full.Lane = "full"
+		full.Ladder = "full"
+		_ = postMidLaneURL(ctx, client, opts, opts.FullEdge, full)
+	}
+	return nil
+}
+
+func postMidLaneURL(ctx context.Context, client *http.Client, opts MidLaneOpts, edge string, env MidLaneEnvelope) error {
+	if edge == "" {
+		return nil
+	}
 	body, err := json.Marshal(env)
 	if err != nil {
 		return err
 	}
 	if opts.DryRun {
-		log.Printf("mid-lane · dry %s", truncate(string(body), 160))
+		log.Printf("mid-lane · dry %s → %s", env.Lane, truncate(string(body), 140))
 		return nil
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, opts.EdgeURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, edge, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
