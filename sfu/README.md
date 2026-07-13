@@ -81,13 +81,22 @@ SFU → client:
 
 ## Bridge to GrokYtalkY hub
 
-Optional later: SFU subscribes to `ws://hub:9876` and re-publishes `vburst-frame.glyph` onto the `glyph` lane for WebRTC peers. Terminal clients keep using the existing hub; SFU is for browser/DOJO WebRTC rooms.
+`gy sfu-bridge` links the DOJO hub to a gy-sfu room (signaling + media DC lanes):
+
+| Hub message | SFU lane |
+|-------------|----------|
+| `vburst-frame.glyph` | `type:glyph` |
+| `gyst` `kind=hexlum` (forge lattice on wire) | `type:glyph` + `type:hex` |
+| `gyst` forge-mark meta | `type:chat` + `meta.mark` |
 
 ```
 gy serve                 # :9876 hexcast mesh
-cargo run -p gy-sfu      # :9880 SFU signaling
-# Cloudflare: point public viewers at CF; DOJO at gy-sfu
+cargo run -p gy-sfu --features media -- --token secret
+gy sfu-bridge --sfu 'ws://127.0.0.1:9880/ws?room=dojo&nick=bridge&token=secret'
+# publisher: gy → /forge examples/dojo.pcap   or  gy burst
 ```
+
+Terminal clients stay on the hub; browser/WebRTC peers consume glyph|hex DCs. Lattice watermark bytes are not recomputed — they pass through unchanged.
 
 ## Concurrency targets
 

@@ -261,7 +261,7 @@ func printHelp() {
   %s stream-pub src  live headless GYST → hub (sim|file|pcap|cam)
   %s serve           headless hub
   %s chat-bridge     DOJO hub → public Space captions
-  %s sfu-bridge      hub vburst glyph → gy-sfu room
+  %s sfu-bridge      hub vburst|gyst hexlum → SFU glyph/hex
   %s version         version + build info
   %s update          check & install latest
   %s update --check  check only (exit 2 if outdated)
