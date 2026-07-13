@@ -96,12 +96,43 @@ cargo run -p gy-sfu      # :9880 SFU signaling
 | DOJO interactive | **16–32** peers (jam) · up to **~50–200** / node |
 | Broadcast | **1k+** via Cloudflare, downsampled `mid`/`glyph` |
 
+## Media mode (`--features media`)
+
+```bash
+cargo run -p gy-sfu --features media -- --bind 0.0.0.0:9880
+# or: make sfu-media
+```
+
+| Feature | Behavior |
+|---------|----------|
+| PeerConnection | Client **offer** (no `to`) → SFU **answer** |
+| ICE | Client candidates (no `to`) → SFU PC; SFU ICE → client |
+| Track fan-out | `OnTrack` → `TrackLocalStaticRTP` → other peers in room |
+| DataChannel | Labels `glyph` / `hex` / `chat` → room fan-out (+ WS mirror) |
+| STUN | `stun:stun.l.google.com:19302` |
+| TURN | `GY_SFU_TURN_URLS=turn:host:3478,user,cred;…` |
+
+Signaling-only still works without the feature (WS relay of SDP for pure mesh tests).
+
+### Client sketch (media)
+
+```js
+// 1) WS join → welcome.media === true
+// 2) pc = new RTCPeerConnection()
+// 3) pc.createDataChannel("glyph"); pc.createDataChannel("chat")
+// 4) addTrack(cam); offer = await pc.createOffer(); await pc.setLocalDescription(offer)
+// 5) ws.send({ type: "offer", sdp: offer.sdp })  // no `to` → SFU
+// 6) on answer/ice with from === peer_id → setRemote / addIceCandidate
+// 7) on offer from SFU (renegotiate) → createAnswer back
+```
+
 ## Status
 
 - [x] Room registry · WS signaling · lane tags · health API  
-- [ ] `webrtc` feature: PeerConnection, track forward, DataChannel  
-- [ ] TURN config · auth tokens · hub glyph bridge  
-- [ ] Metrics (peers, bitrate, room count)
+- [x] `media` feature: PeerConnection, track fan-out, DataChannel glyph/hex/chat  
+- [x] STUN + optional TURN env  
+- [ ] Auth tokens · hub glyph bridge · metrics  
+- [ ] Outbound SFU-created DataChannels (clients still create DCs)
 
 ## License
 

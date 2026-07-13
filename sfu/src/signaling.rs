@@ -177,6 +177,7 @@ async fn peer_session(socket: WebSocket, state: AppState, q: WsQuery) {
     ) {
         Ok((id, others)) => {
             peer_id = Some(id);
+            media_ensure(&state, id, &room, &nick, tx.clone()).await;
             let _ = tx.send(ServerMsg::Welcome {
                 peer_id: id,
                 room: room.clone(),
@@ -246,6 +247,7 @@ async fn peer_session(socket: WebSocket, state: AppState, q: WsQuery) {
 
                 // re-join: leave previous
                 if let Some(id) = peer_id.take() {
+                    media_remove(&state, id).await;
                     rooms.leave(&room, id);
                     rooms.broadcast(
                         &room,
@@ -263,6 +265,7 @@ async fn peer_session(socket: WebSocket, state: AppState, q: WsQuery) {
                 ) {
                     Ok((id, others)) => {
                         peer_id = Some(id);
+                        media_ensure(&state, id, &room, &nick, tx.clone()).await;
                         let _ = tx.send(ServerMsg::Welcome {
                             peer_id: id,
                             room: room.clone(),
@@ -299,6 +302,13 @@ async fn peer_session(socket: WebSocket, state: AppState, q: WsQuery) {
                     });
                     continue;
                 };
+                // Media mode + no target → SFU is the answerer (track fan-out)
+                if to.is_none() && state.media_enabled {
+                    if let Err(e) = media_handle_offer(&state, from, sdp).await {
+                        let _ = tx.send(ServerMsg::Error { message: e });
+                    }
+                    continue;
+                }
                 let msg = ServerMsg::Offer { from, sdp };
                 if let Some(to) = to {
                     rooms.send_to(&room, to, msg);
@@ -308,6 +318,13 @@ async fn peer_session(socket: WebSocket, state: AppState, q: WsQuery) {
             }
             ClientMsg::Answer { sdp, to } => {
                 let Some(from) = peer_id else { continue };
+                // Media renegotiation answer (SFU offered new track) when to is None
+                if to.is_none() && state.media_enabled {
+                    if let Err(e) = media_handle_answer(&state, from, sdp).await {
+                        let _ = tx.send(ServerMsg::Error { message: e });
+                    }
+                    continue;
+                }
                 let msg = ServerMsg::Answer { from, sdp };
                 if let Some(to) = to {
                     rooms.send_to(&room, to, msg);
@@ -317,6 +334,12 @@ async fn peer_session(socket: WebSocket, state: AppState, q: WsQuery) {
             }
             ClientMsg::Ice { candidate, to } => {
                 let Some(from) = peer_id else { continue };
+                if to.is_none() && state.media_enabled {
+                    if let Err(e) = media_handle_ice(&state, from, candidate).await {
+                        let _ = tx.send(ServerMsg::Error { message: e });
+                    }
+                    continue;
+                }
                 let msg = ServerMsg::Ice { from, candidate };
                 if let Some(to) = to {
                     rooms.send_to(&room, to, msg);
@@ -388,9 +411,84 @@ async fn peer_session(socket: WebSocket, state: AppState, q: WsQuery) {
     }
 
     if let Some(id) = peer_id.take() {
+        media_remove(&state, id).await;
         rooms.leave(&room, id);
         rooms.broadcast(&room, None, ServerMsg::PeerLeft { peer_id: id });
         tracing::info!(%id, %room, "peer left");
     }
     out.abort();
+}
+
+// --- media hooks (no-ops without --features media) ---
+
+async fn media_ensure(
+    state: &AppState,
+    id: Uuid,
+    room: &str,
+    nick: &str,
+    tx: mpsc::UnboundedSender<ServerMsg>,
+) {
+    #[cfg(feature = "media")]
+    if let Some(hub) = &state.media {
+        if let Err(e) = hub
+            .ensure_peer(id, room.to_string(), nick.to_string(), tx)
+            .await
+        {
+            tracing::warn!(%id, "media ensure: {e}");
+        }
+    }
+    #[cfg(not(feature = "media"))]
+    let _ = (state, id, room, nick, tx);
+}
+
+async fn media_remove(state: &AppState, id: Uuid) {
+    #[cfg(feature = "media")]
+    if let Some(hub) = &state.media {
+        hub.remove_peer(id).await;
+    }
+    #[cfg(not(feature = "media"))]
+    let _ = (state, id);
+}
+
+async fn media_handle_offer(state: &AppState, id: Uuid, sdp: String) -> Result<(), String> {
+    #[cfg(feature = "media")]
+    {
+        let hub = state.media.as_ref().ok_or_else(|| "media hub down".to_string())?;
+        hub.handle_offer(id, sdp).await
+    }
+    #[cfg(not(feature = "media"))]
+    {
+        let _ = (state, id, sdp);
+        Err("rebuild with --features media".into())
+    }
+}
+
+async fn media_handle_answer(state: &AppState, id: Uuid, sdp: String) -> Result<(), String> {
+    #[cfg(feature = "media")]
+    {
+        let hub = state.media.as_ref().ok_or_else(|| "media hub down".to_string())?;
+        hub.handle_answer(id, sdp).await
+    }
+    #[cfg(not(feature = "media"))]
+    {
+        let _ = (state, id, sdp);
+        Err("rebuild with --features media".into())
+    }
+}
+
+async fn media_handle_ice(
+    state: &AppState,
+    id: Uuid,
+    candidate: serde_json::Value,
+) -> Result<(), String> {
+    #[cfg(feature = "media")]
+    {
+        let hub = state.media.as_ref().ok_or_else(|| "media hub down".to_string())?;
+        hub.handle_ice(id, candidate).await
+    }
+    #[cfg(not(feature = "media"))]
+    {
+        let _ = (state, id, candidate);
+        Err("rebuild with --features media".into())
+    }
 }

@@ -1,7 +1,7 @@
 //! gy-sfu — minimal DOJO WebRTC SFU sidecar for GrokYtalkY.
 //!
-//! Default build: signaling + rooms + glyph/hex lane fan-out over WebSocket.
-//! `--features media` pulls webrtc-rs for real PeerConnections (next step).
+//! Default: signaling + rooms + glyph/hex/chat WS fan-out.
+//! `--features media`: webrtc-rs PeerConnections, track fan-out, DataChannels.
 
 mod lanes;
 #[cfg(feature = "media")]
@@ -45,6 +45,8 @@ pub struct AppState {
     pub max_peers_per_room: usize,
     pub hub: String,
     pub media_enabled: bool,
+    #[cfg(feature = "media")]
+    pub media: Option<Arc<media::MediaHub>>,
 }
 
 #[tokio::main]
@@ -56,11 +58,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     let media_enabled = cfg!(feature = "media");
 
+    #[cfg(feature = "media")]
+    let media = {
+        match media::MediaHub::new().await {
+            Ok(m) => {
+                tracing::info!("media hub ready (webrtc-rs · STUN + optional GY_SFU_TURN_URLS)");
+                Some(m)
+            }
+            Err(e) => {
+                tracing::error!("media hub failed: {e}");
+                None
+            }
+        }
+    };
+
     let state = AppState {
         rooms: Arc::new(RoomRegistry::new()),
         max_peers_per_room: args.max_peers_per_room,
         hub: args.hub,
-        media_enabled,
+        media_enabled: media_enabled && {
+            #[cfg(feature = "media")]
+            {
+                media.is_some()
+            }
+            #[cfg(not(feature = "media"))]
+            {
+                false
+            }
+        },
+        #[cfg(feature = "media")]
+        media,
     };
 
     let app = Router::new()
@@ -98,6 +125,7 @@ async fn health(State(st): State<AppState>) -> Json<serde_json::Value> {
         "max_peers_per_room": st.max_peers_per_room,
         "hub": if st.hub.is_empty() { serde_json::Value::Null } else { st.hub.clone().into() },
         "lanes": lanes::ALL,
+        "turn": std::env::var("GY_SFU_TURN_URLS").ok().map(|_| true).unwrap_or(false),
     }))
 }
 

@@ -70,7 +70,7 @@ Detail: [`docs/chat.md`](chat.md) · scaffold: [`chat/`](../chat/README.md)
 **Jam target:** 16–32 interactive peers on hub/SFU.  
 **Broadcast target:** 1k+ via CF, terminals on `glyph`/`hex` downsampled lanes.
 
-Scaffold: [`sfu/`](../sfu/README.md) · [`chat/`](../chat/README.md) · site: [docs.html#streams-scale](https://fornevercollective.github.io/GrokYtalkY/docs.html#streams-scale)
+Scaffold: [`sfu/`](../sfu/README.md) (`make sfu-media` for webrtc-rs track + DataChannel fan-out) · [`chat/`](../chat/README.md) · site: [docs.html#streams-scale](https://fornevercollective.github.io/GrokYtalkY/docs.html#streams-scale)
 
 ---
 

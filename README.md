@@ -49,6 +49,7 @@ gy chat-bridge --hosts YOUR_NICK                     # DOJO → Space captions
 # open site/chat.html  (Public Space | DOJO hub)
 
 make sfu && ./sfu/target/release/gy-sfu --bind 127.0.0.1:9880
+make sfu-media   # webrtc-rs track fan-out + glyph/chat DataChannels
 ```
 
 ### Install (pick one)

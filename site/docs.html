@@ -202,10 +202,12 @@ ffplay -vn SRC   # audio parallel</code></pre>
           room registry, WS signaling, glyph/hex lane fan-out. Full write-up:
           <code>docs/streams-capacity.md</code>.
         </p>
-        <pre class="code-block"><code>make sfu
+        <pre class="code-block"><code>make sfu            # signaling + WS glyph/hex/chat
+make sfu-media      # + webrtc-rs track fan-out + DataChannels
 ./sfu/target/release/gy-sfu --bind 127.0.0.1:9880
-curl -s http://127.0.0.1:9880/health
-# WS: ws://127.0.0.1:9880/ws?room=dojo&amp;nick=qbit</code></pre>
+curl -s http://127.0.0.1:9880/health   # "media": true|false
+# WS: ws://127.0.0.1:9880/ws?room=dojo&amp;nick=qbit
+# offer without "to" → SFU answers; DataChannel labels: glyph|hex|chat</code></pre>
         <h3 id="chat-space">Space / Creator Studio chat</h3>
         <p>
           Text is a separate plane from media (X Spaces–style). Public 1k+ chat →
