@@ -38,6 +38,7 @@ type ProgramBus struct {
 	Mode      string         `json:"mode"` // live|hold|black
 	Program   ProgramSource  `json:"program"`
 	Preview   *ProgramSource `json:"preview,omitempty"`
+	Caption   string         `json:"caption,omitempty"` // on-air text → ANC caption (not CEA-708)
 	Conductor string         `json:"conductor,omitempty"`
 	Seq       uint32         `json:"seq"`
 	T         int64          `json:"t"`
@@ -115,6 +116,9 @@ func parseProgramBusMap(m map[string]any) (ProgramBus, bool) {
 	if prev, ok := m["preview"].(map[string]any); ok {
 		ps := parseProgramSource(prev)
 		b.Preview = &ps
+	}
+	if s, ok := m["caption"].(string); ok {
+		b.Caption = s
 	}
 	return b, true
 }
@@ -196,14 +200,42 @@ func (b *ProgramBus) Take(prog ProgramSource, conductor string) {
 	b.V = 1
 }
 
-// SetPreview arms preview without changing program.
+// SetPreview arms preview without changing program (bumps seq for ANC re-emit).
 func (b *ProgramBus) SetPreview(prev ProgramSource, conductor string) {
 	cp := prev
 	b.Preview = &cp
 	if conductor != "" {
 		b.Conductor = conductor
 	}
+	b.Seq++
 	b.T = time.Now().UnixMilli()
+	b.V = 1
+}
+
+// ClearPreview disarms PVW (tally flag bit1 clears).
+func (b *ProgramBus) ClearPreview(conductor string) {
+	b.Preview = nil
+	if conductor != "" {
+		b.Conductor = conductor
+	}
+	b.Seq++
+	b.T = time.Now().UnixMilli()
+}
+
+// SetCaption sets on-air caption text for ANC SDID caption (max 120 runes-ish bytes).
+// Empty string clears caption (no caption ANC packet).
+func (b *ProgramBus) SetCaption(text, conductor string) {
+	text = strings.TrimSpace(text)
+	if len(text) > 120 {
+		text = text[:120]
+	}
+	b.Caption = text
+	if conductor != "" {
+		b.Conductor = conductor
+	}
+	b.Seq++
+	b.T = time.Now().UnixMilli()
+	b.V = 1
 }
 
 // Hold freezes program (venue holds last frame).

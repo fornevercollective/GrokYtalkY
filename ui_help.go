@@ -160,9 +160,11 @@ func helpBodyForge() string {
     auto-open dual on forge RX · lattice 4×4 corner
 
   /conductor claim|release|status
-  /take [slot] · /preview [slot]
+  /take [slot] · /preview [slot]|clear
+  /caption text|clear   on-air text → ANC 0x05
   /hold · /black · /program
     program bus → hub type:program (venue on-air)
+    ANC: mark·tally·bus·preview·caption
 
   caps (join handshake)
     GY_CAP=term-full|term-lean|term-mono|glyph-iot|bridge

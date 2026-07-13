@@ -59,7 +59,8 @@ func TestProgramBusMeshRoundTrip(t *testing.T) {
 	if !ok {
 		t.Fatal("parse")
 	}
-	if got.Program.Mark != mk.ID || got.Conductor != "cond" || got.Seq != 1 {
+	// Take bumps seq once; SetPreview bumps again for ANC re-emit
+	if got.Program.Mark != mk.ID || got.Conductor != "cond" || got.Seq < 2 {
 		t.Fatalf("%+v", got)
 	}
 	if got.Preview == nil || got.Preview.Slot != 3 {

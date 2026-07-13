@@ -1488,8 +1488,11 @@ func (m *Model) slash(line string) (tea.Model, tea.Cmd) {
 		// /take [slot|next] — cut to program (conductor)
 		return m.handleTakeCmd(strings.TrimSpace(arg))
 	case "preview":
-		// /preview [slot] — arm preview without take
+		// /preview [slot] | clear — arm/disarm PVW (ANC preview + tally flag)
 		return m.handlePreviewCmd(strings.TrimSpace(arg))
+	case "caption", "cap":
+		// /caption text | /caption clear — on-air caption → ANC SDID 0x05
+		return m.handleCaptionCmd(strings.TrimSpace(arg))
 	case "hold":
 		// /hold — freeze program (venue hold last frame)
 		return m.handleProgramMode(ProgramModeHold)
@@ -2042,7 +2045,7 @@ func (m *Model) handleConductorCmd(arg string) (tea.Model, tea.Cmd) {
 		m.program.Conductor = m.nick
 		m.program.T = time.Now().UnixMilli()
 		m.publishProgramBus()
-		m.pushSys("◈ conductor claimed · /take · /preview · /hold · /black")
+		m.pushSys("◈ conductor claimed · /take · /preview · /caption · /hold · /black")
 		return m, nil
 	case "release", "off":
 		was := m.conductor
@@ -2089,14 +2092,44 @@ func (m *Model) handlePreviewCmd(arg string) (tea.Model, tea.Cmd) {
 	if !m.ensureConductor() {
 		return m, nil
 	}
+	if arg == "clear" || arg == "off" || arg == "none" {
+		m.program.ClearPreview(m.nick)
+		m.publishProgramBus()
+		m.pushSys("◈ PVW clear · tally preview flag off")
+		return m, nil
+	}
 	src, ok := m.resolveProgramSource(arg)
 	if !ok {
-		m.pushSys("usage: /preview [slot|next] · arm forge/gyst source")
+		m.pushSys("usage: /preview [slot|next] | /preview clear")
 		return m, nil
 	}
 	m.program.SetPreview(src, m.nick)
 	m.publishProgramBus()
-	m.pushSys("◈ PVW " + FormatProgramSource(src) + " · /take to cut")
+	m.pushSys("◈ PVW " + FormatProgramSource(src) + " · ANC preview · /take to cut")
+	return m, nil
+}
+
+func (m *Model) handleCaptionCmd(arg string) (tea.Model, tea.Cmd) {
+	if !m.ensureConductor() {
+		return m, nil
+	}
+	if arg == "" {
+		if m.program.Caption != "" {
+			m.pushSys("◈ caption: " + truncate(m.program.Caption, 60))
+		} else {
+			m.pushSys("usage: /caption text · /caption clear")
+		}
+		return m, nil
+	}
+	if arg == "clear" || arg == "off" || arg == "none" {
+		m.program.SetCaption("", m.nick)
+		m.publishProgramBus()
+		m.pushSys("◈ caption clear · no caption ANC")
+		return m, nil
+	}
+	m.program.SetCaption(arg, m.nick)
+	m.publishProgramBus()
+	m.pushSys("◈ caption → ANC · " + truncate(m.program.Caption, 48))
 	return m, nil
 }
 

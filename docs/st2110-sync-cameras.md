@@ -105,9 +105,11 @@ Cleanest starting point — **not** a full caption engine:
 
 | Capture | DID/SDID | Content |
 |---------|----------|---------|
-| mark-as-ANC | `0x5F` / `0x01` | UTF-8 `cgf:…` |
-| tally / mode | `0x5F` / `0x02` | live/hold/black + slot + conductor |
+| mark-as-ANC | `0x5F` / `0x01` | UTF-8 `cgf:…` program |
+| tally / mode | `0x5F` / `0x02` | live/hold/black + slot + flags (preview/caption) + conductor |
 | bus snapshot | `0x5F` / `0x03` | compact JSON |
+| preview | `0x5F` / `0x04` | PVW mark/label when armed (`/preview`) |
+| caption | `0x5F` / `0x05` | UTF-8 on-air text (`/caption`) — not CEA-708 |
 
 ```bash
 # capture point = conductor take/hold/black (hub type:program)

@@ -215,10 +215,11 @@ ffplay -vn SRC   # audio parallel</code></pre>
         <p>On-air control plane for jam + venue sinks. Mesh type <code>program</code>; hub remembers last bus for late joiners.</p>
         <pre class="code-block"><code>/conductor claim
 /preview 2
+/caption HELLO DOJO
 /take            # or /take 1
 /hold · /black
 /program         # PGM/PVW + venue adapter hint</code></pre>
-        <p>Modes: <code>live</code> · <code>hold</code> (freeze last) · <code>black</code> (safe slate). Source carries forge mark, slot, lane.</p>
+        <p>Modes: <code>live</code> · <code>hold</code> · <code>black</code>. ANC: mark · tally (preview/caption flags) · bus · preview · caption (DID <code>0x5F</code>).</p>
       </section>
 
       <section id="venue" class="docs-section">
