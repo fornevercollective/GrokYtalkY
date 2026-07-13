@@ -102,6 +102,7 @@ gy lab                 # or V inside companion
 # phone:  gy serve → open http://LAN:9876/phone.html on phone (same Wi‑Fi)
 # news:   /news [us|eu|all 8]  · glyph wall of live agencies (GrokGlyph styles)
 # media:  H health · R restart tile · K kill pipe · GY_MEDIA_MAX · GY_NEWS_MAX
+# orch:   /orch [hint] · *  → STYLE/CAPTION/PATTERN/GLYPH take (XAI_API_KEY)
 # layouts: side | stack | grid | focus
 ```
 

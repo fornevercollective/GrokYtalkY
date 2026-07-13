@@ -197,6 +197,8 @@ type (
 		Err     string
 		Overlay bool        // true = caption/effect/prompt lane
 		Mode    OverlayMode // caption|effect|prompt
+		// Orchestrate true → parse STYLE/CAPTION/PATTERN/… take lines
+		Orchestrate bool
 	}
 )
 
@@ -538,6 +540,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// overlay lane replies apply as caption/effect, not always full chat history
 		if msg.Overlay {
 			return m.applyGrokOverlayReply(msg.Text, msg.Mode)
+		}
+		if msg.Orchestrate {
+			return m.applyGrokTake(ParseGrokTake(msg.Text))
 		}
 		m.chat = append(m.chat, chatLine{From: "grok", Text: msg.Text})
 		m.trimChat()
@@ -1114,6 +1119,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 			m.status = FormatMediaHealthChrome(h)
 			return m, nil
+		case "*":
+			// Grok orchestrate take on current feeds
+			return m.startGrokOrchestrate("")
 		case "c":
 			if m.lab != nil && m.lab.On {
 				// quick: drop camera into active/empty placeholder
@@ -1559,6 +1567,8 @@ func (m *Model) slash(line string) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "overlay", "grok-cap", "grokcap", "grok-fx", "grokfx":
 		return m.handleOverlayCmd(cmd, arg)
+	case "orch", "orchestrate", "take-grok", "gtake", "grok-take":
+		return m.startGrokOrchestrate(arg)
 	case "newswall", "news-wall", "news", "vwall", "agencies":
 		return m.startNewsWall(arg)
 	case "newswall-stop", "news-stop", "stopnews":
@@ -4161,6 +4171,200 @@ func (m *Model) applyGrokOverlayReply(text string, mode OverlayMode) (tea.Model,
 		}
 	}
 	return m, nil
+}
+
+// feedOrchestrateContext builds Grok take context from lab/news/watch/media.
+func (m *Model) feedOrchestrateContext(hint string) FeedOrchestrateContext {
+	ctx := FeedOrchestrateContext{
+		Mode:     m.promptMode.String(),
+		Style:    m.pixelMode.String(),
+		GlyphN:   m.glyphN,
+		GlyphAsp: m.glyphAspect.String(),
+		Media:    FormatMediaHealthChrome(Media().Health()),
+		Hint:     hint,
+		Live:     Media().Health().Alive > 0 || m.vpipe != nil,
+	}
+	if m.lab != nil && m.lab.On {
+		ctx.Mode = "lab"
+		ctx.Style = m.lab.Style.String()
+		if af := m.lab.ActiveFeed(); af != nil {
+			ctx.Active = af.Label
+			ctx.Kind = af.Kind
+			if af.TileStyle > 0 || af.Kind == "news" {
+				ctx.Style = af.TileStyle.String()
+			}
+		}
+		if m.lab.News != nil && m.lab.News.On {
+			ctx.Mode = "news"
+			ctx.NewsCount = len(m.lab.News.Sources)
+			ctx.Live = true
+		}
+	}
+	if m.burstMode {
+		ctx.Mode = "burst"
+	}
+	if m.vpipe != nil && m.watchPath != "" {
+		ctx.Kind = "watch"
+		if ctx.Active == "" {
+			ctx.Active = m.watchPath
+		}
+	}
+	return ctx
+}
+
+// startGrokOrchestrate asks Grok for a structured take and applies it.
+func (m *Model) startGrokOrchestrate(hint string) (tea.Model, tea.Cmd) {
+	if !m.grokCfg.Available() {
+		m.pushSys("orch: set XAI_API_KEY or grok backend")
+		return m, nil
+	}
+	if !MediaHealthyEnough() && Media().Health().Alive == 0 && m.vpipe == nil {
+		// still allow pattern-only, but note
+		m.pushSys("orch · no live media — style/pattern only")
+	}
+	ctx := m.feedOrchestrateContext(hint)
+	cfg := m.grokCfg
+	m.grokThinking = true
+	m.status = "orch…"
+	m.pushSys("✦ orchestrate " + ctx.Mode + " · " + truncate(ctx.Active, 24))
+	return m, func() tea.Msg {
+		take, err := AskGrokOrchestrate(cfg, ctx)
+		if err != nil {
+			return grokReplyMsg{Err: err.Error(), Orchestrate: true}
+		}
+		// pass raw so apply path re-parses consistently
+		return grokReplyMsg{Text: take.Raw, Orchestrate: true}
+	}
+}
+
+// applyGrokTake applies STYLE/CAPTION/PATTERN/GLYPH/DEPTH/EFFECT to the dock.
+func (m *Model) applyGrokTake(take GrokTake) (tea.Model, tea.Cmd) {
+	m.grokThinking = false
+	if m.overlay != nil {
+		m.overlay.MarkBusy(false)
+	}
+	if take.Raw != "" {
+		m.chat = append(m.chat, chatLine{From: "grok", Text: truncate(take.Raw, 200)})
+		m.trimChat()
+	}
+	var applied []string
+	var cmd tea.Cmd
+
+	if take.Style != "" {
+		if st, ok := ParsePixelStyleName(take.Style); ok {
+			m.pixelMode = st
+			if m.lab != nil && m.lab.On {
+				m.lab.Style = st
+				// news wall: paint all tiles with take style (unified wall look)
+				if m.lab.News != nil && m.lab.News.On {
+					for i := range m.lab.Feeds {
+						if m.lab.Feeds[i].Kind == "news" {
+							m.lab.Feeds[i].TileStyle = st
+						}
+					}
+				}
+			}
+			applied = append(applied, "style="+st.String())
+		}
+	}
+
+	if take.Glyph != "" {
+		g := strings.ToLower(strings.TrimSpace(take.Glyph))
+		switch g {
+		case "square":
+			m.glyphAspect = GlyphAspectSquare
+			applied = append(applied, "glyph=square")
+		case "phone-v", "phone", "vertical", "portrait":
+			m.glyphAspect = GlyphAspectPhoneV
+			if m.glyphN != GlyphPhone4a && m.glyphN != GlyphPhone3 {
+				m.glyphN = GlyphPhone3
+			}
+			applied = append(applied, "glyph=phone-v")
+		case "13":
+			m.glyphN = GlyphPhone4a
+			applied = append(applied, "glyph=13")
+		case "25":
+			m.glyphN = GlyphPhone3
+			applied = append(applied, "glyph=25")
+		case "37":
+			m.glyphN = GlyphRes37
+			m.glyphAspect = GlyphAspectSquare
+			applied = append(applied, "glyph=37")
+		case "49":
+			m.glyphN = GlyphRes49
+			m.glyphAspect = GlyphAspectSquare
+			applied = append(applied, "glyph=49")
+		}
+	}
+
+	if take.Depth != "" && m.depth != nil {
+		switch strings.ToLower(strings.TrimSpace(take.Depth)) {
+		case "off", "none":
+			m.depth.SetMode(DepthOff)
+			applied = append(applied, "depth=off")
+		case "zip-lite", "ziplite", "lite":
+			m.depth.SetMode(DepthZipLite)
+			applied = append(applied, "depth=zip-lite")
+		case "zipdepth", "zip":
+			m.depth.SetMode(DepthZipDepth)
+			applied = append(applied, "depth=zipdepth")
+		case "gsplat", "splat":
+			m.depth.SetMode(DepthGsplat)
+			applied = append(applied, "depth=gsplat")
+		}
+	}
+
+	if take.Caption != "" {
+		cap := OverlayReplyToCaption(take.Caption, "grok")
+		if m.conductor {
+			m.program.SetCaptionRich(cap, m.nick)
+			m.publishProgramBus()
+			applied = append(applied, "caption=pgm")
+		} else if m.client != nil {
+			_ = m.client.SendJSON(map[string]any{
+				"type": "caption", "from": m.nick, "text": cap.Text,
+				"source": "grok-orch", "t": time.Now().UnixMilli(),
+			})
+			applied = append(applied, "caption=soft")
+		} else {
+			applied = append(applied, "caption")
+		}
+		if m.overlay != nil {
+			m.overlay.Record(cap.Text, "grok")
+		}
+		m.pushSys("◈ " + truncate(cap.Text, 60))
+	}
+
+	if take.Effect != "" {
+		m.pushSys("✦ fx " + truncate(take.Effect, 56))
+		if m.client != nil {
+			_ = m.client.SendJSON(map[string]any{
+				"type": "caption", "from": m.nick, "text": take.Effect,
+				"source": "grok-fx", "t": time.Now().UnixMilli(),
+			})
+		}
+		applied = append(applied, "fx")
+	}
+
+	if take.Note != "" {
+		m.pushSys("✦ note " + truncate(take.Note, 60))
+	}
+
+	if take.Pattern != "" {
+		applied = append(applied, "pattern")
+		m.status = take.TakeSummary()
+		m.pushSys("✦ orch " + strings.Join(applied, " · "))
+		return m.evalLive(take.Pattern, true)
+	}
+
+	if len(applied) > 0 {
+		m.status = take.TakeSummary()
+		m.pushSys("✦ orch " + strings.Join(applied, " · "))
+	} else {
+		m.pushSys("✦ orch (no applicable lines)")
+		m.status = "orch empty"
+	}
+	return m, cmd
 }
 
 // maybeAutoOverlay triggers throttled Grok caption on live gyst frames.

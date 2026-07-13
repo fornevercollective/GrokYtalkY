@@ -131,6 +131,7 @@ func helpBodyStream() string {
   /news [us|eu|all N]  glyph news wall (agencies)
   /media · H           ffmpeg supervisor health
   R restart tile · K kill pipe (lab/news)
+  /orch [hint] · *     Grok take: STYLE/CAPTION/PATTERN/GLYPH
   /social @user      social handle · lazy lab fill
   /duplex            open-mic full duplex (RX duck)
   /meshmidi          Strudel/walkie → hub type:midi
