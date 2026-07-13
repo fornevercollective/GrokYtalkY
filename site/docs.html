@@ -60,7 +60,7 @@
     </aside>
 
     <article class="docs-main">
-      <p class="eyebrow">docs · fornevercollective/GrokYtalkY · v1.38+</p>
+      <p class="eyebrow">docs · fornevercollective/GrokYtalkY · v1.39+</p>
       <h1>Documentation</h1>
       <p class="lede docs-lede">
         Companion dock, dual Glyph walkie, forge multi-pcap marks, conductor program bus,
@@ -116,7 +116,8 @@ go build -o bin/gy .
           each matrix can <strong>cast live video</strong> as 25×25 luminance (cam or file) over the gy hub.
         </p>
         <ul>
-          <li><strong>Video cast</strong> — <code>cam</code> samples face → 25×25; <code>cast</code> ships <code>vburst-frame</code> + glyph grid; peers paint as RX tiles</li>
+          <li><strong>Video cast</strong> — <code>cam</code> samples face → 25×25; <code>cast</code> ships formal <code>gyst kind=hexlum</code> (lane hex) + walkie <code>vburst-frame</code></li>
+          <li><strong>Live hexlum lane</strong> — hub promotes any <code>vburst-frame.glyph</code> → <code>type:gyst</code> for SFU / agent / venue (skip when <code>hex_lane</code>)</li>
           <li><strong>Full-page grid</strong> — 1px column/row between matrices; cell size from device scale</li>
           <li><strong>Header</strong> — cam · cast · hub · + · mesh (main needs)</li>
           <li><strong>Footer drawer</strong> — hub URL · video file · compass · roster · NFC · links</li>

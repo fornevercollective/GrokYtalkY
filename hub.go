@@ -244,12 +244,25 @@ func (h *Hub) route(from *websocket.Conn, meta *peerMeta, data []byte) {
 			meta.Talking = false
 		}
 		h.broadcast(from, mustJSON(msg))
+		// live hexlum lane: additive promote glyph[] → type:gyst kind:hexlum
+		// (SFU · agent · venue · GrokGlyph). Skip when client sets hex_lane (dual-pub).
+		if typ == "vburst-frame" {
+			if hexMsg, ok := VburstGlyphToHexLumMesh(msg); ok {
+				h.broadcast(from, mustJSON(hexMsg))
+			}
+		}
 	case "gyst", "gyst-frame":
 		// live headless binary/hex stream packets (rgb24|hexlum|jpeg)
 		if _, ok := msg["from"]; !ok {
 			msg["from"] = meta.Nick
 		}
 		msg["type"] = "gyst"
+		// tag formal hex lane when kind is hexlum (telemetry only)
+		if k, _ := msg["kind"].(string); k == "hexlum" || k == "hex" {
+			if _, has := msg["lane"]; !has {
+				msg["lane"] = LaneHex
+			}
+		}
 		h.broadcast(from, mustJSON(msg))
 	case "program":
 		// conductor program bus — store for late joiners, fan-out

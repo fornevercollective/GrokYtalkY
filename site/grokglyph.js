@@ -74,6 +74,7 @@
   let raf = 0;
   let t0 = performance.now();
   let lastCastAt = 0;
+  let castSeq = 0;
   let camOn = false;
   let fileOn = false;
   let casting = false;
@@ -448,7 +449,19 @@
       return;
     }
     ws.onopen = () => {
-      sendJSON({ type: "join", nick: myNick(), role: "grokglyph" });
+      // advertise hex + gyst lanes so room can pick 25×25 hexlum
+      sendJSON({
+        type: "join",
+        nick: myNick(),
+        role: "grokglyph",
+        cap: {
+          class: "term-lean",
+          role: "peer",
+          lanes: ["glyph", "hex", "chat", "gyst"],
+          glyph_n: N,
+          forge: false,
+        },
+      });
       if (els.hubBtn) els.hubBtn.setAttribute("aria-pressed", "true");
       setCastLabel(casting ? "casting" : "hub on");
       saveState();
@@ -566,19 +579,51 @@
 
   function sendCastFrame(lum) {
     if (!casting || !ws || ws.readyState !== WebSocket.OPEN) return;
+    castSeq = (castSeq + 1) >>> 0;
     const glyph = new Array(N * N);
-    for (let i = 0; i < N * N; i++) glyph[i] = lum[i];
-    const b64 = jpegB64FromLum(lum);
+    const raw = new Uint8Array(N * N);
+    for (let i = 0; i < N * N; i++) {
+      glyph[i] = lum[i];
+      raw[i] = lum[i];
+    }
+    const t = Date.now();
+    // 1) formal live hexlum lane (forge · SFU · agent · venue · peers)
+    let b64raw = "";
+    try {
+      let s = "";
+      for (let i = 0; i < raw.length; i++) s += String.fromCharCode(raw[i]);
+      b64raw = btoa(s);
+    } catch {
+      b64raw = "";
+    }
+    sendJSON({
+      type: "gyst",
+      from: myNick(),
+      kind: "hexlum",
+      w: N,
+      h: N,
+      seq: castSeq,
+      t: t,
+      b64: b64raw,
+      data: glyph,
+      glyphN: N,
+      lane: "hex",
+      via: "grokglyph-cast",
+    });
+    // 2) walkie-compatible vburst (jpeg + glyph). hex_lane skips hub re-promote.
+    const b64jpeg = jpegB64FromLum(lum);
     sendJSON({
       type: "vburst-frame",
       from: myNick(),
       fmt: "jpeg",
-      b64: b64,
+      b64: b64jpeg,
       w: 100,
       h: 100,
       glyph: glyph,
       glyphN: N,
-      t: Date.now(),
+      seq: castSeq,
+      t: t,
+      hex_lane: true,
     });
   }
 
@@ -607,9 +652,19 @@
     if (typ === "vburst-frame") {
       applyRxFrame(from, msg);
     }
-    // hub hexlum / glyph packets (stream-pub / agent / terminal)
-    if (typ === "hexlum" || typ === "glyph" || typ === "gyst") {
-      applyHexLum(from, msg);
+    // live hexlum lane (gyst kind=hexlum · promoted vburst · stream-pub)
+    if (typ === "gyst" || typ === "gyst-frame" || typ === "hexlum" || typ === "glyph") {
+      const kind = msg.kind || "";
+      if (
+        typ === "hexlum" ||
+        typ === "glyph" ||
+        kind === "hexlum" ||
+        kind === "hex" ||
+        Array.isArray(msg.data) ||
+        Array.isArray(msg.glyph)
+      ) {
+        applyHexLum(from, msg);
+      }
     }
     if (typ === "join" || typ === "roster") {
       // optional: show roster peers as empty slots
