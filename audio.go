@@ -98,11 +98,65 @@ type Player struct {
 	cmd   *exec.Cmd
 	stdin io.WriteCloser
 	mu    sync.Mutex
+	// Duck attenuates RX while local TX (full-duplex walkie mitigation).
+	// 0 = mute RX, 1 = full level. Default 1.
+	Duck float64
+}
+
+// SetDuck sets RX attenuation (0–1). Used when duplex/open-mic is TX-active.
+func (p *Player) SetDuck(d float64) {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if d < 0 {
+		d = 0
+	}
+	if d > 1 {
+		d = 1
+	}
+	p.Duck = d
+}
+
+// duckPCM scales s16le mono/stereo in-place copy by gain 0–1.
+func duckPCM(pcm []byte, gain float64) []byte {
+	if gain >= 0.99 || len(pcm) < 2 {
+		return pcm
+	}
+	if gain <= 0.01 {
+		return make([]byte, len(pcm)) // silence
+	}
+	out := make([]byte, len(pcm))
+	for i := 0; i+1 < len(pcm); i += 2 {
+		s := int16(binary.LittleEndian.Uint16(pcm[i:]))
+		v := int(float64(s) * gain)
+		if v > 32767 {
+			v = 32767
+		}
+		if v < -32768 {
+			v = -32768
+		}
+		binary.LittleEndian.PutUint16(out[i:], uint16(int16(v)))
+	}
+	return out
 }
 
 func (p *Player) Write(pcm []byte, sr, ch int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	// Duck: 0 = mute RX (duplex TX), (0,1) = attenuate, >=1 or unset(0 default first) = full.
+	// Convention: Duck==0 with never-set is ambiguous; callers SetDuck(1) at Player create.
+	if p.Duck < 0 {
+		p.Duck = 1
+	}
+	if p.Duck == 0 {
+		// explicit mute while local open-mic TX
+		return
+	}
+	if p.Duck < 0.99 {
+		pcm = duckPCM(pcm, p.Duck)
+	}
 	if p.cmd == nil || p.stdin == nil {
 		if sr <= 0 {
 			sr = sampleRate

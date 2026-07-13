@@ -127,6 +127,13 @@ type Model struct {
 
 	// Live TUI ingest: hub stream-pub cancel (Colossus/DOJO pcap or sim)
 	streamPubCancel context.CancelFunc
+
+	// Full-duplex walkie: open mic + RX duck (latency-mitigated peer audio)
+	duplexOn bool // continuous mic (vs PTT half-duplex)
+	// Mesh MIDI peer sync (Strudel hits + walkie → hub type:midi)
+	meshMIDI bool
+	// Grok overlay lane on glyph streams (caption / effect / prompt)
+	overlay *GrokOverlayState
 	streamPubSrc    string
 }
 
@@ -173,8 +180,10 @@ type (
 		Tag   string // platform/@handle
 	}
 	grokReplyMsg struct {
-		Text string
-		Err  string
+		Text    string
+		Err     string
+		Overlay bool        // true = caption/effect/prompt lane
+		Mode    OverlayMode // caption|effect|prompt
 	}
 )
 
@@ -225,7 +234,6 @@ func NewModel(opts Options) *Model {
 		depth:      newDepthSession(),
 		lab:        newLabState(),
 		recorder:   NewRecordSession(),
-		player:     &Player{},
 		midiOn:     opts.MIDI,
 		xl8On:      opts.Translate,
 		xl8:        opts.XL8,
@@ -241,7 +249,10 @@ func NewModel(opts Options) *Model {
 			`note("c4 e4 g4 c5")`,
 			`stack(s("bd*4, sd*2"), note("c3 e3 g3"))`,
 		},
-		grokCfg: loadGrokConfig(),
+		grokCfg:  loadGrokConfig(),
+		overlay:  newGrokOverlayState(),
+		meshMIDI: true, // jam dock: share Strudel hits over mesh by default
+		player:   &Player{Duck: 1},
 		chat: []chatLine{
 			{Sys: true, Text: fmt.Sprintf("gy %s · companion", Version)},
 			{Sys: true, Text: cap.SummaryLine()},
@@ -306,11 +317,29 @@ func NewModel(opts Options) *Model {
 		if m.prog != nil {
 			m.prog.Send(liveHitMsg{Ev: ev, Cycle: cyc})
 		}
+		// mesh MIDI peer sync — note hits for jam docks
+		if m.meshMIDI && m.client != nil {
+			note, ch, vel := strudelHitToMIDI(ev)
+			if note >= 0 {
+				m.client.SendMIDINote(MeshMIDINoteOn, ch, note, vel, "strudel")
+				// schedule short note-off so peers don't stick
+				go func(n, c, v int) {
+					time.Sleep(80 * time.Millisecond)
+					if m.client != nil {
+						m.client.SendMIDINote(MeshMIDINoteOff, c, n, 0, "strudel")
+					}
+				}(note, ch, vel)
+			}
+		}
 	}})
 	m.live = strudel.NewEngine(&strudel.MultiSink{Sinks: sinks})
 	m.live.SetOnCycle(func(cycle int64, cps float64, code string) {
 		if m.prog != nil {
 			m.prog.Send(liveCycleMsg{Cycle: cycle, CPS: cps, Code: code})
+		}
+		// share tempo every ~4 cycles for jam phase soft-lock
+		if m.meshMIDI && m.client != nil && cycle%4 == 0 {
+			m.client.SendMIDI(BuildMeshMIDITempo(m.nick, cps, cycle))
 		}
 	})
 	_ = m.live.Eval(m.liveCode)
@@ -487,7 +516,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.grokThinking = false
 		if msg.Err != "" {
 			m.pushSys("grok error: " + msg.Err)
+			if m.overlay != nil {
+				m.overlay.MarkBusy(false)
+			}
 			return m, nil
+		}
+		// overlay lane replies apply as caption/effect, not always full chat history
+		if msg.Overlay {
+			return m.applyGrokOverlayReply(msg.Text, msg.Mode)
 		}
 		m.chat = append(m.chat, chatLine{From: "grok", Text: msg.Text})
 		m.trimChat()
@@ -1318,6 +1354,26 @@ func (m *Model) slash(line string) (tea.Model, tea.Cmd) {
 			m.lab.On = true
 		}
 		return m.startWatch(src, true)
+	case "duplex", "openmic", "fullduplex":
+		m.duplexOn = !m.duplexOn
+		if m.duplexOn {
+			m.pushSys("duplex ON · space = open mic (RX ducked) · mesh audio+MIDI")
+			m.status = "duplex"
+			// auto-start open mic when enabling
+			return m.startPTT()
+		}
+		m.pushSys("duplex OFF · space = PTT half-duplex")
+		if m.talking {
+			return m.stopPTT()
+		}
+		return m, nil
+	case "meshmidi", "midi-mesh":
+		m.meshMIDI = !m.meshMIDI
+		m.pushSys(fmt.Sprintf("mesh MIDI %s · Strudel hits + walkie → hub type:midi",
+			map[bool]string{true: "ON", false: "OFF"}[m.meshMIDI]))
+		return m, nil
+	case "overlay", "grok-cap", "grokcap", "grok-fx", "grokfx":
+		return m.handleOverlayCmd(cmd, arg)
 	case "social", "handle":
 		src := arg
 		if src == "" {
@@ -2919,6 +2975,7 @@ func (m *Model) toggleLive() tea.Cmd {
 
 func (m *Model) togglePTT() (tea.Model, tea.Cmd) {
 	if m.talking {
+		// duplex: space toggles open mic off
 		return m.stopPTT()
 	}
 	return m.startPTT()
@@ -2931,9 +2988,18 @@ func (m *Model) startPTT() (tea.Model, tea.Cmd) {
 	}
 	prog := m.prog
 	burst := m.burstMode
+	// duplex: duck RX so full-duplex walkie doesn't feedback as hard
+	if m.duplexOn && m.player != nil {
+		m.player.SetDuck(0.12)
+	}
 	sess, err := startPTT(func(chunk []byte) {
 		// soft gate near-silence (signls/sektron-style clean triggers)
-		if SoftGate(chunk, 0.008) == nil {
+		// duplex keeps a lower gate so continuous talk still streams
+		gate := 0.008
+		if m.duplexOn {
+			gate = 0.004
+		}
+		if SoftGate(chunk, gate) == nil {
 			return
 		}
 		if m.client != nil {
@@ -2943,9 +3009,16 @@ func (m *Model) startPTT() (tea.Model, tea.Cmd) {
 		if prog != nil {
 			prog.Send(audioLvlMsg{Level: lv, Bands: bandLevels(chunk, 32), TX: true})
 		}
+		// mesh MIDI walkie VU as CC expression for jam peers
+		if m.meshMIDI && m.client != nil {
+			m.client.SendMIDI(BuildMeshMIDICC(m.nick, 0, 11, int(lv*127), "walkie"))
+		}
 	})
 	if err != nil {
 		m.pushSys("mic: " + err.Error())
+		if m.player != nil {
+			m.player.SetDuck(1)
+		}
 		return m, nil
 	}
 	m.ptt = sess
@@ -2956,12 +3029,19 @@ func (m *Model) startPTT() (tea.Model, tea.Cmd) {
 		m.client.SendBurstStart()
 		m.client.SendPTT(true)
 		m.status = "BURST"
+	} else if m.duplexOn {
+		m.client.SendPTT(true)
+		m.status = "DUPLEX"
+		m.pushSys("duplex open-mic · RX ducked · space to stop")
 	} else {
 		m.client.SendPTT(true)
 		m.status = "PTT"
 	}
 	if m.midiOn && m.midiBridge != nil {
 		m.midiBridge.PTT(true, LevelToVelocity(0.5))
+	}
+	if m.meshMIDI && m.client != nil {
+		m.client.SendMIDINote(MeshMIDINoteOn, 0, 48, 90, "walkie") // C3 PTT
 	}
 	return m, nil
 }
@@ -2978,6 +3058,10 @@ func (m *Model) stopPTT() (tea.Model, tea.Cmd) {
 	burst := m.burstMode
 	m.talking = false
 	m.level = 0
+	// restore full RX after TX
+	if m.player != nil {
+		m.player.SetDuck(1)
+	}
 	if m.client != nil {
 		if burst {
 			m.client.SendBurstEnd()
@@ -2986,6 +3070,9 @@ func (m *Model) stopPTT() (tea.Model, tea.Cmd) {
 	}
 	if m.midiOn && m.midiBridge != nil {
 		m.midiBridge.PTT(false, LevelToVelocity(m.peak))
+	}
+	if m.meshMIDI && m.client != nil {
+		m.client.SendMIDINote(MeshMIDINoteOff, 0, 48, 0, "walkie")
 	}
 	m.status = m.nick
 
@@ -3002,6 +3089,42 @@ func (m *Model) stopPTT() (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// strudelHitToMIDI maps mini-notation hits to drum/mel notes for mesh MIDI.
+func strudelHitToMIDI(ev strudel.Event) (note, ch, vel int) {
+	vel = 90
+	if ev.Vel > 0 {
+		vel = int(ev.Vel)
+		if vel > 127 {
+			vel = 127
+		}
+	}
+	if ev.MIDI > 0 {
+		ch = 0
+		if ev.Kind == "drum" {
+			ch = 9
+		}
+		return ev.MIDI, ch, vel
+	}
+	snd := strings.ToLower(ev.Sound)
+	// drums → ch 9 (GM)
+	switch {
+	case strings.Contains(snd, "bd") || snd == "kick":
+		return 36, 9, vel
+	case strings.Contains(snd, "sd") || snd == "snare":
+		return 38, 9, vel
+	case strings.Contains(snd, "hh") || strings.Contains(snd, "hat"):
+		return 42, 9, vel
+	case strings.Contains(snd, "cp") || strings.Contains(snd, "clap"):
+		return 39, 9, vel
+	case strings.Contains(snd, "oh"):
+		return 46, 9, vel
+	}
+	if ev.Kind == "note" {
+		return 60, 0, vel // C4 fallback
+	}
+	return -1, 0, 0
 }
 
 func (m *Model) shutdown() {
@@ -3121,12 +3244,20 @@ func (m *Model) handleWS(raw []byte) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "caption":
-		// informational caption (UI) — no program authority; show soft line
+		// informational caption (UI) — no program authority; Grok overlay + soft line
+		from, _ := msg["from"].(string)
 		if cap, ok := ParseCaptionFromMesh(msg); ok && !cap.IsEmpty() {
-			from, _ := msg["from"].(string)
 			if from != "" && from != m.nick {
 				m.pushSys("◈ " + FormatCaptionLine(cap) + " · soft")
 				m.status = truncate(cap.Display(), 28)
+				if m.overlay != nil {
+					m.overlay.Record(cap.Text, from)
+				}
+			}
+		} else if text, _ := msg["text"].(string); text != "" && from != m.nick {
+			m.pushSys("◈ " + from + ": " + truncate(text, 60))
+			if m.overlay != nil {
+				m.overlay.Record(text, from)
 			}
 		}
 	case "leave":
@@ -3238,9 +3369,14 @@ func (m *Model) handleWS(raw []byte) (tea.Model, tea.Cmd) {
 				m.burstLocalFrame = m.frame
 			}
 		}
-		return m, func() tea.Msg {
-			return frameReady{F: fp, Meta: meta}
+		// optional auto Grok overlay on live mesh (throttled)
+		var autoCmd tea.Cmd
+		if m.overlay != nil && m.overlay.Auto {
+			autoCmd = m.maybeAutoOverlay(from, pkt.KindName(), fp.W, fp.H)
 		}
+		return m, tea.Batch(func() tea.Msg {
+			return frameReady{F: fp, Meta: meta}
+		}, autoCmd)
 	case "vburst-frame":
 		from, _ := msg["from"].(string)
 		if from == m.nick {
@@ -3303,9 +3439,11 @@ func (m *Model) handleWS(raw []byte) (tea.Model, tea.Cmd) {
 		if m.midiOn && m.midiBridge != nil {
 			m.midiBridge.LevelRX(m.peak)
 		}
+		// duplex: duck already applied on Player; half-duplex still plays full
 		if m.player != nil {
 			m.player.Write(pcm, sr, ch)
 		}
+		m.remoteTX = from
 	case "translate":
 		from, _ := msg["from"].(string)
 		text, _ := msg["text"].(string)
@@ -3324,8 +3462,159 @@ func (m *Model) handleWS(raw []byte) (tea.Model, tea.Cmd) {
 			m.pushSys("◎ jam from " + from)
 			_, _ = m.evalLive(code, true)
 		}
+	case MeshMIDIType:
+		// bidirectional MIDI peer sync (walkie + Strudel) — type "midi"
+		mm, ok := ParseMeshMIDI(msg)
+		if !ok || mm.From == m.nick {
+			return m, nil
+		}
+		if m.midiOn && m.midiBridge != nil {
+			if s := ApplyMeshMIDI(m.midiBridge, mm); s != "" {
+				m.status = s
+			}
+		}
+		// soft tempo lock from peer jam
+		if mm.Kind == MeshMIDITempo && mm.CPS > 0 && m.live != nil {
+			m.status = fmt.Sprintf("jam tempo · %.2f cps ←%s", mm.CPS, mm.From)
+		}
 	}
 	return m, nil
+}
+
+// handleOverlayCmd: /overlay [auto|off|caption|fx|prompt] [hint…]
+// /grok-cap [hint] · /grok-fx [hint]
+func (m *Model) handleOverlayCmd(cmd, arg string) (tea.Model, tea.Cmd) {
+	if m.overlay == nil {
+		m.overlay = newGrokOverlayState()
+	}
+	mode := OverlayCaption
+	switch cmd {
+	case "grok-fx", "grokfx":
+		mode = OverlayEffect
+	case "overlay", "grok-cap", "grokcap":
+		// parse first token as mode if present
+		fields := strings.Fields(arg)
+		if len(fields) > 0 {
+			switch strings.ToLower(fields[0]) {
+			case "auto", "on":
+				m.overlay.Auto = true
+				m.overlay.Mode = OverlayCaption
+				m.pushSys("overlay auto ON · caption on live gyst (throttled 8s)")
+				return m, nil
+			case "off", "stop":
+				m.overlay.Auto = false
+				m.pushSys("overlay auto OFF")
+				return m, nil
+			case "fx", "effect", "effects":
+				mode = OverlayEffect
+				arg = strings.TrimSpace(strings.TrimPrefix(arg, fields[0]))
+			case "prompt", "ask", "jam":
+				mode = OverlayPrompt
+				arg = strings.TrimSpace(strings.TrimPrefix(arg, fields[0]))
+			case "caption", "cap":
+				mode = OverlayCaption
+				arg = strings.TrimSpace(strings.TrimPrefix(arg, fields[0]))
+			}
+		}
+	}
+	m.overlay.Mode = mode
+	hint := strings.TrimSpace(arg)
+	peer, kind := "local", "glyph"
+	w, h := m.glyphN, m.glyphN
+	if m.frame != nil {
+		w, h = m.frame.W, m.frame.H
+		if m.frame.Source != "" {
+			peer = m.frame.Source
+		}
+	}
+	user := BuildOverlayUserPrompt(mode, hint, peer, kind, w, h)
+	cfg := m.grokCfg
+	m.overlay.MarkBusy(true)
+	m.grokThinking = true
+	m.status = "overlay…"
+	m.pushSys(fmt.Sprintf("✦ overlay %s…", mode))
+	return m, func() tea.Msg {
+		reply, err := AskGrokOverlay(cfg, mode, user)
+		if err != nil {
+			return grokReplyMsg{Err: err.Error(), Overlay: true, Mode: mode}
+		}
+		return grokReplyMsg{Text: reply, Overlay: true, Mode: mode}
+	}
+}
+
+// applyGrokOverlayReply routes caption/effect to program or soft mesh caption.
+func (m *Model) applyGrokOverlayReply(text string, mode OverlayMode) (tea.Model, tea.Cmd) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		if m.overlay != nil {
+			m.overlay.MarkBusy(false)
+		}
+		return m, nil
+	}
+	if m.overlay != nil {
+		m.overlay.Record(text, "grok")
+	}
+	m.chat = append(m.chat, chatLine{From: "grok", Text: text})
+	m.trimChat()
+	switch mode {
+	case OverlayEffect:
+		// soft caption + status — no PGM authority
+		m.status = "fx · " + truncate(text, 40)
+		m.pushSys("✦ fx " + truncate(text, 56))
+		if m.client != nil {
+			_ = m.client.SendJSON(map[string]any{
+				"type": "caption", "from": m.nick, "text": text,
+				"source": "grok-fx", "t": time.Now().UnixMilli(),
+			})
+		}
+	case OverlayPrompt:
+		m.pushSys("✦ " + truncate(text, 70))
+		// try pattern extract same as normal grok
+		if pat := extractPattern(text); pat != "" {
+			return m.evalLive(pat, true)
+		}
+	default: // caption
+		cap := OverlayReplyToCaption(text, "grok")
+		// conductor → program bus; else soft mesh caption
+		if m.conductor {
+			m.program.SetCaptionRich(cap, m.nick)
+			m.publishProgramBus()
+			m.pushSys("◈ caption (grok) → ANC · " + FormatCaptionLine(cap))
+		} else if m.client != nil {
+			_ = m.client.SendJSON(map[string]any{
+				"type": "caption", "from": m.nick, "text": cap.Text,
+				"source": "grok-overlay", "t": time.Now().UnixMilli(),
+			})
+			m.pushSys("◈ soft caption · " + truncate(cap.Text, 50))
+		} else {
+			m.pushSys("◈ " + truncate(cap.Text, 60))
+		}
+	}
+	return m, nil
+}
+
+// maybeAutoOverlay triggers throttled Grok caption on live gyst frames.
+func (m *Model) maybeAutoOverlay(from, kind string, w, h int) tea.Cmd {
+	if m.overlay == nil || !m.overlay.CanAuto() {
+		return nil
+	}
+	if !m.grokCfg.Available() {
+		return nil
+	}
+	mode := m.overlay.Mode
+	if mode == "" {
+		mode = OverlayCaption
+	}
+	user := BuildOverlayUserPrompt(mode, "", from, kind, w, h)
+	cfg := m.grokCfg
+	m.overlay.MarkBusy(true)
+	return func() tea.Msg {
+		reply, err := AskGrokOverlay(cfg, mode, user)
+		if err != nil {
+			return grokReplyMsg{Err: err.Error(), Overlay: true, Mode: mode}
+		}
+		return grokReplyMsg{Text: reply, Overlay: true, Mode: mode}
+	}
 }
 
 func decodeFrameCmd(jpeg []byte, meta string, maxW, maxH int) tea.Cmd {

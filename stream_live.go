@@ -166,9 +166,10 @@ func RGBToHexLum(rgb []byte, w, h, n int) []byte {
 
 // StreamPubOpts headless live publisher.
 type StreamPubOpts struct {
-	Src      string // file/url/sim/cam / .pcap|.gyst replay
+	Src      string // file/url/sim/cam/stdin|- / .pcap|.gyst|.gyhex replay
 	Hub      string // host:port
 	Nick     string
+	Room     string // mesh room (default GY_ROOM / global)
 	Kind     string // auto | rgb24 | hexlum
 	W, H     int
 	HexN     int  // hexlum side
@@ -178,6 +179,8 @@ type StreamPubOpts struct {
 	MaxSec   int  // 0 = until signal
 	Pace     string // auto | fps | ts  (ts = use packet TimeMS deltas)
 	Colossus bool // preset: pcap loop + hexlum aesthetic when possible
+	// DualPub also emits vburst-frame glyph lattice for burst/Glyph consumers (hexlum only).
+	DualPub bool
 }
 
 // runStreamPubCmd: gy stream-pub [src] [flags]
@@ -188,14 +191,15 @@ func runStreamPubCmd(args []string) error {
 	// when invoked as `gy colossus`, main still routes here; optional flag
 	fs := newBridgeFlagSet("stream-pub")
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, `gy stream-pub — live headless GYST → hub (no file required)
+		fmt.Fprintf(os.Stderr, `gy stream-pub — live headless GYST/hexlum → hub (no file required)
 
   gy stream-pub [src] [flags]
   gy colossus file.pcap [flags]   # DOJO pcap loop preset
 
-  src:  video/url | sim | cam | stream.pcap|.gyst|.gyhex
+  src:  video/url | sim | cam | stdin|- | stream.pcap|.gyst|.gyhex
   --hub host:port     default 127.0.0.1:9876
   --nick name         publisher nick (default colossus)
+  --room id           mesh room (default GY_ROOM / global)
   --kind auto|rgb24|hexlum   auto = keep packet kind from pcap
   --w --h             rgb capture size (default 80×48)
   --hex 25|13         hexlum grid when converting (default 25)
@@ -203,19 +207,22 @@ func runStreamPubCmd(args []string) error {
   --pace auto|ts|fps  auto: use pcap TimeMS deltas when present
   --loop / --no-loop  stream files default to loop
   --max-sec N         stop after N seconds (0=forever)
+  --dual              also emit vburst glyph for burst/Glyph peers (hexlum)
   --colossus          force pcap-loop preset
 
 Examples:
   gy serve
-  gy stream-pub sim --kind hexlum --hex 25
+  gy stream-pub sim --kind hexlum --hex 25 --room dojo
+  gy stream-pub cam --kind hexlum --dual
+  gy stream-pub - --w 80 --h 48 --kind hexlum   # raw RGB24 stdin
   gy colossus capture.pcap --hub 127.0.0.1:9876
-  gy stream-pub out.pcap --pace ts --loop
   gy stream-pub clip.mp4 --kind rgb24 --w 96 --h 54 --loop
-  # peers: gy  (renders type:gyst)
+  # peers: gy join 127.0.0.1:9876  (renders type:gyst)
 `)
 	}
 	hub := fs.String("hub", "127.0.0.1:9876", "hub host:port")
 	nick := fs.String("nick", "colossus", "publisher nick")
+	room := fs.String("room", "", "mesh room (default GY_ROOM / global)")
 	kind := fs.String("kind", "auto", "auto|rgb24|hexlum")
 	w := fs.Int("w", 80, "rgb width")
 	h := fs.Int("h", 48, "rgb height")
@@ -225,6 +232,7 @@ Examples:
 	loop := fs.Bool("loop", false, "loop file sources (default on for pcap/gyst)")
 	noLoop := fs.Bool("no-loop", false, "disable loop even for stream files")
 	col := fs.Bool("colossus", false, "DOJO pcap loop preset")
+	dual := fs.Bool("dual", false, "dual-publish hexlum as vburst glyph for burst peers")
 	quiet := fs.Bool("quiet", false, "less logging")
 	maxSec := fs.Int("max-sec", 0, "stop after seconds (0=forever)")
 	src, flagArgs := splitSrcAndFlags(args)
@@ -267,10 +275,10 @@ Examples:
 		k = "hexlum"
 	}
 	return RunStreamPub(StreamPubOpts{
-		Src: src, Hub: *hub, Nick: *nick, Kind: k,
+		Src: src, Hub: *hub, Nick: *nick, Room: *room, Kind: k,
 		W: *w, H: *h, HexN: *hexN, FPS: *fps,
 		Loop: doLoop, Quiet: *quiet, MaxSec: *maxSec,
-		Pace: *pace, Colossus: colossus || isStream,
+		Pace: *pace, Colossus: colossus || isStream, DualPub: *dual,
 	})
 }
 
@@ -297,6 +305,14 @@ func RunStreamPub(opts StreamPubOpts) error {
 	}
 
 	client := NewMeshClient(opts.Hub, opts.Nick)
+	if opts.Room != "" {
+		client.Room = NormalizeMeshRoom(opts.Room)
+	}
+	// headless publisher identity for lattice/cap consumers
+	client.Role = "publisher"
+	if client.Cap.Role == "" || client.Cap.Role == "term" {
+		client.Cap.Role = "publisher"
+	}
 	client.OnStatus = func(s string) {
 		if !opts.Quiet {
 			fmt.Fprintf(os.Stderr, "stream-pub · %s\n", s)
@@ -307,14 +323,20 @@ func RunStreamPub(opts StreamPubOpts) error {
 	time.Sleep(400 * time.Millisecond)
 
 	path := expandPath(opts.Src)
-	isStream := IsStreamCodecPath(path) || DetectStreamFile(path) != "unknown"
+	isStream := opts.Src != "-" && opts.Src != "stdin" &&
+		(IsStreamCodecPath(path) || DetectStreamFile(path) != "unknown")
 	if isStream && !opts.Loop && opts.Colossus {
 		opts.Loop = true // safety
 	}
 
 	if !opts.Quiet {
-		fmt.Fprintf(os.Stderr, "stream-pub · src=%s kind=%s hub=%s nick=%s loop=%v pace=%s\n",
-			opts.Src, opts.Kind, opts.Hub, opts.Nick, opts.Loop, opts.Pace)
+		fmt.Fprintf(os.Stderr, "stream-pub · src=%s kind=%s hub=%s room=%s nick=%s loop=%v pace=%s dual=%v\n",
+			opts.Src, opts.Kind, opts.Hub, client.Room, opts.Nick, opts.Loop, opts.Pace, opts.DualPub)
+	}
+
+	// raw RGB24 stdin — external headless producer (no file)
+	if opts.Src == "-" || opts.Src == "stdin" {
+		return publishStdinRGB(ctx, client, opts)
 	}
 
 	// replay stream file (pcap / gyst / gyhex) — Colossus/DOJO loop
@@ -338,6 +360,99 @@ func publishPacket(c *MeshClient, p StreamPacket, quiet bool) {
 	}
 }
 
+// publishPacketDual sends formal gyst and optionally a vburst glyph lattice for burst UIs.
+func publishPacketDual(c *MeshClient, p StreamPacket, opts StreamPubOpts) {
+	publishPacket(c, p, opts.Quiet)
+	if !opts.DualPub || p.Kind != KindHexLum || len(p.Payload) == 0 {
+		return
+	}
+	n := int(p.Width)
+	if n < 1 {
+		n = opts.HexN
+	}
+	glyph := make([]int, len(p.Payload))
+	for i, b := range p.Payload {
+		glyph[i] = int(b)
+	}
+	// tiny JPEG-less burst frame: empty b64 + glyph for lattice consumers
+	msg := map[string]any{
+		"type":   string(BurstFrame),
+		"from":   c.Nick,
+		"fmt":    "hexlum",
+		"glyph":  glyph,
+		"glyphN": n,
+		"w":      n,
+		"h":      n,
+		"t":      time.Now().UnixMilli(),
+		"via":    "stream-pub-dual",
+	}
+	if err := c.SendJSON(msg); err != nil && !opts.Quiet {
+		fmt.Fprintf(os.Stderr, "stream-pub · dual: %v\n", err)
+	}
+}
+
+// publishStdinRGB reads fixed W×H×3 RGB24 frames from stdin and fans out gyst/hexlum.
+// External producers: `ffmpeg … -f rawvideo - | gy stream-pub - --w 80 --h 48 --kind hexlum`
+func publishStdinRGB(ctx context.Context, c *MeshClient, opts StreamPubOpts) error {
+	w, h := opts.W, opts.H
+	if h%2 != 0 {
+		h++
+	}
+	frameSize := w * h * 3
+	if frameSize < 1 {
+		return fmt.Errorf("stdin: invalid frame size")
+	}
+	buf := make([]byte, frameSize)
+	var seq uint32
+	// optional FPS throttle (0 = as-fast-as-pipe)
+	var tick <-chan time.Time
+	if opts.FPS > 0 {
+		t := time.NewTicker(time.Second / time.Duration(opts.FPS))
+		defer t.Stop()
+		tick = t.C
+	}
+	if !opts.Quiet {
+		fmt.Fprintf(os.Stderr, "stream-pub · stdin RGB24 %dx%d kind=%s (Ctrl-C stop)\n", w, h, opts.Kind)
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
+		if _, err := io.ReadFull(os.Stdin, buf); err != nil {
+			if err == io.EOF || err == io.ErrUnexpectedEOF {
+				if !opts.Quiet {
+					fmt.Fprintf(os.Stderr, "stream-pub · stdin EOF · seq=%d\n", seq)
+				}
+				return nil
+			}
+			return err
+		}
+		if tick != nil {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-tick:
+			}
+		}
+		seq++
+		cp := make([]byte, frameSize)
+		copy(cp, buf)
+		var p StreamPacket
+		if strings.HasPrefix(strings.ToLower(opts.Kind), "hex") {
+			lum := RGBToHexLum(cp, w, h, opts.HexN)
+			p = PacketFromHexLum(lum, opts.HexN, seq)
+		} else {
+			p = PacketFromRGB(cp, w, h, seq, uint64(time.Now().UnixMilli()))
+		}
+		publishPacketDual(c, p, opts)
+		if !opts.Quiet && seq%uint32(max(1, opts.FPS)) == 0 {
+			fmt.Fprintf(os.Stderr, "stream-pub · stdin seq=%d %s\n", seq, p.KindName())
+		}
+	}
+}
+
 func publishSim(ctx context.Context, c *MeshClient, opts StreamPubOpts) error {
 	tick := time.NewTicker(time.Second / time.Duration(opts.FPS))
 	defer tick.Stop()
@@ -356,7 +471,7 @@ func publishSim(ctx context.Context, c *MeshClient, opts StreamPubOpts) error {
 			} else {
 				p = PacketFromFramePixels(fp, seq)
 			}
-			publishPacket(c, p, opts.Quiet)
+			publishPacketDual(c, p, opts)
 			if !opts.Quiet && seq%uint32(opts.FPS) == 0 {
 				fmt.Fprintf(os.Stderr, "stream-pub · seq=%d %s %dx%d\n", seq, p.KindName(), p.Width, p.Height)
 			}
@@ -441,7 +556,7 @@ func publishStreamFile(ctx context.Context, c *MeshClient, opts StreamPubOpts) e
 
 			seq++
 			out := transformPubPacket(p, opts, seq)
-			publishPacket(c, out, opts.Quiet)
+			publishPacketDual(c, out, opts)
 			if !opts.Quiet && seq%uint32(max(1, opts.FPS)) == 0 {
 				fmt.Fprintf(os.Stderr, "stream-pub · seq=%d %s %dx%d loop=%d\n",
 					seq, out.KindName(), out.Width, out.Height, loops)
@@ -578,7 +693,7 @@ func publishFFmpeg(ctx context.Context, c *MeshClient, opts StreamPubOpts) error
 		} else {
 			p = PacketFromRGB(cp, w, h, seq, uint64(time.Now().UnixMilli()))
 		}
-		publishPacket(c, p, opts.Quiet)
+		publishPacketDual(c, p, opts)
 		if !opts.Quiet && seq%uint32(opts.FPS) == 0 {
 			fmt.Fprintf(os.Stderr, "stream-pub · seq=%d %s\n", seq, p.KindName())
 		}
@@ -641,7 +756,7 @@ func publishCam(ctx context.Context, c *MeshClient, opts StreamPubOpts) error {
 		} else {
 			p = PacketFromRGB(cp, w, h, seq, uint64(time.Now().UnixMilli()))
 		}
-		publishPacket(c, p, opts.Quiet)
+		publishPacketDual(c, p, opts)
 	}
 }
 

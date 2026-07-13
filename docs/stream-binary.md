@@ -79,21 +79,55 @@ camera / mp4 / yt-dlp / sim / Colossus
 
 ## Live publish (no file)
 
-Headless DOJO/Colossus → hub → every connected peer:
+Headless DOJO/Colossus → hub → every connected peer (same `type:gyst` as file replay):
 
 ```bash
 # terminal A
 gy serve
 
-# terminal B — headless publisher
-gy stream-pub sim --kind hexlum --hex 25 --fps 12 --nick colossus
-# or video file:
+# terminal B — headless publisher (no disk required)
+gy stream-pub sim --kind hexlum --hex 25 --fps 12 --nick colossus --room dojo
+gy stream-pub cam --kind hexlum --dual          # dual: also vburst glyph for burst UIs
+# raw RGB24 pipe from any producer:
+ffmpeg -re -i clip.mp4 -an -vf scale=80:48,format=rgb24 -f rawvideo - \
+  | gy stream-pub - --w 80 --h 48 --kind hexlum --fps 12
+# or video file / social URL (yt-dlp):
 gy stream-pub clip.mp4 --kind rgb24 --w 96 --h 54 --loop
 
 # terminal C — consumer TUI
-gy --nick viewer
+gy join 127.0.0.1:9876 --nick viewer
 # incoming gyst frames render (hexlum prefers hex style)
+# optional: gy sfu-bridge  (hexlum → SFU glyph|hex lanes)
 ```
+
+| Flag | Role |
+|------|------|
+| `--room` | mesh tenancy (default `GY_ROOM` / global) |
+| `--dual` | also emit `vburst-frame` glyph lattice (burst/Glyph peers) |
+| `--kind hexlum` | light mesh + SFU bridge path |
+| `src=-` / `stdin` | fixed `W×H×3` RGB24 frames from stdin |
+
+## Jam dock: duplex audio + mesh MIDI
+
+```text
+/duplex          open-mic full duplex (RX ducked while TX)
+/meshmidi        toggle Strudel hits + walkie → hub type:midi
+space            PTT (or open mic when duplex on)
+```
+
+Wire: `type:audio` (pcm16) · `type:midi` (noteon/off/cc/tempo). Peers with MIDI out replay hits.
+
+## Grok overlay on glyph streams
+
+```text
+/overlay auto           throttled caption on live gyst (~8s)
+/overlay off
+/grok-cap [hint]        one-shot caption → soft mesh or program ANC
+/grok-fx [hint]         effect prompt line (soft caption)
+/overlay prompt …       jam assistant (chat + pattern extract)
+```
+
+Needs `XAI_API_KEY` (or local grok backend). Keeps non-stream calls; auto path is budget-aware.
 
 ## Colossus / DOJO pcap loop
 

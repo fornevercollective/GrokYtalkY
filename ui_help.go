@@ -124,6 +124,10 @@ func helpBodyStream() string {
 	return `stream · binary · colossus
   /watch url|file|@u ffmpeg (+ yt-dlp · live first)
   /social @user      social handle · lazy lab fill
+  /duplex            open-mic full duplex (RX duck)
+  /meshmidi          Strudel/walkie → hub type:midi
+  /overlay auto|fx|… Grok caption/effect on streams
+  /grok-cap · /grok-fx  overlay prompts
   /vstop             stop video pipe
   /pause · /seek     +10|-30|90 · /rate 1.5
   /rec · /export f   .gyst|.gyhex|.pcap
@@ -210,6 +214,7 @@ func helpBodyCLI() string {
   gy burst · gy lab  Glyph dual · multi-feed lab
   gy serve · gy join HOST:PORT
   gy watch file|url|@user|twitch:name
+  gy stream-pub sim|cam|- --kind hexlum --room dojo --dual
   gy stream-pub|colossus src
   gy agent · gy venue · gy sfu-bridge · gy chat-bridge
   gy mid-lane --room R --edge URL   edge mid-lane hook

@@ -97,6 +97,8 @@ gy lab                 # or V inside companion
 # styles: half hex braille ascii blocks points halftone depth gsplat
 #         edges poster scan dither neon  (heavy styles auto-throttle under stream)
 # social: /watch @user · /social twitch:name · yt:@ch · tt:@user  (live first · lazy lab)
+# live:   gy stream-pub sim|cam|- --kind hexlum --room dojo --dual
+# jam:    /duplex · /meshmidi · /overlay auto · /grok-cap · /grok-fx
 # layouts: side | stack | grid | focus
 ```
 

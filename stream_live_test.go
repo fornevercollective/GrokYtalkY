@@ -75,6 +75,22 @@ func TestHexLumMeshAndDownsample(t *testing.T) {
 	}
 }
 
+func TestPublishPacketDualHex(t *testing.T) {
+	// dual pub builds vburst glyph only for hexlum — pure unit via PacketToMesh
+	lum := make([]byte, 25)
+	for i := range lum {
+		lum[i] = byte(i * 10)
+	}
+	p := PacketFromHexLum(lum, 5, 1)
+	msg := PacketToMesh(p, "pub")
+	if msg["type"] != MeshTypeGYST || msg["kind"] != "hexlum" {
+		t.Fatalf("%v", msg)
+	}
+	if msg["data"] == nil {
+		t.Fatal("hexlum data[]")
+	}
+}
+
 func TestGystB64Blob(t *testing.T) {
 	p := PacketFromHexLum([]byte{1, 2, 3, 4}, 2, 9)
 	s, err := EncodeGystB64(p)
