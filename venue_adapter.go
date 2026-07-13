@@ -73,6 +73,8 @@ type VenueOpts struct {
 	ST2110FPSExact string // 30 | 30000/1001 | 29.97
 	ST2110Sampling string // YCbCr-4:2:2|4:2:0
 	ST2110Depth    int    // 8|10
+	// ST 2022-7 hitless dual destination
+	RTPB string // secondary video RTP
 	// Shared raster
 	Width  int
 	Height int
@@ -201,23 +203,24 @@ func runVenueCmd(args []string) error {
   --sink      log|ndi|st2110|comma-list  (default log)
   --ndi-name  NDI source name (default GrokYtalkY-PGM)
   --ndi-udp   fallback MPEG-TS UDP if libndi_newtek missing
-  --rtp       ST 2110-20 video RTP (default rtp://239.100.1.10:5004)
+  --rtp       ST 2110-20 primary RTP (default rtp://239.100.1.10:5004)
+  --rtp-b     ST 2022-7 secondary RTP (hitless dual-dest tee)
   --audio-rtp ST 2110-30 audio RTP (optional)
   --sdp       path to write video SDP
   --profile   2110-20 (default) | lab
-  --tp        2110TPN|2110TPNL|2110TPW  (ST 2110-21, default TPN)
+  --tp        2110TPN|2110TPNL|2110TPW
   --fps-exact 30 | 30000/1001 | 29.97
-  --sampling  YCbCr-4:2:2 (default) | YCbCr-4:2:0
-  --depth     8 (default) | 10 (v210)
+  --sampling  YCbCr-4:2:2 | YCbCr-4:2:0
+  --depth     8 | 10
   --width --height --fps
   --json · --quiet · --dry-run
 
-PTP: ST 2059-2 for production; gy free-runs until facility GM.
-See: gy doctor st2110 · docs/st2110-sync-cameras.md
+PTP free-run until facility GM. 2022-7: dual-path tee (see doctor st2110).
+docs/st2110-sync-cameras.md
 
 Example:
+  gy venue --sink st2110 --rtp rtp://239.100.1.10:5004 --rtp-b rtp://239.100.2.10:5004
   gy venue --sink st2110 --tp 2110TPN --fps-exact 30000/1001
-  gy venue --sink st2110 --depth 10 --audio-rtp rtp://239.100.1.10:5006
 `)
 	}
 	hub := fs.String("hub", "ws://127.0.0.1:9876/", "DOJO hub WebSocket")
@@ -225,7 +228,8 @@ Example:
 	sinkKind := fs.String("sink", "log", "log|ndi|st2110|st2110-30|comma-list")
 	ndiName := fs.String("ndi-name", "GrokYtalkY-PGM", "NDI source name")
 	ndiUDP := fs.String("ndi-udp", "udp://127.0.0.1:13000?pkt_size=1316", "NDI fallback MPEG-TS")
-	rtp := fs.String("rtp", "rtp://239.100.1.10:5004", "ST 2110-20 video RTP")
+	rtp := fs.String("rtp", "rtp://239.100.1.10:5004", "ST 2110-20 primary RTP")
+	rtpB := fs.String("rtp-b", "", "ST 2022-7 secondary RTP (hitless dual-dest)")
 	audioRTP := fs.String("audio-rtp", "", "ST 2110-30 audio RTP (optional)")
 	sdp := fs.String("sdp", "", "SDP output path")
 	profile := fs.String("profile", ST2110Profile211020, "st2110: 2110-20|lab")
@@ -262,6 +266,7 @@ Example:
 		NDIName:        *ndiName,
 		NDIFallback:    *ndiUDP,
 		RTP:            *rtp,
+		RTPB:           *rtpB,
 		SDPPath:        *sdp,
 		ST2110Prof:     *profile,
 		AudioRTP:       *audioRTP,
@@ -582,6 +587,7 @@ func NewVenueSink(kind string, opts VenueOpts) (VenueSink, error) {
 	case "st2110", "2110", "st-2110":
 		return NewST2110VenueSink(ST2110Opts{
 			RTP:         opts.RTP,
+			RTPB:        opts.RTPB,
 			SDPPath:     opts.SDPPath,
 			Width:       opts.Width,
 			Height:      opts.Height,

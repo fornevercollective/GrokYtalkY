@@ -82,6 +82,23 @@ Major families that can tether into a DOJO / venue path. Full table: `gy doctor 
 
 **Rule of thumb:** cinema bodies without native PTP enter ST 2110 through **SDI → 2110 IP converter** or the OB switcher; only a subset of studio/Box + Blackmagic IP lines speak 2110+PTP on the camera head.
 
+## ST 2022-7 hitless (dual destination)
+
+```bash
+gy venue --sink st2110 \
+  --rtp   rtp://239.100.1.10:5004 \
+  --rtp-b rtp://239.100.2.10:5004
+```
+
+| Piece | Behavior |
+|-------|----------|
+| Encode | **One** ffmpeg process |
+| Fan-out | `-f tee` to primary + secondary RTP |
+| SDP | `a=x-gy-2022-7-*` dual-path announce |
+| Sidecar | `$TMPDIR/gy-venue/st2022-7.json` |
+
+**Honest limit:** professional hitless merge wants bit-identical packets on both paths from a multi-NIC packetizer. gy dual-dest tee is **path diversity from a single encode** — the right software span; facility gateways can still re-clone for full 2022-7.
+
 ## What gy does *not* claim
 
 - Running a PTP grandmaster or boundary clock
@@ -89,5 +106,6 @@ Major families that can tether into a DOJO / venue path. Full table: `gy doctor 
 - Full ST 2110-40 ANC packing
 - ST 2110-31 AES3
 - Hardware traffic shapers (2110-21 TPN is **signaled**, not enforced)
+- Bit-identical multi-NIC 2022-7 packet cloning (tee is best-effort hitless diversity)
 
 Those remain **facility** layers; gy keeps essence RTP + program bus + honest sync gaps.

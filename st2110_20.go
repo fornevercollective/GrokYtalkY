@@ -239,7 +239,13 @@ func ParseExactFPS(s string) (num, den int, err error) {
 }
 
 // WriteST211020SDPTight writes tightened 2110-20 SDP from params + sync.
+// Optional hitless dual-dest via ST20227Config (appends x-gy-2022-7 attrs).
 func WriteST211020SDPTight(path, host string, port int, p ST211020Params, sync SyncClockReport) error {
+	return WriteST211020SDPTightEx(path, host, port, p, sync, ST20227Config{})
+}
+
+// WriteST211020SDPTightEx same as Tight with optional 2022-7 dual-path announce.
+func WriteST211020SDPTightEx(path, host string, port int, p ST211020Params, sync SyncClockReport, hitless ST20227Config) error {
 	if p.Width < 1 {
 		p = DefaultST211020Params(p.Width, p.Height, int(p.FPSFloat()))
 	}
@@ -279,5 +285,13 @@ a=ptime:%.3f
 		p.Width, p.Height, fr, p.Sampling, p.Depth, p.TP, PTPProfileST2059, sync.Compliant,
 		host, Version, p.TP, p.PixFmt(), tsRef, host, port, fmtp,
 		p.Width, p.Height, fr, ptMs)
+	body = AppendST20227SDPAttrs(body, hitless)
+	// secondary media connection note for receivers scanning dual dest
+	if hitless.Enabled {
+		if _, p2, err := parseRTPURL(hitless.Secondary); err == nil {
+			_ = p2
+			body += fmt.Sprintf("a=x-gy-2022-7-secondary-port:%d\n", p2)
+		}
+	}
 	return os.WriteFile(path, []byte(body), 0o644)
 }

@@ -162,6 +162,8 @@ TUI launches auto-update by default (check GitHub → install → re-exec).
 			fmt.Println()
 			fmt.Print(FormatPTPDependencyBasis())
 			fmt.Println()
+			fmt.Print(FormatST20227Basis())
+			fmt.Println()
 			fmt.Print(FormatSyncClockReport(DefaultSyncClockReport()))
 			return nil
 		case "cameras", "camera", "tether":

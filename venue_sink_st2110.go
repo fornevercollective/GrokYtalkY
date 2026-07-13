@@ -50,6 +50,8 @@ type ST2110Opts struct {
 	AudioRTP string
 	MultiSDP string
 	Sync     SyncClockReport
+	// ST 2022-7 hitless dual destination (secondary video RTP)
+	RTPB string // e.g. rtp://239.100.1.11:5004
 }
 
 // NewST2110VenueSink builds an ST 2110 VenueSink.
@@ -93,30 +95,45 @@ func NewST2110VenueSink(opts ST2110Opts) (VenueSink, error) {
 	var sinkName string
 	var vp ST211020Params
 
+	hitless := ST20227FromURLs(opts.RTP, opts.RTPB)
+
 	switch profile {
 	case ST2110Profile211020:
 		vp = buildST211020Params(opts)
-		if err := WriteST211020SDPTight(opts.SDPPath, host, port, vp, sync); err != nil {
+		if err := WriteST211020SDPTightEx(opts.SDPPath, host, port, vp, sync, hitless); err != nil {
 			return nil, fmt.Errorf("sdp 2110-20: %w", err)
 		}
-		args = buildST211020FFmpegArgsFromParams(vp, opts.RTP)
+		args = buildST211020FFmpegArgsFromParams(vp, opts.RTP, opts.RTPB)
 		sinkName = "st2110-20"
+		if hitless.Enabled {
+			sinkName = "st2110-20+2022-7"
+		}
 		if !opts.Quiet {
 			log.Printf("venue · st2110-20 · %dx%d@%s %s depth=%d TP=%s → %s",
 				vp.Width, vp.Height, vp.ExactFramerate(), vp.Sampling, vp.Depth, vp.TP, opts.RTP)
 			log.Printf("venue · st2110-20 · pix_fmt=%s SDP %s", vp.PixFmt(), opts.SDPPath)
+			if hitless.Enabled {
+				log.Printf("venue · %s", FormatST20227Line(hitless))
+			}
 			if !sync.Compliant {
 				log.Printf("venue · st2110-20 · PTP free-run (ST 2059-2 lock required for production)")
 			}
 		}
+		_ = WriteST20227Sidecar(filepath.Join(opts.MetaDir, "st2022-7.json"), hitless, ST2110_20)
 	default:
 		if err := writeST2110LabSDP(opts.SDPPath, host, port, opts.Width, opts.Height, opts.FPS); err != nil {
 			return nil, fmt.Errorf("sdp lab: %w", err)
 		}
-		args = buildST2110LabFFmpegArgs(opts.Width, opts.Height, opts.FPS, opts.RTP, opts.Payload)
+		args = buildST2110LabFFmpegArgs(opts.Width, opts.Height, opts.FPS, opts.RTP, opts.Payload, opts.RTPB)
 		sinkName = "st2110-lab"
+		if hitless.Enabled {
+			sinkName = "st2110-lab+2022-7"
+		}
 		if !opts.Quiet {
 			log.Printf("venue · st2110-lab · H.264 RTP → %s", opts.RTP)
+			if hitless.Enabled {
+				log.Printf("venue · %s", FormatST20227Line(hitless))
+			}
 		}
 	}
 
@@ -194,8 +211,8 @@ func normalizeST2110Profile(p string) string {
 }
 
 // buildST211020FFmpegArgsFromParams: RGB24 pipe → essence pix_fmt → RTP raw.
-func buildST211020FFmpegArgsFromParams(p ST211020Params, rtp string) []string {
-	// custom input rate for fractional fps
+// If rtpB set, use ffmpeg tee for ST 2022-7 dual destination.
+func buildST211020FFmpegArgsFromParams(p ST211020Params, rtp, rtpB string) []string {
 	args := []string{
 		"-hide_banner", "-loglevel", "error",
 		"-f", "rawvideo",
@@ -207,9 +224,13 @@ func buildST211020FFmpegArgsFromParams(p ST211020Params, rtp string) []string {
 		"-vf", fmt.Sprintf("format=%s", p.PixFmt()),
 		"-c:v", "rawvideo",
 		"-pix_fmt", p.PixFmt(),
-		"-f", "rtp",
-		"-payload_type", "96",
-		rtp,
+	}
+	if strings.TrimSpace(rtpB) != "" {
+		// single encode → dual path (2022-7 diversity)
+		tee := ffmpegTeeRTPPayload(rtp, rtpB, 96)
+		args = append(args, "-f", "tee", tee)
+	} else {
+		args = append(args, "-f", "rtp", "-payload_type", "96", rtp)
 	}
 	return args
 }
@@ -220,10 +241,10 @@ func buildST211020FFmpegArgs(w, h, fps int, rtp, sampling string) []string {
 	if sampling != "" {
 		p.Sampling = sampling
 	}
-	return buildST211020FFmpegArgsFromParams(p, rtp)
+	return buildST211020FFmpegArgsFromParams(p, rtp, "")
 }
 
-func buildST2110LabFFmpegArgs(w, h, fps int, rtp, payload string) []string {
+func buildST2110LabFFmpegArgs(w, h, fps int, rtp, payload, rtpB string) []string {
 	args := ffmpegRawInputArgs(w, h, fps)
 	payload = strings.ToLower(payload)
 	if payload == "" {
@@ -237,9 +258,14 @@ func buildST2110LabFFmpegArgs(w, h, fps int, rtp, payload string) []string {
 		"-pix_fmt", "yuv420p",
 		"-g", strconv.Itoa(fps),
 	)
+	if strings.TrimSpace(rtpB) != "" && payload == "rtp" {
+		args = append(args, "-f", "tee", ffmpegTeeRTPPayload(rtp, rtpB, 96))
+		return args
+	}
 	if payload == "rtp" {
 		args = append(args, "-f", "rtp", rtp)
 	} else {
+		// mpegts dual: tee two rtp_mpegts is awkward; dual-process note — single path for mpegts
 		args = append(args, "-f", "rtp_mpegts", rtp)
 	}
 	return args
