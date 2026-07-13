@@ -3,15 +3,15 @@
 //! DOJO SFU:
 //! - Per-peer RTCPeerConnection (client offer → SFU answer)
 //! - Track fan-out: OnTrack → TrackLocalStaticRTP → other peers
-//! - DataChannels `glyph` / `hex` / `chat` → room fan-out (low-res lanes)
-//!
-//! Signaling-only build ignores this module. Hybrid: CF still owns 1k+ viewers.
+//! - Outbound DataChannels `glyph` / `hex` / `chat` (SFU-created) + remote DCs
+//! - Lane fan-out over DC + WS mirror for terminals
 
 #![cfg(feature = "media")]
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use bytes::Bytes;
 use serde_json::json;
 use tokio::sync::{mpsc, Mutex};
 use tracing::{info, warn};
@@ -35,11 +35,12 @@ use webrtc::track::track_remote::TrackRemote;
 
 use crate::signaling::ServerMsg;
 
+const OUTBOUND_DC_LABELS: &[&str] = &["glyph", "hex", "chat"];
+
 /// Shared media engine for all SFU peer connections.
 pub struct MediaHub {
     api: Arc<API>,
     config: RTCConfiguration,
-    /// peer_id → session
     peers: Mutex<HashMap<Uuid, Arc<PeerMedia>>>,
 }
 
@@ -51,6 +52,8 @@ struct PeerMedia {
     signal: mpsc::UnboundedSender<ServerMsg>,
     /// Outbound tracks we send *to this peer* (keyed by publisher_id + track id)
     outbound: Mutex<HashMap<String, Arc<TrackLocalStaticRTP>>>,
+    /// DataChannels by label (SFU-created outbound + any client-created)
+    dcs: Mutex<HashMap<String, Arc<RTCDataChannel>>>,
 }
 
 impl MediaHub {
@@ -68,7 +71,6 @@ impl MediaHub {
             urls: vec!["stun:stun.l.google.com:19302".to_owned()],
             ..Default::default()
         }];
-        // Optional TURN: GY_SFU_TURN_URLS=turn:host:3478,username,credential
         if let Ok(raw) = std::env::var("GY_SFU_TURN_URLS") {
             for part in raw.split(';').filter(|s| !s.is_empty()) {
                 let bits: Vec<_> = part.split(',').map(str::trim).collect();
@@ -122,9 +124,10 @@ impl MediaHub {
             pc: Arc::clone(&pc),
             signal: signal.clone(),
             outbound: Mutex::new(HashMap::new()),
+            dcs: Mutex::new(HashMap::new()),
         });
 
-        // ICE → client (from = peer_id correlates to their SFU PC)
+        // ICE → client
         {
             let signal = signal.clone();
             let pid = peer_id;
@@ -157,7 +160,7 @@ impl MediaHub {
             }));
         }
 
-        // DataChannels created by client (glyph / hex / chat)
+        // Client-created DataChannels
         {
             let hub = Arc::clone(self);
             let sess = Arc::clone(&session);
@@ -166,10 +169,22 @@ impl MediaHub {
                 let sess = Arc::clone(&sess);
                 Box::pin(async move {
                     let label = dc.label().to_string();
-                    info!(peer = %sess.id, %label, "datachannel open (remote)");
-                    wire_data_channel(hub, sess, dc, label).await;
+                    info!(peer = %sess.id, %label, "datachannel open (remote/client)");
+                    register_dc(hub, sess, dc, label).await;
                 })
             }));
+        }
+
+        // SFU-created outbound DataChannels (negotiated in answer)
+        for label in OUTBOUND_DC_LABELS {
+            match pc.create_data_channel(*label, None).await {
+                Ok(dc) => {
+                    info!(peer = %peer_id, label, "datachannel created (outbound SFU)");
+                    register_dc(Arc::clone(self), Arc::clone(&session), dc, (*label).to_string())
+                        .await;
+                }
+                Err(e) => warn!(peer = %peer_id, label, "create_data_channel: {e}"),
+            }
         }
 
         // Media tracks → fan-out
@@ -189,7 +204,7 @@ impl MediaHub {
         }
 
         self.peers.lock().await.insert(peer_id, session);
-        info!(%peer_id, %room, %nick, "media peer ready");
+        info!(%peer_id, %room, %nick, "media peer ready (outbound DCs: glyph|hex|chat)");
         Ok(())
     }
 
@@ -201,7 +216,6 @@ impl MediaHub {
         }
     }
 
-    /// Client offer → SFU answer (selective forwarder is the answerer).
     pub async fn handle_offer(
         self: &Arc<Self>,
         peer_id: Uuid,
@@ -225,10 +239,7 @@ impl MediaHub {
             .create_answer(None)
             .await
             .map_err(|e| e.to_string())?;
-        let mut gather = sess
-            .pc
-            .gathering_complete_promise()
-            .await;
+        let mut gather = sess.pc.gathering_complete_promise().await;
         sess.pc
             .set_local_description(answer)
             .await
@@ -248,7 +259,6 @@ impl MediaHub {
         Ok(())
     }
 
-    /// Client answer to SFU renegotiation offer (new forwarded track).
     pub async fn handle_answer(&self, peer_id: Uuid, sdp: String) -> Result<(), String> {
         let sess = {
             let g = self.peers.lock().await;
@@ -264,7 +274,11 @@ impl MediaHub {
         Ok(())
     }
 
-    pub async fn handle_ice(&self, peer_id: Uuid, candidate: serde_json::Value) -> Result<(), String> {
+    pub async fn handle_ice(
+        &self,
+        peer_id: Uuid,
+        candidate: serde_json::Value,
+    ) -> Result<(), String> {
         let sess = {
             let g = self.peers.lock().await;
             g.get(&peer_id)
@@ -301,7 +315,6 @@ impl MediaHub {
         Ok(())
     }
 
-    /// Read RTP from publisher and write to every other peer in the room.
     async fn fanout_track(
         self: &Arc<Self>,
         publisher: Uuid,
@@ -322,7 +335,6 @@ impl MediaHub {
 
         info!(%publisher, %track_id, mime = %cap.mime_type, "track published");
 
-        // Ensure outbound local track on each other peer
         let others: Vec<Arc<PeerMedia>> = {
             let g = self.peers.lock().await;
             g.values()
@@ -344,9 +356,11 @@ impl MediaHub {
                 .await
             {
                 Ok(_sender) => {
-                    peer.outbound.lock().await.insert(key.clone(), Arc::clone(&local));
+                    peer.outbound
+                        .lock()
+                        .await
+                        .insert(key.clone(), Arc::clone(&local));
                     locals.push(local);
-                    // Kick renegotiation so the subscriber pulls the new track
                     if let Err(e) = renegotiate_subscriber(peer).await {
                         warn!(peer = %peer.id, "renegotiate: {e}");
                     }
@@ -355,15 +369,11 @@ impl MediaHub {
             }
         }
 
-        // RTP pump
         loop {
             match track.read_rtp().await {
                 Ok((rtp, _)) => {
                     for local in &locals {
-                        if let Err(e) = local.write_rtp(&rtp).await {
-                            // peer may have left
-                            let _ = e;
-                        }
+                        let _ = local.write_rtp(&rtp).await;
                     }
                 }
                 Err(e) => {
@@ -375,13 +385,7 @@ impl MediaHub {
         Ok(())
     }
 
-    /// Fan-out a DataChannel text/binary payload as WS-compatible ServerMsg to room.
-    pub async fn fanout_lane_json(
-        &self,
-        from: Uuid,
-        room: &str,
-        msg: ServerMsg,
-    ) {
+    pub async fn fanout_lane_json(&self, from: Uuid, room: &str, msg: ServerMsg) {
         let g = self.peers.lock().await;
         for p in g.values() {
             if p.id == from || p.room != room {
@@ -390,6 +394,107 @@ impl MediaHub {
             let _ = p.signal.send(msg.clone());
         }
     }
+
+    /// Send raw text on outbound DataChannels with `label` to all other peers in room.
+    pub async fn dc_broadcast_text(&self, from: Uuid, room: &str, label: &str, raw: &str) {
+        let peers: Vec<Arc<PeerMedia>> = {
+            let g = self.peers.lock().await;
+            g.values()
+                .filter(|p| p.id != from && p.room == room)
+                .cloned()
+                .collect()
+        };
+        for p in peers {
+            let dc = {
+                let dcs = p.dcs.lock().await;
+                dcs.get(label).cloned()
+            };
+            if let Some(dc) = dc {
+                if let Err(e) = dc.send_text(raw.to_string()).await {
+                    warn!(peer = %p.id, %label, "dc send_text: {e}");
+                }
+            }
+        }
+    }
+
+    pub async fn dc_broadcast_bin(&self, from: Uuid, room: &str, label: &str, data: &[u8]) {
+        let peers: Vec<Arc<PeerMedia>> = {
+            let g = self.peers.lock().await;
+            g.values()
+                .filter(|p| p.id != from && p.room == room)
+                .cloned()
+                .collect()
+        };
+        let bytes = Bytes::copy_from_slice(data);
+        for p in peers {
+            let dc = {
+                let dcs = p.dcs.lock().await;
+                dcs.get(label).cloned()
+            };
+            if let Some(dc) = dc {
+                if let Err(e) = dc.send(&bytes).await {
+                    warn!(peer = %p.id, %label, "dc send bin: {e}");
+                }
+            }
+        }
+    }
+}
+
+async fn register_dc(
+    hub: Arc<MediaHub>,
+    sess: Arc<PeerMedia>,
+    dc: Arc<RTCDataChannel>,
+    label: String,
+) {
+    let key = label.to_ascii_lowercase();
+    {
+        let mut dcs = sess.dcs.lock().await;
+        dcs.insert(key.clone(), Arc::clone(&dc));
+    }
+
+    let hub2 = Arc::clone(&hub);
+    let sess2 = Arc::clone(&sess);
+    let key2 = key.clone();
+    dc.on_open(Box::new(move || {
+        let sess2 = Arc::clone(&sess2);
+        let key2 = key2.clone();
+        Box::pin(async move {
+            info!(peer = %sess2.id, label = %key2, "datachannel open");
+        })
+    }));
+
+    dc.on_message(Box::new(move |msg: DataChannelMessage| {
+        let hub = Arc::clone(&hub2);
+        let sess = Arc::clone(&sess);
+        let label_l = key.clone();
+        Box::pin(async move {
+            if msg.is_string {
+                let raw = String::from_utf8_lossy(&msg.data).into_owned();
+                handle_dc_message(hub, sess, &label_l, &raw).await;
+            } else {
+                // Binary glyph grids: fan-out raw + WS notify
+                let n = if msg.data.len() == 13 * 13 {
+                    13
+                } else if msg.data.len() == 25 * 25 {
+                    25
+                } else {
+                    0
+                };
+                hub.fanout_lane_json(
+                    sess.id,
+                    &sess.room,
+                    ServerMsg::Glyph {
+                        from: sess.id,
+                        n: if n == 0 { 25 } else { n },
+                        data: msg.data.to_vec(),
+                    },
+                )
+                .await;
+                hub.dc_broadcast_bin(sess.id, &sess.room, &label_l, &msg.data)
+                    .await;
+            }
+        })
+    }));
 }
 
 async fn renegotiate_subscriber(peer: &PeerMedia) -> Result<(), String> {
@@ -416,31 +521,7 @@ async fn renegotiate_subscriber(peer: &PeerMedia) -> Result<(), String> {
     Ok(())
 }
 
-async fn wire_data_channel(
-    hub: Arc<MediaHub>,
-    sess: Arc<PeerMedia>,
-    dc: Arc<RTCDataChannel>,
-    label: String,
-) {
-    let label_l = label.to_ascii_lowercase();
-    dc.on_message(Box::new(move |msg: DataChannelMessage| {
-        let hub = Arc::clone(&hub);
-        let sess = Arc::clone(&sess);
-        let label_l = label_l.clone();
-        Box::pin(async move {
-            let raw = if msg.is_string {
-                String::from_utf8_lossy(&msg.data).into_owned()
-            } else {
-                // binary glyph grid as JSON later; for now base-ish debug
-                format!("{{\"bin\":{}}}", msg.data.len())
-            };
-            handle_dc_message(hub, sess, &label_l, &raw).await;
-        })
-    }));
-}
-
 async fn handle_dc_message(hub: Arc<MediaHub>, sess: Arc<PeerMedia>, label: &str, raw: &str) {
-    // Prefer JSON lane messages; fall back to wrapping text.
     let v: serde_json::Value = match serde_json::from_str(raw) {
         Ok(v) => v,
         Err(_) => {
@@ -451,7 +532,7 @@ async fn handle_dc_message(hub: Arc<MediaHub>, sess: Arc<PeerMedia>, label: &str
                     text: raw.to_string(),
                     t: now_ms(),
                     role: None,
-                    meta: Some(json!({"via":"datachannel"})),
+                    meta: Some(json!({"via": "datachannel"})),
                 },
                 "hex" => ServerMsg::Hex {
                     from: sess.id,
@@ -464,8 +545,7 @@ async fn handle_dc_message(hub: Arc<MediaHub>, sess: Arc<PeerMedia>, label: &str
                 },
             };
             hub.fanout_lane_json(sess.id, &sess.room, msg).await;
-            // also echo on all peer datachannels with same label
-            dc_broadcast(&hub, sess.id, &sess.room, label, raw).await;
+            hub.dc_broadcast_text(sess.id, &sess.room, label, raw).await;
             return;
         }
     };
@@ -505,7 +585,7 @@ async fn handle_dc_message(hub: Arc<MediaHub>, sess: Arc<PeerMedia>, label: &str
                 .unwrap_or(raw)
                 .to_string(),
         },
-        "glyph" | _ => {
+        _ => {
             let n = v.get("n").and_then(|x| x.as_u64()).unwrap_or(25) as u32;
             let data = if let Some(arr) = v.get("data").and_then(|d| d.as_array()) {
                 arr.iter()
@@ -523,13 +603,7 @@ async fn handle_dc_message(hub: Arc<MediaHub>, sess: Arc<PeerMedia>, label: &str
     };
 
     hub.fanout_lane_json(sess.id, &sess.room, server).await;
-    dc_broadcast(&hub, sess.id, &sess.room, label, raw).await;
-}
-
-async fn dc_broadcast(hub: &MediaHub, from: Uuid, room: &str, label: &str, raw: &str) {
-    // Best-effort: peers that created matching DCs — we only receive remote DCs.
-    // Outbound SFU→client DC creation can be added later; WS fan-out already covers terminals.
-    let _ = (hub, from, room, label, raw);
+    hub.dc_broadcast_text(sess.id, &sess.room, label, raw).await;
 }
 
 fn now_ms() -> i64 {

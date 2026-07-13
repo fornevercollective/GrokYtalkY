@@ -14,7 +14,7 @@ default = ["signaling"]
 # Signaling-only: fast build, room registry, WS protocol (no libwebrtc).
 signaling = []
 # Full media path (webrtc-rs). Heavier compile; enable when wiring tracks.
-media = ["dep:webrtc"]
+media = ["dep:webrtc", "dep:bytes"]
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
@@ -31,6 +31,7 @@ thiserror = "2"
 
 # Optional — `cargo build -p gy-sfu --features media`
 webrtc = { version = "0.12", optional = true }
+bytes = { version = "1", optional = true }
 
 [[bin]]
 name = "gy-sfu"

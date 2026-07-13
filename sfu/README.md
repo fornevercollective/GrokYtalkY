@@ -114,25 +114,34 @@ cargo run -p gy-sfu --features media -- --bind 0.0.0.0:9880
 
 Signaling-only still works without the feature (WS relay of SDP for pure mesh tests).
 
+### E2E validate (A/V + glyph)
+
+```bash
+make sfu-media
+./sfu/target/release/gy-sfu --bind 0.0.0.0:9880
+# two browser tabs:
+open site/dojo.html   # Join · allow cam · Send glyph pulse · chat
+```
+
 ### Client sketch (media)
 
 ```js
 // 1) WS join → welcome.media === true
-// 2) pc = new RTCPeerConnection()
-// 3) pc.createDataChannel("glyph"); pc.createDataChannel("chat")
-// 4) addTrack(cam); offer = await pc.createOffer(); await pc.setLocalDescription(offer)
-// 5) ws.send({ type: "offer", sdp: offer.sdp })  // no `to` → SFU
-// 6) on answer/ice with from === peer_id → setRemote / addIceCandidate
-// 7) on offer from SFU (renegotiate) → createAnswer back
+// 2) pc = new RTCPeerConnection(); pc.ondatachannel = …  // SFU outbound DCs
+// 3) optional: pc.createDataChannel("glyph") // also fine
+// 4) addTrack(cam); offer → ws { type:"offer", sdp }  // no `to`
+// 5) answer/ice → setRemote / addIceCandidate
+// 6) SFU renegotiate offer → createAnswer
 ```
 
 ## Status
 
 - [x] Room registry · WS signaling · lane tags · health API  
 - [x] `media` feature: PeerConnection, track fan-out, DataChannel glyph/hex/chat  
+- [x] **Outbound SFU DataChannels** (`glyph` · `hex` · `chat`) + client DCs  
 - [x] STUN + optional TURN env  
-- [ ] Auth tokens · hub glyph bridge · metrics  
-- [ ] Outbound SFU-created DataChannels (clients still create DCs)
+- [x] E2E demo: [`site/dojo.html`](../site/dojo.html)  
+- [ ] Auth tokens · hub glyph bridge · metrics
 
 ## License
 

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DOJO media · GrokYtalkY</title>
+  <meta name="description" content="E2E DOJO room: WebRTC A/V via gy-sfu + glyph/chat DataChannels." />
+  <meta name="theme-color" content="#0c0c0f" />
+  <link rel="canonical" href="https://fornevercollective.github.io/GrokYtalkY/dojo.html" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    .dojo-page { max-width: 960px; margin: 0 auto; padding: 1.25rem 1rem 3rem; }
+    .dojo-page h1 { font-size: 1.35rem; margin: 0.2rem 0 0.4rem; letter-spacing: -0.03em; }
+    .dojo-lede { color: var(--muted); font-size: 0.9rem; margin-bottom: 1rem; max-width: 40rem; }
+    .dojo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    @media (max-width: 720px) { .dojo-grid { grid-template-columns: 1fr; } }
+    .dojo-card {
+      border: 1px solid var(--border); border-radius: var(--radius);
+      background: var(--bg-elev); padding: 0.85rem;
+    }
+    .dojo-card h2 { font-size: 0.8rem; font-family: var(--mono); color: var(--faint); margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.06em; }
+    video, canvas.glyph {
+      width: 100%; aspect-ratio: 1; background: #050508; border-radius: 10px;
+      object-fit: cover; image-rendering: pixelated;
+    }
+    canvas.glyph { image-rendering: pixelated; }
+    .dojo-row { display: flex; flex-wrap: wrap; gap: 0.45rem; margin: 0.5rem 0; align-items: center; }
+    .dojo-row input[type=text] {
+      flex: 1; min-width: 10rem; font-family: var(--mono); font-size: 0.75rem;
+      padding: 0.4rem 0.55rem; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--bg); color: var(--text);
+    }
+    .dojo-status { font-family: var(--mono); font-size: 0.68rem; color: var(--faint); min-height: 1.2em; }
+    .dojo-status.live { color: var(--live); }
+    .dojo-status.err { color: var(--err); }
+    .chat-mini {
+      height: 140px; overflow-y: auto; font-family: var(--mono); font-size: 0.72rem;
+      background: #08080c; border-radius: 8px; padding: 0.5rem; margin-bottom: 0.4rem;
+    }
+    .chat-mini div { margin-bottom: 0.25rem; }
+    .chat-mini .who { color: var(--accent); }
+    .hint { font-size: 0.78rem; color: var(--faint); margin-top: 1rem; line-height: 1.45; }
+    .hint code { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="noise" aria-hidden="true"></div>
+  <header class="nav">
+    <a class="brand" href="./"><span class="brand-mark">◈</span><span class="brand-name">GrokYtalkY</span></a>
+    <nav>
+      <a href="./">Home</a>
+      <a href="burst.html">Burst</a>
+      <a href="chat.html">Chat</a>
+      <a href="dojo.html" class="nav-active">DOJO</a>
+      <a href="docs.html">Docs</a>
+    </nav>
+  </header>
+
+  <main class="dojo-page">
+    <p class="eyebrow">e2e · webrtc-rs sfu · glyph sync</p>
+    <h1>DOJO media room</h1>
+    <p class="dojo-lede">
+      Validate A/V track fan-out + glyph/chat DataChannels against
+      <code>gy-sfu --features media</code>. Open two tabs (different nicks) in the same room.
+    </p>
+
+    <div class="dojo-row">
+      <input id="sfu-url" type="text" value="ws://127.0.0.1:9880/ws" spellcheck="false" />
+      <input id="room" type="text" value="dojo" style="max-width:8rem" />
+      <input id="nick" type="text" value="" placeholder="nick" style="max-width:8rem" />
+      <button type="button" class="btn primary" id="btn-join">Join</button>
+      <button type="button" class="btn ghost" id="btn-leave">Leave</button>
+    </div>
+    <p class="dojo-status" id="status">idle · start make sfu-media first</p>
+
+    <div class="dojo-grid">
+      <div class="dojo-card">
+        <h2>Local</h2>
+        <video id="local-video" autoplay muted playsinline></video>
+      </div>
+      <div class="dojo-card">
+        <h2>Remote (SFU fan-out)</h2>
+        <video id="remote-video" autoplay playsinline></video>
+      </div>
+      <div class="dojo-card">
+        <h2>Glyph TX (you → room)</h2>
+        <canvas class="glyph" id="glyph-tx" width="25" height="25"></canvas>
+        <div class="dojo-row">
+          <button type="button" class="btn ghost" id="btn-glyph">Send glyph pulse</button>
+        </div>
+      </div>
+      <div class="dojo-card">
+        <h2>Glyph RX (peers)</h2>
+        <canvas class="glyph" id="glyph-rx" width="25" height="25"></canvas>
+      </div>
+    </div>
+
+    <div class="dojo-card" style="margin-top:1rem">
+      <h2>Chat DC + WS mirror</h2>
+      <div class="chat-mini" id="chat-log"></div>
+      <form class="dojo-row" id="chat-form">
+        <input id="chat-input" type="text" maxlength="500" placeholder="chat over DataChannel…" />
+        <button type="submit" class="btn primary">Send</button>
+      </form>
+    </div>
+
+    <p class="hint">
+      <code>make sfu-media && ./sfu/target/release/gy-sfu --bind 0.0.0.0:9880</code><br />
+      Offer without <code>to</code> → SFU answers. Outbound DCs: <code>glyph</code> · <code>hex</code> · <code>chat</code>.
+      Auth tokens still deferred. Hybrid CF path unchanged for 1k+ viewers.
+    </p>
+  </main>
+  <script src="dojo-room.js"></script>
+</body>
+</html>
