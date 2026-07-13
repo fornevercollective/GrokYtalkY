@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -71,7 +72,74 @@ func NewHub(addr string, quiet bool, staticDir string) *Hub {
 			}
 		}
 		w.Header().Set("Content-Type", "text/plain")
-		_, _ = w.Write([]byte("GrokYtalkY hub — rooms + program bus\n  gy · ws://HOST/?nick=…&room=global\n  GET /api/rooms · /api/peers · /api/lan · /api/social\n  phone cast: /phone.html (same Wi‑Fi)\n"))
+		_, _ = w.Write([]byte("GrokYtalkY hub — rooms + program bus\n  gy · ws://HOST/?nick=…&room=global\n  GET /api/rooms · /api/peers · /api/lan · /api/social · /api/space\n  phone cast: /phone.html (same Wi‑Fi)\n"))
+	})
+	// X Spaces stage + stream asset (public; never leaks stream key)
+	mux.HandleFunc("/api/space", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(Spaces().PublicAPISnapshot())
+	})
+	// Stream key only with GY_SPACE_TOKEN (operator vault / auto-pull remote)
+	mux.HandleFunc("/api/space/key", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		tok := SpaceToken()
+		got := strings.TrimSpace(r.URL.Query().Get("token"))
+		if got == "" {
+			got = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+			got = strings.TrimSpace(got)
+		}
+		if tok == "" || got == "" || got != tok {
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"error":  "unauthorized — set GY_SPACE_TOKEN and pass ?token= or Authorization: Bearer",
+				"ready":  Spaces().Snapshot().RTMP.Ready,
+				"status": Spaces().Snapshot().RTMP.Status,
+			})
+			return
+		}
+		if r.Method == http.MethodPost {
+			// set key: POST body plain or JSON
+			body, _ := io.ReadAll(io.LimitReader(r.Body, 8<<10))
+			k := strings.TrimSpace(string(body))
+			var j map[string]any
+			if json.Unmarshal(body, &j) == nil {
+				if v, ok := j["stream_key"].(string); ok {
+					k = v
+				} else if v, ok := j["key"].(string); ok {
+					k = v
+				}
+			}
+			Spaces().SetStreamKeyFrom(k, "api")
+			if k != "" {
+				_, _ = WriteStreamKeyFile(k)
+			}
+		}
+		// auto-pull attempt if empty
+		snap := Spaces().Snapshot()
+		if !snap.RTMP.Ready {
+			if src, key, err := PullStreamKey(PullKeyOpts{}); err == nil {
+				Spaces().SetStreamKeyFrom(key, src)
+				snap = Spaces().Snapshot()
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ready":      snap.RTMP.Ready,
+			"stream_key": snap.RTMP.StreamKey,
+			"base_url":   snap.RTMP.BaseRTMPURL(),
+			"secure":     snap.RTMP.Secure,
+			"source":     snap.KeySource,
+			"status":     snap.RTMP.Status,
+		})
 	})
 	mux.HandleFunc("/api/peers", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

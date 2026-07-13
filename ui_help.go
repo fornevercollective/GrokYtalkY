@@ -133,8 +133,10 @@ func helpBodyStream() string {
   R restart tile · K kill pipe (lab/news)
   /orch [hint] · *     Grok take: STYLE/CAPTION/PATTERN/GLYPH
   /plugin list|on|off|reload|style   in-process style + mesh hooks
-  /space [id|key|caption|seat|push]  X Spaces stage + RTMP/RTMPS
-  gy space · gy space-rtmp --key $K  ca.pscp.tv Media Studio producer
+  /space mute|listeners|key --pull   X Spaces host controls + key pull
+  /space offer · guest <nick>        gy as X.com stream asset
+  gy stream-x init|start|offer       reusable Media Studio publisher
+  gy space · gy space-rtmp           ca.pscp.tv RTMP/RTMPS
   gy doctor reliability · metrics   process health / prom text
   gy doctor plugins · space         registry + Spaces/RTMP status
   /social @user      social handle · lazy lab fill

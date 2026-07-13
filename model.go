@@ -4120,12 +4120,101 @@ func (m *Model) handleSpaceCmd(arg string) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "key", "stream-key":
 		if rest == "" {
-			m.pushSys("stream key: " + rtmpKeyStatus(s.Snapshot().RTMP) + " · /space key <key>")
+			m.pushSys("stream key: " + rtmpKeyStatus(s.Snapshot().RTMP) + " · /space key --pull|<key>")
+			return m, nil
+		}
+		if rest == "--pull" || rest == "pull" || rest == "--auto" {
+			src, key, err := PullStreamKey(PullKeyOpts{Clipboard: true})
+			if err != nil {
+				m.pushSys(err.Error())
+				return m, nil
+			}
+			s.SetStreamKeyFrom(key, src)
+			m.pushSys("stream key auto-pulled · " + src + " · " + rtmpKeyStatus(s.Snapshot().RTMP))
+			m.status = "key " + src
 			return m, nil
 		}
 		s.SetStreamKey(rest)
 		m.pushSys("stream key set · " + rtmpKeyStatus(s.Snapshot().RTMP))
 		m.status = "rtmp key"
+		return m, nil
+	case "mute":
+		parts := strings.Fields(rest)
+		if len(parts) == 0 {
+			m.pushSys("usage: /space mute host|cohost:N|speaker:N|all [off]")
+			return m, nil
+		}
+		off := len(parts) > 1 && (parts[1] == "off" || parts[1] == "0" || parts[1] == "unmute")
+		if parts[0] == "all" {
+			s.SetMuteAll(!off, m.nick)
+			if m.client != nil {
+				_ = m.client.SendJSON(s.MeshMuteAllJSON(m.nick, !off))
+				_ = m.client.SendJSON(s.MeshRosterJSON(m.nick))
+			}
+			m.pushSys(fmt.Sprintf("mute-all → %v", !off))
+			m.status = "mute-all"
+			return m, nil
+		}
+		role, idx, err := parseSeatSpec(parts[0])
+		if err != nil {
+			m.pushSys(err.Error())
+			return m, nil
+		}
+		if err := s.SetMute(role, idx, !off, m.nick); err != nil {
+			m.pushSys(err.Error())
+			return m, nil
+		}
+		if m.client != nil {
+			_ = m.client.SendJSON(s.MeshMuteJSON(m.nick, role, idx, !off))
+		}
+		m.pushSys(fmt.Sprintf("mute %s[%d] → %v", role, idx, !off))
+		m.status = "mute"
+		return m, nil
+	case "unmute":
+		parts := strings.Fields(rest)
+		if len(parts) == 0 {
+			m.pushSys("usage: /space unmute host|cohost:N|speaker:N|all")
+			return m, nil
+		}
+		if parts[0] == "all" {
+			s.SetMuteAll(false, m.nick)
+			if m.client != nil {
+				_ = m.client.SendJSON(s.MeshMuteAllJSON(m.nick, false))
+			}
+			m.pushSys("unmute all")
+			return m, nil
+		}
+		role, idx, err := parseSeatSpec(parts[0])
+		if err != nil {
+			m.pushSys(err.Error())
+			return m, nil
+		}
+		_ = s.SetMute(role, idx, false, m.nick)
+		if m.client != nil {
+			_ = m.client.SendJSON(s.MeshMuteJSON(m.nick, role, idx, false))
+		}
+		m.pushSys(fmt.Sprintf("unmute %s[%d]", role, idx))
+		return m, nil
+	case "offer", "asset":
+		pub := strings.Contains(rest, "public")
+		off := strings.Contains(rest, "off")
+		s.SetAssetOffer(!off, m.nick, "", pub)
+		if m.client != nil {
+			_ = m.client.SendJSON(s.MeshAssetJSON(m.nick))
+		}
+		m.pushSys(fmt.Sprintf("stream asset offer=%v public=%v", !off, pub))
+		m.status = "asset"
+		return m, nil
+	case "guest":
+		if rest == "" {
+			m.pushSys("usage: /space guest <nick>")
+			return m, nil
+		}
+		s.AllowGuest(rest)
+		m.pushSys("guest allowed · " + rest)
+		if m.client != nil {
+			_ = m.client.SendJSON(s.MeshAssetJSON(m.nick))
+		}
 		return m, nil
 	case "rtmp":
 		s.SetSecure(false)
@@ -4147,7 +4236,55 @@ func (m *Model) handleSpaceCmd(arg string) (tea.Model, tea.Cmd) {
 		m.status = "caption"
 		return m, nil
 	case "listeners", "n":
-		n, _ := strconv.Atoi(strings.TrimSpace(rest))
+		parts := strings.Fields(rest)
+		if len(parts) == 0 || parts[0] == "list" {
+			snap := s.Snapshot()
+			m.pushSys(fmt.Sprintf("listeners %d", snap.Listeners))
+			for i, l := range snap.ListenerList {
+				if i >= 20 {
+					m.pushSys(fmt.Sprintf("  … +%d more", len(snap.ListenerList)-20))
+					break
+				}
+				m.pushSys("  · " + l.Nick)
+			}
+			return m, nil
+		}
+		if parts[0] == "add" && len(parts) > 1 {
+			nick := strings.Join(parts[1:], " ")
+			s.AddListener(nick, "")
+			if m.client != nil {
+				_ = m.client.SendJSON(map[string]any{
+					"type": "space-listener-join", "from": m.nick, "nick": nick,
+					"space": s.Snapshot().ID, "t": time.Now().UnixMilli(),
+				})
+			}
+			m.pushSys("listener +" + nick)
+			return m, nil
+		}
+		if (parts[0] == "rm" || parts[0] == "remove" || parts[0] == "leave") && len(parts) > 1 {
+			nick := strings.Join(parts[1:], " ")
+			s.RemoveListener(nick)
+			if m.client != nil {
+				_ = m.client.SendJSON(map[string]any{
+					"type": "space-listener-leave", "from": m.nick, "nick": nick,
+					"space": s.Snapshot().ID, "t": time.Now().UnixMilli(),
+				})
+			}
+			m.pushSys("listener -" + nick)
+			return m, nil
+		}
+		if parts[0] == "join" {
+			s.AddListener(m.nick, "")
+			if m.client != nil {
+				_ = m.client.SendJSON(map[string]any{
+					"type": "space-listener-join", "from": m.nick, "nick": m.nick,
+					"space": s.Snapshot().ID, "t": time.Now().UnixMilli(),
+				})
+			}
+			m.pushSys("you joined as listener")
+			return m, nil
+		}
+		n, _ := strconv.Atoi(parts[0])
 		s.SetListeners(n)
 		m.pushSys(fmt.Sprintf("listeners → %d", n))
 		return m, nil

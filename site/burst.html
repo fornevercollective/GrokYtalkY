@@ -174,6 +174,25 @@
       font-family: var(--mono); font-size: 0.72rem; color: var(--muted);
     }
     .listeners-bar strong { color: var(--accent); font-weight: 600; font-size: 1rem; }
+    .listener-list {
+      display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.35rem 0 0.5rem;
+      min-height: 1.4rem;
+    }
+    .listener-chip {
+      font-family: var(--mono); font-size: 0.62rem; padding: 0.15rem 0.45rem;
+      border-radius: 999px; border: 1px solid var(--border); color: var(--muted);
+      background: #0a0a10;
+    }
+    .listener-chip.empty { color: var(--faint); border-style: dashed; }
+    .host-controls { margin-top: 0.35rem; }
+    .sp-slot.muted { opacity: 0.55; border-color: rgba(248,113,113,.35); }
+    .sp-slot .sp-mute {
+      font-family: var(--mono); font-size: 0.55rem; padding: 0.1rem 0.35rem;
+      border-radius: 6px; border: 1px solid var(--border); background: transparent;
+      color: var(--faint); cursor: pointer; margin-left: 0.25rem;
+    }
+    .sp-slot.muted .sp-mute { color: var(--err); border-color: rgba(248,113,113,.4); }
+    .sp-slot .sp-mute:hover { color: var(--accent); }
 
     .space-caption-bar {
       margin-top: 0.75rem; padding: 0.55rem 0.7rem;
@@ -317,7 +336,14 @@
 
         <div class="listeners-bar">
           Listeners <strong id="listeners-count">0</strong>
-          <span style="color:var(--faint);font-size:0.65rem">· waveform on stage seats · mesh levels live</span>
+          <span style="color:var(--faint);font-size:0.65rem">· named list · mesh join/leave</span>
+        </div>
+        <div class="listener-list" id="listener-list" aria-label="Listener list"></div>
+        <div class="sp-row host-controls">
+          <button type="button" class="btn ghost" id="btn-mute-all" title="Host: mute all co-hosts + speakers">Mute all</button>
+          <button type="button" class="btn ghost" id="btn-unmute-all">Unmute all</button>
+          <button type="button" class="btn ghost" id="btn-self-mute">Self mute</button>
+          <button type="button" class="btn ghost" id="btn-asset-offer" title="Offer this gy as X stream asset">Offer asset</button>
         </div>
 
         <p class="sp-section-label">Caption / lower-third</p>
@@ -351,11 +377,18 @@
             <input id="rtmp-key" type="password" autocomplete="off" spellcheck="false"
               placeholder="available when ready" />
           </label>
-          <p class="rtmp-status wait" id="rtmp-status">stream key available when ready · paste from X Media Studio → Sources → RTMP</p>
+          <div class="sp-row" style="margin-top:0.4rem">
+            <button type="button" class="btn primary" id="btn-key-pull">Auto-pull key</button>
+            <label class="btn ghost" style="font-size:0.65rem">Token
+              <input id="space-token" type="password" placeholder="GY_SPACE_TOKEN" style="width:7rem;margin-left:0.3rem" />
+            </label>
+          </div>
+          <p class="rtmp-status wait" id="rtmp-status">stream key available when ready · auto-pull env/file/hub · or paste from Media Studio</p>
           <code id="rtmp-cmd"></code>
           <p style="margin-top:0.45rem;font-size:0.72rem;color:var(--faint);line-height:1.4">
             Defaults: <code>rtmps://ca.pscp.tv:443/x</code> · <code>rtmp://ca.pscp.tv:80/x</code><br />
-            CLI: <code>gy space-rtmp --key $KEY --in clip.mp4</code> · env <code>GY_X_STREAM_KEY</code>
+            Asset: <code>gy stream-x init|start|offer</code> · others seat via burst · host mute controls<br />
+            Hub: <code>GET /api/space</code> · <code>GET /api/space/key?token=…</code>
           </p>
         </div>
       </section>

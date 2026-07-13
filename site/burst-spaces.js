@@ -21,6 +21,7 @@
     cohosts: document.getElementById('slots-cohosts'),
     speakers: document.getElementById('slots-speakers'),
     listeners: document.getElementById('listeners-count'),
+    listenerList: document.getElementById('listener-list'),
     chatLog: document.getElementById('space-chat-log'),
     chatInput: document.getElementById('space-chat-input'),
     chatSend: document.getElementById('space-chat-send'),
@@ -32,18 +33,25 @@
     rtmpKey: document.getElementById('rtmp-key'),
     rtmpStatus: document.getElementById('rtmp-status'),
     rtmpCmd: document.getElementById('rtmp-cmd'),
+    spaceToken: document.getElementById('space-token'),
     btnApplySpace: document.getElementById('btn-space-apply'),
     btnOpenSpace: document.getElementById('btn-space-open'),
     btnSeatMe: document.getElementById('btn-seat-me'),
+    btnMuteAll: document.getElementById('btn-mute-all'),
+    btnUnmuteAll: document.getElementById('btn-unmute-all'),
+    btnSelfMute: document.getElementById('btn-self-mute'),
+    btnAssetOffer: document.getElementById('btn-asset-offer'),
+    btnKeyPull: document.getElementById('btn-key-pull'),
     roleSelect: document.getElementById('my-role'),
     slotSelect: document.getElementById('my-slot'),
   };
   if (!el.root) return;
 
-  /** @type {{host: Slot, cohosts: Slot[], speakers: Slot[], listeners: number, caption: string, id: string}} */
+  /** @type {{host: Slot, cohosts: Slot[], speakers: Slot[], listeners: number, listenerList: string[], caption: string, id: string, muteAll: boolean, assetOffer: boolean}} */
   let state = emptyState(DEFAULT_SPACE);
   let myRole = 'host';
   let mySlot = 0;
+  let selfMuted = false;
   let analyser = null;
   let micBands = new Array(24).fill(0);
   let level = 0;
@@ -55,14 +63,17 @@
     return {
       id: id || DEFAULT_SPACE,
       title: 'GrokYtalkY Space',
-      host: { nick: '', level: 0, talking: false, ph: 'Host — you' },
+      host: { nick: '', level: 0, talking: false, muted: false, ph: 'Host — you' },
       cohosts: Array.from({ length: COHOSTS }, (_, i) => ({
-        nick: '', level: 0, talking: false, ph: 'Co-host ' + (i + 1),
+        nick: '', level: 0, talking: false, muted: false, ph: 'Co-host ' + (i + 1),
       })),
       speakers: Array.from({ length: SPEAKERS }, (_, i) => ({
-        nick: '', level: 0, talking: false, ph: 'Speaker ' + (i + 1),
+        nick: '', level: 0, talking: false, muted: false, ph: 'Speaker ' + (i + 1),
       })),
       listeners: 0,
+      listenerList: [],
+      muteAll: false,
+      assetOffer: false,
       caption: '',
     };
   }
@@ -102,15 +113,38 @@
 
   function mkSlotEl(kind, index, slot) {
     const div = document.createElement('div');
-    div.className = 'sp-slot' + (slot.talking ? ' talking' : '') + (slot.nick ? ' seated' : ' empty');
+    div.className = 'sp-slot'
+      + (slot.talking && !slot.muted ? ' talking' : '')
+      + (slot.nick ? ' seated' : ' empty')
+      + (slot.muted ? ' muted' : '');
     div.dataset.role = kind;
     div.dataset.index = String(index);
     const label = document.createElement('div');
     label.className = 'sp-slot-label';
     const roleTag = kind === 'host' ? 'HOST' : kind === 'cohost' ? 'CO-HOST' : 'SPEAKER';
     const who = slot.nick || slot.ph;
-    label.innerHTML = '<span class="sp-role">' + roleTag + (kind !== 'host' ? ' ' + (index + 1) : '') +
-      '</span><span class="sp-nick">' + escapeHtml(who) + '</span>';
+    const left = document.createElement('span');
+    left.className = 'sp-role';
+    left.textContent = roleTag + (kind !== 'host' ? ' ' + (index + 1) : '');
+    const right = document.createElement('span');
+    right.style.display = 'flex';
+    right.style.alignItems = 'center';
+    const nick = document.createElement('span');
+    nick.className = 'sp-nick';
+    nick.textContent = who + (slot.muted ? ' 🔇' : '');
+    const muteBtn = document.createElement('button');
+    muteBtn.type = 'button';
+    muteBtn.className = 'sp-mute';
+    muteBtn.textContent = slot.muted ? 'unmute' : 'mute';
+    muteBtn.title = 'Host mute control';
+    muteBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleMute(kind, index, !slot.muted);
+    });
+    right.appendChild(nick);
+    right.appendChild(muteBtn);
+    label.appendChild(left);
+    label.appendChild(right);
     const canvas = document.createElement('canvas');
     canvas.className = 'sp-wave';
     canvas.width = 160;
@@ -121,6 +155,77 @@
     div._wave = canvas;
     div._slot = slot;
     return div;
+  }
+
+  function toggleMute(role, index, muted) {
+    const slot = slotFor(role, index);
+    if (!slot) return;
+    slot.muted = muted;
+    if (muted) {
+      slot.level = 0;
+      slot.talking = false;
+    }
+    if (isMySeat(role, index)) selfMuted = muted;
+    rebuildSlots();
+    const b = burst();
+    if (b.sendJSON) {
+      b.sendJSON({
+        type: 'space-mute',
+        from: b.nick || 'web',
+        role: role,
+        slot: index,
+        muted: muted,
+        by: b.nick || 'web',
+        space: state.id,
+        t: Date.now(),
+      });
+    }
+    pushChat('system', (muted ? 'muted' : 'unmuted') + ' ' + role + (role !== 'host' ? ' ' + (index + 1) : ''), 'host');
+  }
+
+  function applyMuteAllLocal(on) {
+    state.muteAll = on;
+    state.cohosts.forEach((s) => { s.muted = on; if (on) { s.level = 0; s.talking = false; } });
+    state.speakers.forEach((s) => { s.muted = on; if (on) { s.level = 0; s.talking = false; } });
+    rebuildSlots();
+  }
+
+  function setMuteAll(on) {
+    applyMuteAllLocal(on);
+    const b = burst();
+    if (b.sendJSON) {
+      b.sendJSON({
+        type: 'space-mute-all', from: b.nick || 'web', muted: on, by: b.nick || 'web',
+        space: state.id, t: Date.now(),
+      });
+    }
+    pushChat('system', on ? 'host muted all stage seats' : 'host unmuted all', 'host');
+  }
+
+  function renderListeners() {
+    if (el.listeners) el.listeners.textContent = String(state.listenerList.length || state.listeners || 0);
+    if (!el.listenerList) return;
+    el.listenerList.innerHTML = '';
+    const list = state.listenerList || [];
+    if (!list.length) {
+      const chip = document.createElement('span');
+      chip.className = 'listener-chip empty';
+      chip.textContent = 'no listeners yet · seat as listener';
+      el.listenerList.appendChild(chip);
+      return;
+    }
+    list.slice(0, 40).forEach((n) => {
+      const chip = document.createElement('span');
+      chip.className = 'listener-chip';
+      chip.textContent = typeof n === 'string' ? n : (n.nick || '?');
+      el.listenerList.appendChild(chip);
+    });
+    if (list.length > 40) {
+      const chip = document.createElement('span');
+      chip.className = 'listener-chip empty';
+      chip.textContent = '+' + (list.length - 40);
+      el.listenerList.appendChild(chip);
+    }
   }
 
   function escapeHtml(s) {
@@ -144,20 +249,24 @@
       el.speakers.innerHTML = '';
       state.speakers.forEach((s, i) => el.speakers.appendChild(mkSlotEl('speaker', i, s)));
     }
-    if (el.listeners) {
-      el.listeners.textContent = String(state.listeners);
-    }
+    renderListeners();
     if (el.caption) {
       el.caption.textContent = state.caption || 'Caption placeholder — pin a line or set lower-third';
       el.caption.classList.toggle('placeholder', !state.caption);
     }
     if (el.spaceMeta) {
+      const nL = state.listenerList.length || state.listeners || 0;
       el.spaceMeta.innerHTML =
         '<em>' + escapeHtml(state.id) + '</em> · host + ' + COHOSTS + ' co-hosts · ' +
-        SPEAKERS + ' speakers · <span id="listeners-inline">' + state.listeners + '</span> listeners';
+        SPEAKERS + ' speakers · ' + nL + ' listeners' +
+        (state.muteAll ? ' · <span style="color:var(--err)">MUTE ALL</span>' : '') +
+        (state.assetOffer ? ' · <span style="color:var(--grok)">ASSET</span>' : '');
     }
     if (el.spaceTitle) {
       el.spaceTitle.textContent = state.title || 'GrokYtalkY Space';
+    }
+    if (el.btnAssetOffer) {
+      el.btnAssetOffer.textContent = state.assetOffer ? 'Asset ON' : 'Offer asset';
     }
     updateSlotSelect();
   }
@@ -219,11 +328,19 @@
       const index = parseInt(node.dataset.index || '0', 10);
       const slot = slotFor(role, index);
       if (!slot || !node._wave) return;
-      // local mic drives our seat
+      // local mic drives our seat (unless muted)
       let lv = slot.level;
       let bands = null;
       let talking = slot.talking;
-      if (isMySeat(role, index) && analyser) {
+      if (slot.muted || (state.muteAll && role !== 'host') || (isMySeat(role, index) && selfMuted)) {
+        lv = 0;
+        talking = false;
+        bands = null;
+        slot.level = 0;
+        slot.talking = false;
+        node.classList.remove('talking');
+        node.classList.add('muted');
+      } else if (isMySeat(role, index) && analyser) {
         lv = level;
         bands = micBands;
         talking = lv > 0.06 || burst().tx;
@@ -300,9 +417,11 @@
     raf = requestAnimationFrame(loop);
     readMic();
     paintAllWaves();
-    // mesh levels while speaking on stage
+    // mesh levels while speaking on stage (skip if muted)
     const b = burst();
-    if (b.sendJSON && (level > 0.08 || b.tx) && myRole !== 'listener') {
+    const mySlotObj = slotFor(myRole, mySlot);
+    const muted = selfMuted || (mySlotObj && mySlotObj.muted) || (state.muteAll && myRole !== 'host');
+    if (b.sendJSON && !muted && (level > 0.08 || b.tx) && myRole !== 'listener') {
       if (!loop._lastLv || performance.now() - loop._lastLv > 120) {
         loop._lastLv = performance.now();
         b.sendJSON({
@@ -357,18 +476,124 @@
     mySlot = parseInt((el.slotSelect && el.slotSelect.value) || '0', 10) || 0;
     const nick = (burst().nick) || 'web-' + Math.random().toString(36).slice(2, 6);
     if (myRole === 'listener') {
-      state.listeners = Math.max(state.listeners, 1);
+      if (!state.listenerList.includes(nick)) state.listenerList.push(nick);
+      state.listeners = state.listenerList.length;
       pushChat('system', nick + ' joined as listener', '');
+      const b = burst();
+      if (b.sendJSON) {
+        b.sendJSON({
+          type: 'space-listener-join', from: nick, nick: nick,
+          space: state.id, t: Date.now(),
+        });
+      }
     } else {
       const slot = slotFor(myRole, mySlot);
       if (slot) {
         slot.nick = nick;
         slot.talking = false;
       }
+      // leave listener list if promoting
+      state.listenerList = state.listenerList.filter((n) => n !== nick);
+      state.listeners = state.listenerList.length;
       pushChat('system', nick + ' seated as ' + myRole + (myRole !== 'host' ? ' ' + (mySlot + 1) : ''), myRole);
     }
     rebuildSlots();
     broadcastRoster();
+  }
+
+  function broadcastAsset(offer) {
+    state.assetOffer = offer;
+    rebuildSlots();
+    const b = burst();
+    if (b.sendJSON) {
+      b.sendJSON({
+        type: 'space-asset',
+        from: b.nick || 'web',
+        offer: offer,
+        operator: b.nick || 'web',
+        label: 'GrokYtalkY stream asset',
+        public: true,
+        space: state.id,
+        url: spaceLink(state.id),
+        rtmp: (el.rtmpProto && el.rtmpProto.value === 'rtmp') ? RTMP : RTMPS,
+        ready: !!(el.rtmpKey && el.rtmpKey.value.trim()),
+        t: Date.now(),
+      });
+    }
+    pushChat('system', offer
+      ? 'stream asset OFFERED — others can seat; operator publishes RTMP via gy stream-x'
+      : 'stream asset offer stopped', '');
+  }
+
+  async function autoPullKey() {
+    // 1) localStorage  2) hub /api/space/key  3) clipboard
+    updateRtmpUI();
+    const token = (el.spaceToken && el.spaceToken.value.trim())
+      || (localStorage.getItem('gy_space_token') || '');
+    if (el.spaceToken && token) el.spaceToken.value = token;
+    try { localStorage.setItem('gy_space_token', token); } catch (_) {}
+
+    // already have key?
+    if (el.rtmpKey && el.rtmpKey.value.trim()) {
+      if (el.rtmpStatus) {
+        el.rtmpStatus.textContent = 'stream key ready (local) · publish armed';
+        el.rtmpStatus.className = 'rtmp-status ready';
+      }
+      pushChat('system', 'key present locally', '');
+      return;
+    }
+
+    // hub auto-pull
+    const host = location.hostname || '127.0.0.1';
+    const port = 9876;
+    const base = 'http://' + (host === 'localhost' ? '127.0.0.1' : host) + ':' + port;
+    if (token) {
+      try {
+        const r = await fetch(base + '/api/space/key?token=' + encodeURIComponent(token));
+        const j = await r.json();
+        if (j.stream_key) {
+          el.rtmpKey.value = j.stream_key;
+          saveKey();
+          updateRtmpUI();
+          pushChat('system', 'stream key auto-pulled from hub · ' + (j.source || 'api'), 'host');
+          return;
+        }
+      } catch (e) {
+        pushChat('system', 'hub key pull failed — is gy serve up?', '');
+      }
+    }
+
+    // public status only
+    try {
+      const r = await fetch(base + '/api/space');
+      const j = await r.json();
+      if (j.rtmp && j.rtmp.ready) {
+        if (el.rtmpStatus) {
+          el.rtmpStatus.textContent = 'hub reports key ready · provide GY_SPACE_TOKEN to pull';
+          el.rtmpStatus.className = 'rtmp-status wait';
+        }
+      }
+    } catch (_) {}
+
+    // clipboard
+    try {
+      if (navigator.clipboard && navigator.clipboard.readText) {
+        const t = (await navigator.clipboard.readText()).trim().split(/\r?\n/)[0];
+        if (t && t.length >= 8 && !t.includes(' ')) {
+          el.rtmpKey.value = t;
+          saveKey();
+          updateRtmpUI();
+          pushChat('system', 'stream key auto-pulled from clipboard', 'host');
+          return;
+        }
+      }
+    } catch (_) {}
+
+    if (el.rtmpStatus) {
+      el.rtmpStatus.textContent = 'stream key available when ready · paste, or gy stream-x key / GY_X_STREAM_KEY';
+      el.rtmpStatus.className = 'rtmp-status wait';
+    }
+    pushChat('system', 'key not ready — paste Media Studio key or run gy stream-x key', '');
   }
 
   function broadcastRoster() {
@@ -381,10 +606,13 @@
       url: spaceLink(state.id),
       title: state.title,
       caption: state.caption,
-      host: { nick: state.host.nick, level: state.host.level, talking: state.host.talking },
-      cohosts: state.cohosts.map((s, i) => ({ index: i, nick: s.nick, level: s.level, talking: s.talking })),
-      speakers: state.speakers.map((s, i) => ({ index: i, nick: s.nick, level: s.level, talking: s.talking })),
-      listeners: state.listeners,
+      host: { nick: state.host.nick, level: state.host.level, talking: state.host.talking, muted: state.host.muted },
+      cohosts: state.cohosts.map((s, i) => ({ index: i, nick: s.nick, level: s.level, talking: s.talking, muted: s.muted })),
+      speakers: state.speakers.map((s, i) => ({ index: i, nick: s.nick, level: s.level, talking: s.talking, muted: s.muted })),
+      listeners: state.listenerList.length,
+      listener_list: state.listenerList.map((n) => ({ nick: n })),
+      mute_all: state.muteAll,
+      asset: { offer: state.assetOffer, public: true },
       t: Date.now(),
     });
   }
@@ -463,18 +691,21 @@
       if (msg.caption) state.caption = String(msg.caption);
       if (msg.title) state.title = String(msg.title);
       if (typeof msg.listeners === 'number') state.listeners = msg.listeners;
-      if (msg.host && msg.host.nick) {
-        state.host.nick = msg.host.nick;
+      if (typeof msg.mute_all === 'boolean') state.muteAll = msg.mute_all;
+      if (msg.host) {
+        if (msg.host.nick) state.host.nick = msg.host.nick;
         state.host.level = msg.host.level || 0;
         state.host.talking = !!msg.host.talking;
+        state.host.muted = !!msg.host.muted;
       }
       if (Array.isArray(msg.cohosts)) {
         msg.cohosts.forEach((c) => {
           const i = c.index | 0;
           if (state.cohosts[i]) {
-            state.cohosts[i].nick = c.nick || '';
+            state.cohosts[i].nick = c.nick || state.cohosts[i].nick;
             state.cohosts[i].level = c.level || 0;
             state.cohosts[i].talking = !!c.talking;
+            state.cohosts[i].muted = !!c.muted;
           }
         });
       }
@@ -482,11 +713,21 @@
         msg.speakers.forEach((c) => {
           const i = c.index | 0;
           if (state.speakers[i]) {
-            state.speakers[i].nick = c.nick || '';
+            state.speakers[i].nick = c.nick || state.speakers[i].nick;
             state.speakers[i].level = c.level || 0;
             state.speakers[i].talking = !!c.talking;
+            state.speakers[i].muted = !!c.muted;
           }
         });
+      }
+      if (Array.isArray(msg.listener_list)) {
+        state.listenerList = msg.listener_list.map((x) => (typeof x === 'string' ? x : x.nick)).filter(Boolean);
+        state.listeners = state.listenerList.length;
+      } else if (typeof msg.listeners === 'number') {
+        state.listeners = msg.listeners;
+      }
+      if (msg.asset && typeof msg.asset.offer === 'boolean') {
+        state.assetOffer = msg.asset.offer;
       }
       rebuildSlots();
     }
@@ -495,10 +736,42 @@
       const slot = msg.slot | 0;
       const lv = Number(msg.level) || 0;
       const s = slotFor(role, slot);
-      if (s) {
+      if (s && !s.muted) {
         s.level = lv;
         s.talking = lv > 0.08;
         if (!s.nick) s.nick = from;
+      }
+    }
+    if (typ === 'space-mute') {
+      const s = slotFor(msg.role, msg.slot | 0);
+      if (s) {
+        s.muted = !!msg.muted;
+        if (s.muted) { s.level = 0; s.talking = false; }
+        rebuildSlots();
+      }
+    }
+    if (typ === 'space-mute-all') {
+      applyMuteAllLocal(!!msg.muted);
+      pushChat('system', msg.muted ? 'stage mute-all (remote host)' : 'stage unmuted (remote)', 'host');
+    }
+    if (typ === 'space-listener-join') {
+      const n = msg.nick || from;
+      if (n && !state.listenerList.includes(n)) state.listenerList.push(n);
+      state.listeners = state.listenerList.length;
+      renderListeners();
+      pushChat('system', n + ' listening', 'listener');
+    }
+    if (typ === 'space-listener-leave') {
+      const n = msg.nick || from;
+      state.listenerList = state.listenerList.filter((x) => x !== n);
+      state.listeners = state.listenerList.length;
+      renderListeners();
+    }
+    if (typ === 'space-asset') {
+      state.assetOffer = !!msg.offer;
+      rebuildSlots();
+      if (msg.offer) {
+        pushChat('system', (msg.operator || from) + ' offers gy stream asset → X.com', '');
       }
     }
     if (typ === 'space-chat') {
@@ -510,11 +783,9 @@
       pushChat('caption', state.caption, 'host', { pin: true });
     }
     if (typ === 'chat' && msg.text) {
-      // show DOJO chat in space log with marker
       pushChat(from + '↗', msg.text, msg.role || '');
     }
     if (typ === 'audio' && msg.from && msg.from !== (burst().nick || '')) {
-      // pulse a speaker slot if nick matches
       pulseNick(msg.from, 0.55);
     }
   }
@@ -542,6 +813,18 @@
     window.open(spaceLink(state.id) + '?s=20', '_blank', 'noopener');
   });
   el.btnSeatMe && el.btnSeatMe.addEventListener('click', seatMe);
+  el.btnMuteAll && el.btnMuteAll.addEventListener('click', () => setMuteAll(true));
+  el.btnUnmuteAll && el.btnUnmuteAll.addEventListener('click', () => setMuteAll(false));
+  el.btnSelfMute && el.btnSelfMute.addEventListener('click', () => {
+    selfMuted = !selfMuted;
+    if (myRole !== 'listener') toggleMute(myRole, mySlot, selfMuted);
+    else pushChat('system', selfMuted ? 'self muted (listener)' : 'self unmuted', '');
+    if (el.btnSelfMute) el.btnSelfMute.textContent = selfMuted ? 'Self unmute' : 'Self mute';
+  });
+  el.btnAssetOffer && el.btnAssetOffer.addEventListener('click', () => {
+    broadcastAsset(!state.assetOffer);
+  });
+  el.btnKeyPull && el.btnKeyPull.addEventListener('click', () => { autoPullKey(); });
   el.roleSelect && el.roleSelect.addEventListener('change', updateSlotSelect);
   el.chatSend && el.chatSend.addEventListener('click', sendChat);
   el.chatInput && el.chatInput.addEventListener('keydown', (e) => {
@@ -561,7 +844,10 @@
     setAnalyser: (a) => { analyser = a; },
     state: () => state,
     broadcastRoster: broadcastRoster,
+    autoPullKey: autoPullKey,
   };
 
+  // try auto-pull on load (non-blocking)
+  setTimeout(() => { autoPullKey(); }, 400);
   raf = requestAnimationFrame(loop);
 })();

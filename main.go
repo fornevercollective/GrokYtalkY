@@ -94,6 +94,8 @@ func run(args []string) error {
 		return runSpaceCmd(args)
 	case "space-rtmp", "x-rtmp", "pscp", "rtmp-push":
 		return runSpaceRTMPCmd(args)
+	case "stream-x", "streamx", "x-stream", "xstream":
+		return runStreamXCmd(args)
 	case "sfu-bridge", "glyph-bridge", "bridge-sfu":
 		return runSfuBridgeCmd(args)
 	case "mid-lane", "midlane", "edge-pub", "edge-hook":
