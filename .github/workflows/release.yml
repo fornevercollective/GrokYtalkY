@@ -12,6 +12,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         include:
           - goos: linux
@@ -24,10 +25,8 @@ jobs:
             goarch: arm64
     steps:
       - uses: actions/checkout@v4
-      - name: System deps
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq libasound2-dev pkg-config
+      # CGO_ENABLED=0 cross-builds use midi_nocgo.go (no rtmidi).
+      # Native CI (ci.yml) still builds with CGO for full MIDI on Linux.
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26.x"
@@ -45,7 +44,8 @@ jobs:
           mkdir -p dist
           go build -trimpath -ldflags "-s -w -X main.Version=${VER} -X main.Commit=${COMMIT} -X main.Date=${DATE}" \
             -o "${OUT}" .
-          # note: CGO=0 may skip midi on some platforms; matrix still validates compile
+          ls -la "${OUT}"
+          file "${OUT}" || true
       - uses: actions/upload-artifact@v4
         with:
           name: bin-${{ matrix.goos }}-${{ matrix.goarch }}
