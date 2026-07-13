@@ -1,0 +1,56 @@
+{
+  "name": "Stadium Glyph · infinite canvas contract",
+  "version": "0.1.0",
+  "status": "concept",
+  "doc": "docs/stadium-glyph.md",
+  "atom": {
+    "phone_cast": "site/phone.html",
+    "full_res_player": "site/glyph-cast.html",
+    "wire": "site/glyph-cast-wire.js",
+    "surfaces": ["grokglyph.html", "livenews.html", "qr.html"]
+  },
+  "molecule": {
+    "metaphor": ["vegas-sphere-touch", "stadium-boards", "drone-cloud-projection", "nothing-to-watch-voronoi"],
+    "rule": "never 112k×1080p — hierarchical LOD only",
+    "pyramid": {
+      "far": { "per_feed": "16–64px or glyph 25²", "canvas": "virtual 4K–8K + infinite tiles" },
+      "medium": { "per_feed": "160²–360p JPEG/mesh", "canvas": "virtual ~16K×16K" },
+      "near": { "per_feed": "720p–1080p", "canvas": "local 2K–4K to interested clients" },
+      "extreme": { "per_feed": "native/4K", "canvas": "GPU texture swap" }
+    }
+  },
+  "reuse": {
+    "cap_profile": "cap_profile.go",
+    "hub_rooms": "hub.go · GY_ROOM_MAX",
+    "sfu": "sfu/ webrtc-rs",
+    "public_1k": "mid-lane · Cloudflare",
+    "venue": "ST2110 · NMOS · PTP scaffolding",
+    "interest": "vision SAM · pose · theme-vision",
+    "capacity": "docs/streams-capacity.md"
+  },
+  "mesh_types": [
+    "stadium-join",
+    "stadium-feed",
+    "stadium-viewport"
+  ],
+  "phases": [
+    { "id": 0, "name": "contract", "status": "docs" },
+    { "id": 1, "name": "stadium-room-atom", "status": "next", "max_peers_hot": 32 },
+    { "id": 2, "name": "virtual-texture-pages", "status": "planned" },
+    { "id": 3, "name": "interest-lod", "status": "planned" },
+    { "id": 4, "name": "hybrid-1k-10k", "status": "planned" },
+    { "id": 5, "name": "install-outputs", "status": "planned" }
+  ],
+  "non_goals": [
+    "single-node gy serve for 112k peers",
+    "112k full-HD mesh",
+    "in-process Sphere multi-GPU driver"
+  ],
+  "budget_example_100k": {
+    "far_glyph": { "count": 95000, "order": "~240 MB/s" },
+    "mid_jpeg": { "count": 4800, "order": "~240 MB/s" },
+    "near_720p": { "count": 180, "order": "~0.2–0.4 Gbps" },
+    "extreme": { "count": 20, "order": "~0.1 Gbps" },
+    "note": "holds only if LOD demotion is product law"
+  }
+}

@@ -2,6 +2,8 @@
 
 GrokYtalkY uses **ffmpeg** (capture / decode / scale) and **ffplay** (audio, optional preview). Capacity depends on **codec**, **resolution**, **FPS**, and **number of feeds** — not a single hard limit.
 
+**Stadium-scale (112k phones + venue cams → infinite canvas):** never 112k×1080p — hierarchical LOD + virtual texture. Contract: [`docs/stadium-glyph.md`](stadium-glyph.md) · [`integrations/stadium-glyph.json`](../integrations/stadium-glyph.json).
+
 ## Hybrid delivery (recommended)
 
 **Cloudflare** for global web viewers + DDoS/TLS simplicity.  
