@@ -246,6 +246,8 @@ func helpBodyDocs() string {
   hub rooms    ?room= · program-per-room · /api/rooms · GY_ROOM_MAX
   mid-lane     gy mid-lane → edge/mid-lane worker (public audience)
                site/mid-lane.html · wrangler dev --port 8788
+  sfu          make sfu-media · GY_SFU_TOKEN · GY_SFU_TURN_URLS
+               GET :9880/health · /metrics · outbox backpressure
 
 
   powerhouse stack (overview · blank · grok-cli · Qbpm)

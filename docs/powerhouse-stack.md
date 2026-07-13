@@ -33,7 +33,8 @@ Clean route for DOJO / venue / research / jam without duplicating authority.
 |---------|--------|
 | On-air PGM/PVW/caption | **gy program bus** (`/conductor` · `/take` · `/caption`) **per hub room** |
 | Chat → caption (opt-in) | **chat-bridge `--program-caption`** merges caption only (no take) |
-| Edge mid-lane | **gy mid-lane** → `GY_EDGE_URL` (program + hexlum envelopes) |
+| Edge mid-lane | **gy mid-lane** → `edge/mid-lane` worker (program + hexlum) |
+| Jam WebRTC | **gy-sfu** (`make sfu-media`) · token · TURN · `/metrics` |
 | Forge identity | **cgf:** marks + lattice on hexlum |
 | ANC mark/tally/preview/caption | **OnANC** from program bus only |
 | Research notes / AI iterate | overview / blank / grok-cli |

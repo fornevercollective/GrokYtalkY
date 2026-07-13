@@ -1,6 +1,6 @@
 [package]
 name = "gy-sfu"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "Minimal DOJO WebRTC SFU sidecar for GrokYtalkY — private rooms + glyph/hex lanes"

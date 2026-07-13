@@ -103,7 +103,32 @@ Terminal clients stay on the hub; browser/WebRTC peers consume glyph|hex DCs. La
 | Mode | Target |
 |------|--------|
 | DOJO interactive | **16–32** peers (jam) · up to **~50–200** / node |
-| Broadcast | **1k+** via Cloudflare, downsampled `mid`/`glyph` |
+| Broadcast | **1k+** via Cloudflare mid-lane (`edge/mid-lane` + `gy mid-lane`) |
+
+## Jam-scale hardening (v0.2 / gy 1.47)
+
+| Control | Flag / env | Default |
+|---------|------------|---------|
+| Peers per room | `--max-peers-per-room` · `GY_SFU_MAX_PEERS` | 64 |
+| Peers per node | `--max-peers-node` · `GY_SFU_MAX_PEERS_NODE` | 256 |
+| Outbox cap (backpressure) | `--outbox-capacity` · `GY_SFU_OUTBOX` | 64 |
+| Glyph max bytes | `--max-glyph-bytes` | 49² |
+| Glyph min interval | `--glyph-min-interval-ms` | 33 (~30 fps) |
+| STUN | `--stun-urls` · `GY_SFU_STUN_URLS` | Google STUN |
+| TURN | `--turn-urls` · `GY_SFU_TURN_URLS` | unset |
+| Auth | `--token` · `GY_SFU_TOKEN` | open |
+
+```bash
+# NAT jam room with TURN
+export GY_SFU_TURN_URLS='turn:turn.example:3478,user,pass'
+cargo run -p gy-sfu --features media -- \
+  --bind 0.0.0.0:9880 --token secret --max-peers-per-room 32
+
+curl -s http://127.0.0.1:9880/health   # counters + ice
+curl -s http://127.0.0.1:9880/metrics  # rooms + drops
+```
+
+When peer outboxes fill, **glyph/hex frames drop** (counted in `outbox_drops`) instead of unbounded memory growth.
 
 ## Media mode (`--features media`)
 

@@ -49,7 +49,7 @@ struct PeerMedia {
     room: String,
     nick: String,
     pc: Arc<RTCPeerConnection>,
-    signal: mpsc::UnboundedSender<ServerMsg>,
+    signal: mpsc::Sender<ServerMsg>,
     /// Outbound tracks we send *to this peer* (keyed by publisher_id + track id)
     outbound: Mutex<HashMap<String, Arc<TrackLocalStaticRTP>>>,
     /// DataChannels by label (SFU-created outbound + any client-created)
@@ -69,14 +69,33 @@ impl MediaHub {
             .with_interceptor_registry(registry)
             .build();
 
-        let mut ice_servers = vec![RTCIceServer {
-            urls: vec!["stun:stun.l.google.com:19302".to_owned()],
-            ..Default::default()
-        }];
+        // STUN: GY_SFU_STUN_URLS comma-list, else Google public STUN
+        let mut ice_servers: Vec<RTCIceServer> = Vec::new();
+        if let Ok(raw) = std::env::var("GY_SFU_STUN_URLS") {
+            let urls: Vec<String> = raw
+                .split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_owned())
+                .collect();
+            if !urls.is_empty() {
+                ice_servers.push(RTCIceServer {
+                    urls,
+                    ..Default::default()
+                });
+            }
+        }
+        if ice_servers.is_empty() {
+            ice_servers.push(RTCIceServer {
+                urls: vec!["stun:stun.l.google.com:19302".to_owned()],
+                ..Default::default()
+            });
+        }
+        // TURN: GY_SFU_TURN_URLS = "turn:host:3478,user,pass;turns:host:5349,user,pass"
         if let Ok(raw) = std::env::var("GY_SFU_TURN_URLS") {
             for part in raw.split(';').filter(|s| !s.is_empty()) {
                 let bits: Vec<_> = part.split(',').map(str::trim).collect();
-                if bits.is_empty() {
+                if bits.is_empty() || bits[0].is_empty() {
                     continue;
                 }
                 ice_servers.push(RTCIceServer {
@@ -103,7 +122,7 @@ impl MediaHub {
         peer_id: Uuid,
         room: String,
         nick: String,
-        signal: mpsc::UnboundedSender<ServerMsg>,
+        signal: mpsc::Sender<ServerMsg>,
     ) -> Result<(), String> {
         {
             let guard = self.peers.lock().await;
@@ -145,7 +164,7 @@ impl MediaHub {
                             "sdpMLineIndex": init.sdp_mline_index,
                             "usernameFragment": init.username_fragment,
                         });
-                        let _ = signal.send(ServerMsg::Ice {
+                        let _ = signal.try_send(ServerMsg::Ice {
                             from: pid,
                             candidate,
                         });
@@ -265,7 +284,7 @@ impl MediaHub {
             .await
             .ok_or_else(|| "no local description".to_string())?;
 
-        let _ = sess.signal.send(ServerMsg::Answer {
+        let _ = sess.signal.try_send(ServerMsg::Answer {
             from: peer_id,
             sdp: local.sdp,
         });
@@ -409,7 +428,7 @@ impl MediaHub {
             if p.id == from || p.room != room {
                 continue;
             }
-            let _ = p.signal.send(msg.clone());
+            let _ = p.signal.try_send(msg.clone());
         }
     }
 
@@ -532,7 +551,7 @@ async fn renegotiate_subscriber(peer: &PeerMedia) -> Result<(), String> {
         .local_description()
         .await
         .ok_or_else(|| "no local desc".to_string())?;
-    let _ = peer.signal.send(ServerMsg::Offer {
+    let _ = peer.signal.try_send(ServerMsg::Offer {
         from: peer.id,
         sdp: local.sdp,
     });

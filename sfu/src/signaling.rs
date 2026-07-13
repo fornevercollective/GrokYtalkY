@@ -1,6 +1,8 @@
 //! WebSocket signaling — SDP/ICE relay + glyph/hex/chat + optional token auth.
+//! Jam-scale: bounded outbox, glyph rate/size limits, room normalize, metrics.
 
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Query, State};
@@ -11,6 +13,8 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::lanes;
+use crate::metrics::Metrics;
+use crate::room::{normalize_room, RoomRegistry};
 use crate::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -144,8 +148,9 @@ pub async fn ws_handler(
 
 async fn peer_session(socket: WebSocket, state: AppState, q: WsQuery) {
     let (mut sink, mut stream) = socket.split();
-    let (tx, mut rx) = mpsc::unbounded_channel::<ServerMsg>();
+    let (tx, mut rx) = mpsc::channel::<ServerMsg>(state.outbox_capacity);
 
+    let metrics = Arc::clone(&state.metrics);
     let out = tokio::spawn(async move {
         while let Some(msg) = rx.recv().await {
             match serde_json::to_string(&msg) {
@@ -162,17 +167,22 @@ async fn peer_session(socket: WebSocket, state: AppState, q: WsQuery) {
         }
     });
 
-    let mut room = q.room.clone();
+    let mut room = normalize_room(&q.room);
     let mut nick = q.nick.clone();
     let mut peer_lanes = lanes::default_dojo_lanes();
     let mut peer_id: Option<Uuid> = None;
     let rooms = Arc::clone(&state.rooms);
     let mut authed = check_token(&state.token, &q.token);
+    // per-peer glyph rate limit
+    let mut last_glyph: Option<Instant> = None;
 
     if !state.token.is_empty() && !authed {
-        let _ = tx.send(ServerMsg::Error {
-            message: "auth required: ?token= or join.token (GY_SFU_TOKEN)".into(),
-        });
+        Metrics::inc(&state.metrics.auth_fail);
+        let _ = tx
+            .try_send(ServerMsg::Error {
+                message: "auth required: ?token= or join.token (GY_SFU_TOKEN)".into(),
+            })
+            .ok();
     } else if let Err(message) = try_join(
         &rooms,
         &state,
@@ -184,7 +194,8 @@ async fn peer_session(socket: WebSocket, state: AppState, q: WsQuery) {
     )
     .await
     {
-        let _ = tx.send(ServerMsg::Error { message });
+        Metrics::inc(&state.metrics.joins_fail);
+        let _ = tx.try_send(ServerMsg::Error { message }).ok();
     }
 
     while let Some(Ok(msg)) = stream.next().await {
@@ -219,14 +230,18 @@ async fn peer_session(socket: WebSocket, state: AppState, q: WsQuery) {
             }
             // query token already checked; allow re-auth via Join
             if !state.token.is_empty() && !authed {
-                let _ = tx.send(ServerMsg::Error {
-                    message: "auth failed".into(),
-                });
+                Metrics::inc(&state.metrics.auth_fail);
+                let _ = tx
+                    .try_send(ServerMsg::Error {
+                        message: "auth failed".into(),
+                    })
+                    .ok();
                 continue;
             }
+            let old_room = room.clone();
             if let Some(r) = r {
                 if !r.is_empty() {
-                    room = r.clone();
+                    room = normalize_room(r);
                 }
             }
             if let Some(n) = n {
@@ -239,8 +254,10 @@ async fn peer_session(socket: WebSocket, state: AppState, q: WsQuery) {
             }
             if let Some(id) = peer_id.take() {
                 media_remove(&state, id).await;
-                rooms.leave(&room, id);
-                rooms.broadcast(&room, None, ServerMsg::PeerLeft { peer_id: id });
+                rooms.leave(&old_room, id);
+                let d = rooms.broadcast(&old_room, None, ServerMsg::PeerLeft { peer_id: id });
+                Metrics::add(&state.metrics.outbox_drops, d);
+                Metrics::inc(&state.metrics.leaves);
             }
             if let Err(message) = try_join(
                 &rooms,
@@ -253,15 +270,19 @@ async fn peer_session(socket: WebSocket, state: AppState, q: WsQuery) {
             )
             .await
             {
-                let _ = tx.send(ServerMsg::Error { message });
+                Metrics::inc(&state.metrics.joins_fail);
+                let _ = tx.try_send(ServerMsg::Error { message }).ok();
             }
             continue;
         }
 
         if !state.token.is_empty() && !authed {
-            let _ = tx.send(ServerMsg::Error {
-                message: "auth required before media/signaling".into(),
-            });
+            Metrics::inc(&state.metrics.auth_fail);
+            let _ = tx
+                .try_send(ServerMsg::Error {
+                    message: "auth required before media/signaling".into(),
+                })
+                .ok();
             continue;
         }
 
@@ -269,13 +290,25 @@ async fn peer_session(socket: WebSocket, state: AppState, q: WsQuery) {
             break;
         }
 
-        handle_authed(&state, &rooms, &room, &nick, &mut peer_id, &tx, cmsg).await;
+        handle_authed(
+            &state,
+            &rooms,
+            &room,
+            &nick,
+            &mut peer_id,
+            &tx,
+            &mut last_glyph,
+            cmsg,
+        )
+        .await;
     }
 
     if let Some(id) = peer_id.take() {
         media_remove(&state, id).await;
         rooms.leave(&room, id);
-        rooms.broadcast(&room, None, ServerMsg::PeerLeft { peer_id: id });
+        let d = rooms.broadcast(&room, None, ServerMsg::PeerLeft { peer_id: id });
+        Metrics::add(&metrics.outbox_drops, d);
+        Metrics::inc(&metrics.leaves);
         tracing::info!(%id, %room, "peer left");
     }
     out.abort();
@@ -298,14 +331,21 @@ fn check_token(required: &str, provided: &str) -> bool {
 }
 
 async fn try_join(
-    rooms: &Arc<crate::room::RoomRegistry>,
+    rooms: &Arc<RoomRegistry>,
     state: &AppState,
     room: &mut String,
     nick: &mut String,
     peer_lanes: &[String],
-    tx: &mpsc::UnboundedSender<ServerMsg>,
+    tx: &mpsc::Sender<ServerMsg>,
     peer_id: &mut Option<Uuid>,
 ) -> Result<(), String> {
+    *room = normalize_room(room);
+    if state.max_peers_node > 0 && rooms.peer_count() >= state.max_peers_node {
+        return Err(format!(
+            "node full ({} peers) — start another gy-sfu or raise --max-peers-node",
+            state.max_peers_node
+        ));
+    }
     match rooms.join(
         room,
         nick.clone(),
@@ -316,20 +356,24 @@ async fn try_join(
         Ok((id, others)) => {
             *peer_id = Some(id);
             media_ensure(state, id, room, nick, tx.clone()).await;
-            let _ = tx.send(ServerMsg::Welcome {
-                peer_id: id,
-                room: room.clone(),
-                media: state.media_enabled,
-                lanes: peer_lanes.to_vec(),
-            });
+            let _ = tx
+                .try_send(ServerMsg::Welcome {
+                    peer_id: id,
+                    room: room.clone(),
+                    media: state.media_enabled,
+                    lanes: peer_lanes.to_vec(),
+                })
+                .ok();
             for o in &others {
-                let _ = tx.send(ServerMsg::PeerJoined {
-                    peer_id: o.id,
-                    nick: o.nick.clone(),
-                    lanes: o.lanes.clone(),
-                });
+                let _ = tx
+                    .try_send(ServerMsg::PeerJoined {
+                        peer_id: o.id,
+                        nick: o.nick.clone(),
+                        lanes: o.lanes.clone(),
+                    })
+                    .ok();
             }
-            rooms.broadcast(
+            let d = rooms.broadcast(
                 room,
                 Some(id),
                 ServerMsg::PeerJoined {
@@ -338,6 +382,8 @@ async fn try_join(
                     lanes: peer_lanes.to_vec(),
                 },
             );
+            Metrics::add(&state.metrics.outbox_drops, d);
+            Metrics::inc(&state.metrics.joins_ok);
             tracing::info!(%id, %room, %nick, "peer joined");
             Ok(())
         }
@@ -347,78 +393,123 @@ async fn try_join(
 
 async fn handle_authed(
     state: &AppState,
-    rooms: &Arc<crate::room::RoomRegistry>,
+    rooms: &Arc<RoomRegistry>,
     room: &str,
     nick: &str,
     peer_id: &mut Option<Uuid>,
-    tx: &mpsc::UnboundedSender<ServerMsg>,
+    tx: &mpsc::Sender<ServerMsg>,
+    last_glyph: &mut Option<Instant>,
     cmsg: ClientMsg,
 ) {
     match cmsg {
         ClientMsg::Join { .. } | ClientMsg::Leave => {}
         ClientMsg::Offer { sdp, to } => {
             let Some(from) = *peer_id else {
-                let _ = tx.send(ServerMsg::Error {
-                    message: "join first".into(),
-                });
+                let _ = tx
+                    .try_send(ServerMsg::Error {
+                        message: "join first".into(),
+                    })
+                    .ok();
                 return;
             };
+            Metrics::inc(&state.metrics.offers);
             if to.is_none() && state.media_enabled {
                 if let Err(e) = media_handle_offer(state, from, sdp).await {
-                    let _ = tx.send(ServerMsg::Error { message: e });
+                    let _ = tx.try_send(ServerMsg::Error { message: e }).ok();
                 }
                 return;
             }
             let msg = ServerMsg::Offer { from, sdp };
-            if let Some(to) = to {
-                rooms.send_to(room, to, msg);
+            let d = if let Some(to) = to {
+                if rooms.send_to(room, to, msg) {
+                    0
+                } else {
+                    1
+                }
             } else {
-                rooms.broadcast(room, Some(from), msg);
-            }
+                rooms.broadcast(room, Some(from), msg)
+            };
+            Metrics::add(&state.metrics.outbox_drops, d);
         }
         ClientMsg::Answer { sdp, to } => {
             let Some(from) = *peer_id else { return };
+            Metrics::inc(&state.metrics.answers);
             if to.is_none() && state.media_enabled {
                 if let Err(e) = media_handle_answer(state, from, sdp).await {
-                    let _ = tx.send(ServerMsg::Error { message: e });
+                    let _ = tx.try_send(ServerMsg::Error { message: e }).ok();
                 }
                 return;
             }
             let msg = ServerMsg::Answer { from, sdp };
-            if let Some(to) = to {
-                rooms.send_to(room, to, msg);
+            let d = if let Some(to) = to {
+                if rooms.send_to(room, to, msg) {
+                    0
+                } else {
+                    1
+                }
             } else {
-                rooms.broadcast(room, Some(from), msg);
-            }
+                rooms.broadcast(room, Some(from), msg)
+            };
+            Metrics::add(&state.metrics.outbox_drops, d);
         }
         ClientMsg::Ice { candidate, to } => {
             let Some(from) = *peer_id else { return };
+            Metrics::inc(&state.metrics.ice);
             if to.is_none() && state.media_enabled {
                 if let Err(e) = media_handle_ice(state, from, candidate).await {
-                    let _ = tx.send(ServerMsg::Error { message: e });
+                    let _ = tx.try_send(ServerMsg::Error { message: e }).ok();
                 }
                 return;
             }
             let msg = ServerMsg::Ice { from, candidate };
-            if let Some(to) = to {
-                rooms.send_to(room, to, msg);
+            let d = if let Some(to) = to {
+                if rooms.send_to(room, to, msg) {
+                    0
+                } else {
+                    1
+                }
             } else {
-                rooms.broadcast(room, Some(from), msg);
-            }
+                rooms.broadcast(room, Some(from), msg)
+            };
+            Metrics::add(&state.metrics.outbox_drops, d);
         }
         ClientMsg::Glyph { n, data } => {
             let Some(from) = *peer_id else { return };
             if !(n == 13 || n == 25 || n == 37 || n == 49 || n <= 96) {
-                let _ = tx.send(ServerMsg::Error {
-                    message: format!("glyph n={n} unsupported"),
-                });
+                let _ = tx
+                    .try_send(ServerMsg::Error {
+                        message: format!("glyph n={n} unsupported"),
+                    })
+                    .ok();
                 return;
             }
-            rooms.broadcast(room, Some(from), ServerMsg::Glyph { from, n, data });
+            if data.len() > state.max_glyph_bytes {
+                Metrics::inc(&state.metrics.glyph_size_drops);
+                return;
+            }
+            if state.glyph_min_interval_ms > 0 {
+                let min = Duration::from_millis(state.glyph_min_interval_ms);
+                if let Some(prev) = *last_glyph {
+                    if prev.elapsed() < min {
+                        Metrics::inc(&state.metrics.glyph_rate_drops);
+                        return;
+                    }
+                }
+                *last_glyph = Some(Instant::now());
+            }
+            Metrics::inc(&state.metrics.glyph_msgs);
+            let d = rooms.broadcast(room, Some(from), ServerMsg::Glyph { from, n, data });
+            Metrics::add(&state.metrics.outbox_drops, d);
         }
         ClientMsg::Hex { payload } => {
             let Some(from) = *peer_id else { return };
-            rooms.broadcast(room, Some(from), ServerMsg::Hex { from, payload });
+            if payload.len() > state.max_hex_bytes {
+                Metrics::inc(&state.metrics.glyph_size_drops);
+                return;
+            }
+            Metrics::inc(&state.metrics.hex_msgs);
+            let d = rooms.broadcast(room, Some(from), ServerMsg::Hex { from, payload });
+            Metrics::add(&state.metrics.outbox_drops, d);
         }
         ClientMsg::Chat {
             text,
@@ -438,7 +529,8 @@ async fn handle_authed(
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_millis() as i64)
                 .unwrap_or(0);
-            rooms.broadcast(
+            Metrics::inc(&state.metrics.chat_msgs);
+            let d = rooms.broadcast(
                 room,
                 Some(from),
                 ServerMsg::Chat {
@@ -450,11 +542,14 @@ async fn handle_authed(
                     meta,
                 },
             );
+            Metrics::add(&state.metrics.outbox_drops, d);
         }
         ClientMsg::Unknown => {
-            let _ = tx.send(ServerMsg::Error {
-                message: "unknown message type".into(),
-            });
+            let _ = tx
+                .try_send(ServerMsg::Error {
+                    message: "unknown message type".into(),
+                })
+                .ok();
         }
     }
 }
@@ -464,7 +559,7 @@ async fn media_ensure(
     id: Uuid,
     room: &str,
     nick: &str,
-    tx: mpsc::UnboundedSender<ServerMsg>,
+    tx: mpsc::Sender<ServerMsg>,
 ) {
     #[cfg(feature = "media")]
     if let Some(hub) = &state.media {
