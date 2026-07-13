@@ -103,7 +103,8 @@ gy serve                    # or plain `gy` companion with local hub
 Discovery APIs:
 
 - `GET http://LAPTOP:9876/api/lan` → `{ws, phone, qr, ips, …}`
-- `GET http://LAPTOP:9876/api/lan/qr` → PNG QR of phone cast URL
+- `GET http://LAPTOP:9876/api/lan/qr` → HTML scan page (client QR; optional `?format=png` via `qrencode`)
+- `GET http://LAPTOP:9876/qr.html` → static scan UI
 - UDP `GYWHO1` → `GYHUB1`+JSON (port **hub+1**, default 9877)
 
 Wire (phone TX):

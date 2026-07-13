@@ -46,7 +46,8 @@ GrokYtalkY is the **terminal + mesh authority**: vision takes drive style, theme
 | **1.76** | **Platform readiness** doctor + JSON export + contract |
 | **1.77** | **Cast wiring** — Live News → glyph-cast full-res (BroadcastChannel + hub) |
 | **1.78** | **Camera / lighting** — phone/film controls (aito-aligned) + mesh `camera-controls` |
-| **1.79** | **Phone quick connect** — QR (`/api/lan/qr`) + one-tap hub+camera on `phone.html` |
+| **1.79** | **Phone quick connect** — QR scan page + one-tap hub+camera on `phone.html` |
+| **1.79.1** | **QR platform bar** — drop Go QR dep; client MIT encoder + optional system `qrencode` |
 
 Three bullets for external recaps:
 

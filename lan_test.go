@@ -40,20 +40,50 @@ func TestBuildLanInfo(t *testing.T) {
 	}
 }
 
-func TestEncodePhoneQR(t *testing.T) {
-	png, err := EncodePhoneQR("http://192.168.1.10:9876/phone.html", 128)
+func TestFormatLanQRHTML(t *testing.T) {
+	u := "http://192.168.1.10:9876/phone.html"
+	h := FormatLanQRHTML(u, u)
+	if !strings.Contains(h, "qrcode-generator.js") {
+		t.Fatal("missing vendored encoder script")
+	}
+	if !strings.Contains(h, u) {
+		t.Fatal("missing url")
+	}
+	if !strings.Contains(h, "Scan") {
+		t.Fatal(h[:min(200, len(h))])
+	}
+	// XSS: payload is base64 in JS; HTML display is escaped
+	evil := `http://x/"/><script>alert(1)</script>`
+	h2 := FormatLanQRHTML(evil, "http://safe/")
+	if strings.Contains(h2, evil) {
+		t.Fatal("raw evil url must not appear unescaped in HTML")
+	}
+	if !strings.Contains(h2, "atob(") {
+		t.Fatal("expected base64 payload path")
+	}
+	// </script> in content must not break out of the generator script
+	if strings.Count(h2, "</script>") != 2 {
+		// one for qrcode-generator load block end is n/a (external src);
+		// page has exactly two inline closings? external src + one inline
+		// count should be stable and not grow with evil content
+		n := strings.Count(h2, "</script>")
+		if n > 3 {
+			t.Fatalf("possible script breakout: %d closings", n)
+		}
+	}
+}
+
+func TestEncodePhoneQRPNGOptional(t *testing.T) {
+	if _, err := EncodePhoneQRPNG("", 4); err == nil {
+		t.Fatal("empty should fail")
+	}
+	png, err := EncodePhoneQRPNG("http://192.168.1.10:9876/phone.html", 4)
 	if err != nil {
-		t.Fatal(err)
+		// qrencode not required — platform path is HTML/client QR
+		t.Skip(err)
 	}
-	if len(png) < 100 {
-		t.Fatalf("png too small: %d", len(png))
-	}
-	// PNG magic
-	if png[0] != 0x89 || string(png[1:4]) != "PNG" {
-		t.Fatalf("not png magic: %x", png[:8])
-	}
-	if _, err := EncodePhoneQR("", 64); err == nil {
-		t.Fatal("expected empty content error")
+	if len(png) < 50 || png[0] != 0x89 {
+		t.Fatalf("bad png %d", len(png))
 	}
 }
 
@@ -174,19 +204,19 @@ func TestLanQRHTTPEndpoint(t *testing.T) {
 	if !strings.Contains(info.QR, "/api/lan/qr") || !strings.Contains(info.Phone, "phone.html") {
 		t.Fatalf("%+v", info)
 	}
-	// PNG QR
+	// HTML scan page (default — no Go QR dep)
 	rr2 := httptest.NewRecorder()
-	req2 := httptest.NewRequest(http.MethodGet, "/api/lan/qr?size=96", nil)
+	req2 := httptest.NewRequest(http.MethodGet, "/api/lan/qr", nil)
 	h.server.Handler.ServeHTTP(rr2, req2)
 	if rr2.Code != http.StatusOK {
 		t.Fatalf("qr status %d body=%s", rr2.Code, rr2.Body.String())
 	}
-	if ct := rr2.Header().Get("Content-Type"); !strings.Contains(ct, "image/png") {
+	if ct := rr2.Header().Get("Content-Type"); !strings.Contains(ct, "text/html") {
 		t.Fatal(ct)
 	}
 	body, _ := io.ReadAll(rr2.Body)
-	if len(body) < 50 || body[0] != 0x89 {
-		t.Fatalf("bad png len=%d", len(body))
+	if !strings.Contains(string(body), "qrcode-generator.js") {
+		t.Fatal("expected client-side QR page")
 	}
 	// reject unsafe url
 	rr3 := httptest.NewRecorder()
@@ -194,5 +224,19 @@ func TestLanQRHTTPEndpoint(t *testing.T) {
 	h.server.Handler.ServeHTTP(rr3, req3)
 	if rr3.Code != http.StatusBadRequest {
 		t.Fatalf("want 400 got %d", rr3.Code)
+	}
+	// forced PNG without qrencode → 501
+	rr4 := httptest.NewRecorder()
+	req4 := httptest.NewRequest(http.MethodGet, "/api/lan/qr?format=png", nil)
+	// may succeed if qrencode installed; otherwise 501
+	h.server.Handler.ServeHTTP(rr4, req4)
+	if rr4.Code != http.StatusOK && rr4.Code != http.StatusNotImplemented {
+		t.Fatalf("png status %d", rr4.Code)
+	}
+	if rr4.Code == http.StatusOK {
+		ct := rr4.Header().Get("Content-Type")
+		if !strings.Contains(ct, "image/png") {
+			t.Fatal(ct)
+		}
 	}
 }

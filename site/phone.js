@@ -129,31 +129,54 @@
     return !touch || (window.innerWidth >= 900 && window.innerHeight >= 600);
   }
 
-  function loadQR(url) {
-    if (!els.qr || !url) return;
-    const src = url + (url.includes("?") ? "&" : "?") + "t=" + Date.now();
-    els.qr.src = src;
-    els.qr.onload = () => {
+  /** Client-side QR via vendored site/qrcode-generator.js — no Go QR dep / no /api PNG. */
+  function renderLocalQR(text) {
+    if (!els.qr || !text) return false;
+    if (typeof qrcode !== "function") {
+      // fallback: open HTML scan page
+      els.qr.removeAttribute("src");
+      if (els.qrWrap) {
+        els.qrWrap.classList.add("is-show");
+        els.qrWrap.title = "Open /qr.html for full scan page";
+      }
+      return false;
+    }
+    try {
+      const q = qrcode(0, "M");
+      q.addData(text);
+      q.make();
+      // data:image/gif;base64 GIF from createDataURL
+      els.qr.src = q.createDataURL(4, 2);
+      els.qr.alt = "QR: " + text;
       if (els.qrWrap) els.qrWrap.classList.add("is-show");
-    };
-    els.qr.onerror = () => {
+      return true;
+    } catch (e) {
       if (els.qrWrap) els.qrWrap.classList.remove("is-show");
-    };
+      return false;
+    }
   }
 
   function showQR(force) {
-    const qrURL =
-      (lanInfo && lanInfo.qr) ||
-      apiBase() + "/api/lan/qr";
-    if (force || isLikelyDesktop()) {
-      loadQR(qrURL);
-      if (els.showQr) els.showQr.textContent = "Hide QR";
+    if (!(force || isLikelyDesktop())) return;
+    const text =
+      phonePageURL ||
+      (lanInfo && lanInfo.phone) ||
+      (location.protocol !== "file:" ? location.origin + "/phone.html" : "");
+    if (!text) return;
+    const ok = renderLocalQR(text);
+    if (els.showQr) els.showQr.textContent = "Hide QR";
+    if (!ok && location.protocol !== "file:") {
+      // last resort: navigate to scan page
+      setStatus("QR lib missing · open " + apiBase() + "/qr.html", "is-err");
     }
   }
 
   function hideQR() {
     if (els.qrWrap) els.qrWrap.classList.remove("is-show");
-    if (els.qr) els.qr.removeAttribute("src");
+    if (els.qr) {
+      els.qr.removeAttribute("src");
+      els.qr.alt = "QR code for phone cast URL";
+    }
     if (els.showQr) els.showQr.textContent = "Show QR";
   }
 

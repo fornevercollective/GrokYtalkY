@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0a0a0c" />
+  <title>GrokYtalkY · scan to phone</title>
+  <style>
+    :root { --bg:#0a0a0c; --accent:#6ee7b7; --muted:#8b8b9a; --warn:#f87171; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100dvh; background: var(--bg); color: #eee;
+      font-family: system-ui, sans-serif; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; padding: 1.5rem; text-align: center;
+    }
+    h1 { font-size: 1.15rem; font-weight: 600; margin: 0 0 0.35rem; letter-spacing: -0.02em; }
+    .sub { color: var(--muted); font-size: 0.85rem; margin-bottom: 1.25rem; }
+    #qr {
+      background: #fff; padding: 14px; border-radius: 16px; line-height: 0;
+      box-shadow: 0 0 0 1px #333; min-width: 160px; min-height: 160px;
+    }
+    #qr img { display: block; margin: 0 auto; width: min(72vw, 280px); height: auto; }
+    .url {
+      margin-top: 1rem; font-family: ui-monospace, monospace; font-size: 0.72rem;
+      color: var(--accent); word-break: break-all; max-width: 28rem;
+    }
+    a.btn {
+      display: inline-block; margin-top: 1.1rem; padding: 0.7rem 1.1rem;
+      background: var(--accent); color: #042; text-decoration: none; border-radius: 12px;
+      font-weight: 700; font-size: 0.95rem;
+    }
+    .hint { margin-top: 1rem; color: var(--muted); font-size: 0.75rem; line-height: 1.45; max-width: 26rem; }
+    .err { color: var(--warn); }
+  </style>
+</head>
+<body>
+  <h1>Scan → phone</h1>
+  <p class="sub">same Wi‑Fi · quick connect</p>
+  <div id="qr" aria-label="QR code"></div>
+  <p class="url" id="url">…</p>
+  <a class="btn" id="open" href="/phone.html">Open phone cast</a>
+  <p class="hint">
+    Phone camera scans this code → cast page → <strong>Quick connect</strong>.
+    QR drawn client-side from vendored MIT <code>qrcode-generator.js</code> — no Go QR package.
+  </p>
+  <script src="qrcode-generator.js"></script>
+  <script>
+    (async function () {
+      var el = document.getElementById("qr");
+      var urlEl = document.getElementById("url");
+      var open = document.getElementById("open");
+      var text = "";
+      var params = new URLSearchParams(location.search);
+      if (params.get("url")) {
+        text = params.get("url");
+      } else {
+        try {
+          var res = await fetch("/api/lan", { headers: { Accept: "application/json" } });
+          if (res.ok) {
+            var info = await res.json();
+            text = info.phone || (location.origin + "/phone.html");
+          }
+        } catch (_) {}
+        if (!text) text = location.origin + "/phone.html";
+      }
+      urlEl.textContent = text;
+      open.href = text.indexOf("ws") === 0 ? "/phone.html" : text;
+      if (typeof qrcode !== "function") {
+        el.innerHTML = "<p class='err' style='padding:1rem'>qrcode-generator.js missing</p>";
+        return;
+      }
+      try {
+        var q = qrcode(0, "M");
+        q.addData(text);
+        q.make();
+        el.innerHTML = q.createImgTag(5, 2);
+        var img = el.querySelector("img");
+        if (img) img.alt = "QR: " + text;
+      } catch (e) {
+        el.innerHTML = "<p class='err' style='padding:1rem'>" + String(e) + "</p>";
+      }
+    })();
+  </script>
+</body>
+</html>

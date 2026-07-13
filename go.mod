@@ -8,7 +8,6 @@ require (
 	github.com/coder/websocket v1.8.14
 	github.com/lucasb-eyer/go-colorful v1.4.0
 	github.com/mattn/go-runewidth v0.0.23
-	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	gitlab.com/gomidi/midi/v2 v2.3.23
 )
 

@@ -56,6 +56,7 @@ func SamplePlatformReadiness() PlatformReadiness {
 			"v1.77 Live News → glyph-cast full-res wire",
 			"v1.78 phone/film camera + lighting (aito-aligned)",
 			"v1.79 phone quick connect (QR + one-tap hub+cam)",
+			"v1.79.1 QR client-side MIT encoder (no Go QR dep)",
 		},
 		OutOfScope: []string{
 			"auto-cast every livenews feed (manual pin/shuffle only)",

@@ -30,11 +30,11 @@ same Wi‑Fi · phone → terminal
   discover    UDP …:9877  (probe GYWHO1)
 ```
 
-### Quick connect (v1.79)
+### Quick connect (v1.79+)
 
 | Device | Action |
 |--------|--------|
-| Laptop | `gy serve` · open `/api/lan/qr` (or `/phone.html` shows QR on desktop) |
+| Laptop | `gy serve` · open `/qr.html` or `/api/lan/qr` (or `/phone.html` shows QR on desktop) |
 | Phone | Scan QR → page opens → tap **⚡ Quick connect** (hub + camera) → hold **Cast** |
 | Phone (deep link) | `phone.html?quick=1` auto-runs hub + camera |
 | Terminal | `gy` · `/lan` / `/phone` / `/qr` reprints banner |
@@ -43,7 +43,9 @@ same Wi‑Fi · phone → terminal
 APIs:
 
 - `GET /api/lan` → `{ws, phone, qr, ips, …}`
-- `GET /api/lan/qr` → PNG QR of phone cast URL (`?size=280`, optional `?url=http://…`)
+- `GET /api/lan/qr` → **HTML** scan page (QR drawn client-side via vendored MIT `site/qrcode-generator.js`)
+- `GET /api/lan/qr?format=png` → PNG only if system **`qrencode`** is installed (optional)
+- `GET /qr.html` → static scan UI (same client encoder)
 - UDP `GYWHO1` → `GYHUB1`+JSON
 
-Phone TX uses `vburst-frame` + `gyst` hexlum.
+**No Go QR dependency** (platform bar: no stale `skip2/go-qrcode`). Phone TX uses `vburst-frame` + `gyst` hexlum.

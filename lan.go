@@ -1,33 +1,39 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"html"
 	"net"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-
-	qrcode "github.com/skip2/go-qrcode"
 )
 
 // LAN discovery for phone ↔ terminal on the same Wi‑Fi.
 //
 // HTTP:  GET /api/lan     → join URLs + local IPs + qr path
-//        GET /api/lan/qr  → PNG QR of phone cast URL
+//        GET /api/lan/qr  → HTML scan page (client-side QR; no Go QR dep)
+//                          optional PNG if system `qrencode` is on PATH + Accept/format=png
+//        GET /qr.html     → same scan UI (static)
 // UDP:   broadcast/multicast "GYWHO1" → unicast "GYHUB1"+JSON
 //
 // Default UDP discovery port = hub port + 1 (9877 when hub is 9876).
+//
+// Platform note: QR rendering is owned in site/qrcode-generator.js (MIT,
+// Kazuhiko Arase, vendored). Go does not depend on github.com/skip2/go-qrcode.
 
 const (
 	lanWhoMagic = "GYWHO1"
 	lanHubMagic = "GYHUB1"
 	// multicast group for LAN discovery (link-local admin)
 	lanMulticast = "239.255.76.67"
-	// default PNG size for phone cast QR (square px)
-	lanQRDefaultSize = 280
+	// default module scale for optional system qrencode PNG
+	lanQRDefaultSize = 8
 )
 
 // LanInfo is advertise payload for phones and other peers on the LAN.
@@ -39,7 +45,7 @@ type LanInfo struct {
 	WS      string   `json:"ws"`    // preferred ws://IP:port/
 	HTTP    string   `json:"http"`  // preferred http://IP:port/
 	Phone   string   `json:"phone"` // cast page for mobile browsers
-	QR      string   `json:"qr,omitempty"` // relative or absolute PNG QR endpoint
+	QR      string   `json:"qr,omitempty"` // scan page (HTML; client-side QR)
 	Burst   string   `json:"burst,omitempty"`
 	Glyph   string   `json:"glyph,omitempty"`
 	Room    string   `json:"room"`
@@ -193,17 +199,105 @@ func BuildLanInfo(port int, room string) LanInfo {
 	}
 }
 
-// EncodePhoneQR returns a PNG QR encoding the phone cast URL (or any join URL).
-// size is square pixels; 0 uses lanQRDefaultSize. Negative size uses module scale (go-qrcode).
-func EncodePhoneQR(content string, size int) ([]byte, error) {
+// EncodePhoneQRPNG optionally encodes a PNG via system `qrencode` (libqrencode).
+// No Go QR library — returns error if qrencode is missing. size is module pixels (1–20).
+func EncodePhoneQRPNG(content string, size int) ([]byte, error) {
 	content = strings.TrimSpace(content)
 	if content == "" {
 		return nil, fmt.Errorf("empty QR content")
 	}
-	if size == 0 {
+	if size <= 0 {
 		size = lanQRDefaultSize
 	}
-	return qrcode.Encode(content, qrcode.Medium, size)
+	if size > 20 {
+		size = 20
+	}
+	path, err := exec.LookPath("qrencode")
+	if err != nil {
+		return nil, fmt.Errorf("qrencode not on PATH (install libqrencode) — use HTML scan page /api/lan/qr")
+	}
+	// qrencode -t PNG -s N -o - CONTENT
+	cmd := exec.Command(path, "-t", "PNG", "-s", strconv.Itoa(size), "-m", "2", "-o", "-", content)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("qrencode: %w", err)
+	}
+	if len(out) < 8 || out[0] != 0x89 {
+		return nil, fmt.Errorf("qrencode: not a PNG")
+	}
+	return out, nil
+}
+
+// FormatLanQRHTML is a self-contained scan page for laptop → phone.
+// QR is drawn client-side from vendored site/qrcode-generator.js (no Go QR dep).
+// Payload is base64 in the page so raw content cannot break out of <script>.
+func FormatLanQRHTML(content, phoneURL string) string {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		content = phoneURL
+	}
+	esc := html.EscapeString(content)
+	phoneEsc := html.EscapeString(phoneURL)
+	// b64 avoids </script> breakout inside inline JS
+	b64 := base64.StdEncoding.EncodeToString([]byte(content))
+	return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="theme-color" content="#0a0a0c"/>
+<title>GrokYtalkY · scan to phone</title>
+<style>
+  :root { --bg:#0a0a0c; --card:#14141a; --accent:#6ee7b7; --muted:#8b8b9a; }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100dvh; background:var(--bg); color:#eee;
+    font-family: system-ui, sans-serif; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; padding:1.5rem; text-align:center; }
+  h1 { font-size:1.15rem; font-weight:600; margin:0 0 .35rem; letter-spacing:-.02em; }
+  .sub { color:var(--muted); font-size:.85rem; margin-bottom:1.25rem; }
+  #qr { background:#fff; padding:14px; border-radius:16px; line-height:0;
+    box-shadow:0 0 0 1px #333; }
+  #qr img, #qr canvas, #qr table { display:block; margin:0 auto; }
+  .url { margin-top:1rem; font-family: ui-monospace, monospace; font-size:.72rem;
+    color:var(--accent); word-break:break-all; max-width:28rem; }
+  a.btn { display:inline-block; margin-top:1.1rem; padding:.7rem 1.1rem;
+    background:var(--accent); color:#042; text-decoration:none; border-radius:12px;
+    font-weight:700; font-size:.95rem; }
+  .hint { margin-top:1rem; color:var(--muted); font-size:.75rem; line-height:1.45; max-width:26rem; }
+</style>
+</head>
+<body>
+  <h1>Scan → phone</h1>
+  <p class="sub">same Wi‑Fi · quick connect</p>
+  <div id="qr" aria-label="QR code"></div>
+  <p class="url" id="url">` + esc + `</p>
+  <a class="btn" id="open" href="` + phoneEsc + `">Open phone cast</a>
+  <p class="hint">Phone camera scans this code → opens cast page → <strong>Quick connect</strong>.
+  QR is rendered in-browser (vendored MIT encoder). No third-party Go QR package.</p>
+<script src="/qrcode-generator.js"></script>
+<script>
+(function(){
+  var text = atob("` + b64 + `");
+  var el = document.getElementById("qr");
+  if (typeof qrcode !== "function") {
+    el.innerHTML = "<p style='color:#f87171;padding:1rem'>qrcode-generator.js missing</p>";
+    return;
+  }
+  try {
+    var q = qrcode(0, "M");
+    q.addData(text);
+    q.make();
+    el.innerHTML = q.createImgTag(5, 2);
+    var img = el.querySelector("img");
+    if (img) { img.alt = "QR phone cast"; img.style.width = "min(72vw, 280px)"; img.style.height = "auto"; }
+  } catch (e) {
+    el.innerHTML = "<p style='color:#f87171;padding:1rem'>encode failed</p>";
+  }
+})();
+</script>
+</body>
+</html>
+`
 }
 
 // FormatLanBanner multi-line for gy serve / /lan TUI.

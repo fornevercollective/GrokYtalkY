@@ -241,12 +241,13 @@
   </div>
   <div id="ph-cam-panel" class="ph-cam-panel" hidden></div>
   <p class="ph-hint">
-    Laptop: <code>gy serve</code> → scan <strong>quick QR</strong> (<code>/api/lan/qr</code>) or open the printed
-    phone cast URL. <strong>Quick connect</strong> = hub + camera in one tap, then hold <strong>Cast</strong>.
-    Streams <code>vburst-frame</code> + <code>gyst</code> hexlum. <strong>Look</strong> = exposure · WB · fill · night.
-    Discover: <code>GET /api/lan</code> · UDP <code>GYWHO1</code>.
+    Laptop: <code>gy serve</code> → open <strong>quick QR</strong> (<code>/qr.html</code> or <code>/api/lan/qr</code>)
+    and scan. QR is drawn client-side (vendored MIT encoder — no Go QR package).
+    <strong>Quick connect</strong> = hub + camera, then hold <strong>Cast</strong>.
+    Streams <code>vburst-frame</code> + <code>gyst</code> hexlum. Discover: <code>GET /api/lan</code> · UDP <code>GYWHO1</code>.
   </p>
 
+  <script src="qrcode-generator.js"></script>
   <script src="camera-controls.js"></script>
   <script src="phone.js"></script>
   <style>
