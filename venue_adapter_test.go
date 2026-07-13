@@ -165,9 +165,13 @@ func TestVenueOnAirOpenSlate(t *testing.T) {
 	}
 }
 
-func TestNewVenueSinkFallback(t *testing.T) {
-	s := NewVenueSink("ndi", false, true)
-	if s.Name() != "log-stub" {
-		t.Fatal(s.Name())
+func TestNewVenueSinkNDINotLog(t *testing.T) {
+	s, err := NewVenueSink("ndi", VenueOpts{Quiet: true, Width: 32, Height: 32, FPS: 5, NDIName: "t"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if s.Name() == "log-stub" {
+		t.Fatal("ndi should not be log-stub")
 	}
 }

@@ -112,12 +112,15 @@ conductor TUI ──type:program──► hub ──► gy agent (JSON program e
                               └──► gy venue (VenueSink: log-stub → NDI/2110 later)
 ```
 
-### Venue adapter stub (v1.27+)
+### Venue adapter (v1.27+ stub, v1.28+ NDI / ST 2110)
 
 ```bash
-gy venue --json          # log-stub sink; stdout program/glyph when on-air
-# VenueSink interface: OnProgram / OnGlyph / OnBlack / OnHold
-# Lattice pass-through; filters by program bus mark/nick
+gy venue --json                    # log-stub
+gy venue --sink ndi                # NDI via FFmpeg libndi_newtek (else MPEG-TS fallback)
+gy venue --sink st2110 --sdp /tmp/gy.sdp
+gy venue --sink ndi,st2110,log     # multi-sink fan-out
+# VenueSink: OnProgram / OnGlyph / OnBlack / OnHold
+# Lattice nearest-neighbor upscale — never re-stamped
 ```
 
 Scaffold: [`sfu/`](../sfu/README.md) (`make sfu-media` for webrtc-rs track + DataChannel fan-out) · [`chat/`](../chat/README.md) · site: [docs.html#streams-scale](https://fornevercollective.github.io/GrokYtalkY/docs.html#streams-scale)

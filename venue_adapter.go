@@ -55,9 +55,21 @@ type VenueOpts struct {
 	HubWS   string
 	Nick    string
 	Quiet   bool
-	DryRun  bool // LogVenueSink only (default)
+	DryRun  bool // force log-only
 	JSONOut bool // also emit JSON lines on stdout (like agent)
-	// Sink optional; nil → LogVenueSink
+	// SinkKind: log | ndi | st2110 | comma-list (e.g. "ndi,st2110,log")
+	SinkKind string
+	// NDI
+	NDIName     string
+	NDIFallback string // udp/mpegts when libndi missing
+	// ST 2110
+	RTP     string
+	SDPPath string
+	// Shared raster
+	Width  int
+	Height int
+	FPS    int
+	// Sink optional; nil → built from SinkKind
 	Sink VenueSink
 }
 
@@ -172,49 +184,73 @@ type VenueRuntime struct {
 func runVenueCmd(args []string) error {
 	fs := newBridgeFlagSet("venue")
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, `gy venue — venue adapter stub (program bus + glyph lane)
+		fmt.Fprintf(os.Stderr, `gy venue — venue adapter (program bus + glyph → NDI / ST 2110)
 
   gy venue [flags]
 
-  --hub      hub WS (default ws://127.0.0.1:9876/)
-  --nick     sink nick (default venue-stub)
-  --dry-run  log-only sink (default true until real NDI/2110)
-  --json     emit program/glyph JSON lines on stdout
-  --quiet    less logging
+  --hub       hub WS (default ws://127.0.0.1:9876/)
+  --nick      sink nick (default venue)
+  --sink      log|ndi|st2110|comma-list  (default log)
+  --ndi-name  NDI source name (default GrokYtalkY-PGM)
+  --ndi-udp   fallback MPEG-TS UDP if libndi_newtek missing
+  --rtp       ST 2110 lab RTP URL (default rtp://239.100.1.10:5004)
+  --sdp       path to write SDP (default $TMPDIR/gy-venue/gy-st2110.sdp)
+  --width --height --fps   raster (default 1280x720@30)
+  --json      also emit program/glyph JSON on stdout
+  --quiet
+  --dry-run   force log sink only
 
-Follows type:program (PGM/PVW/hold/black). Delivers hexlum/glyph only when
-on-air. Lattice bytes pass through — never re-stamped.
-
-VenueSink interface is the plug point for NDI / ST 2110 / LED walls.
+Follows type:program. On-air hexlum/glyph only. Lattice pass-through
+(nearest-neighbor upscale for NDI/2110 — no re-stamp).
 
 Example:
   gy serve
-  # conductor TUI: /forge … · /conductor claim · /take 1
-  gy venue --json
+  # conductor: /forge … · /conductor claim · /take 1
+  gy venue --sink ndi
+  gy venue --sink st2110 --sdp /tmp/gy.sdp
+  gy venue --sink ndi,st2110,log --json
 `)
 	}
 	hub := fs.String("hub", "ws://127.0.0.1:9876/", "DOJO hub WebSocket")
-	nick := fs.String("nick", "venue-stub", "venue sink nick")
+	nick := fs.String("nick", "venue", "venue sink nick")
+	sinkKind := fs.String("sink", "log", "log|ndi|st2110|comma-list")
+	ndiName := fs.String("ndi-name", "GrokYtalkY-PGM", "NDI source name")
+	ndiUDP := fs.String("ndi-udp", "udp://127.0.0.1:13000?pkt_size=1316", "NDI fallback MPEG-TS")
+	rtp := fs.String("rtp", "rtp://239.100.1.10:5004", "ST 2110 lab RTP URL")
+	sdp := fs.String("sdp", "", "SDP output path")
+	width := fs.Int("width", VenueDefaultW, "output width")
+	height := fs.Int("height", VenueDefaultH, "output height")
+	fps := fs.Int("fps", VenueDefaultFPS, "output fps")
 	quiet := fs.Bool("quiet", false, "less logging")
-	// dry-run always true for stub; flag kept for future --sink=ndi
-	dry := fs.Bool("dry-run", true, "use log stub sink (no hardware)")
+	dry := fs.Bool("dry-run", false, "force log sink only")
 	jsonOut := fs.Bool("json", false, "stdout JSON lines")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	_ = dry
 	if os.Getenv("GY_CAP") == "" {
 		_ = os.Setenv("GY_CAP", CapClassBridge)
 	}
 	if os.Getenv("GY_ROLE") == "" {
 		_ = os.Setenv("GY_ROLE", "bridge")
 	}
+	kind := *sinkKind
+	if *dry {
+		kind = "log"
+	}
 	return RunVenue(VenueOpts{
-		HubWS:   ensureWSQuery(*hub, map[string]string{"role": "venue", "nick": *nick}),
-		Nick:    *nick,
-		Quiet:   *quiet,
-		DryRun:  true,
-		JSONOut: *jsonOut,
+		HubWS:       ensureWSQuery(*hub, map[string]string{"role": "venue", "nick": *nick}),
+		Nick:        *nick,
+		Quiet:       *quiet,
+		DryRun:      *dry,
+		JSONOut:     *jsonOut,
+		SinkKind:    kind,
+		NDIName:     *ndiName,
+		NDIFallback: *ndiUDP,
+		RTP:         *rtp,
+		SDPPath:     *sdp,
+		Width:       *width,
+		Height:      *height,
+		FPS:         *fps,
 	})
 }
 
@@ -231,7 +267,11 @@ func RunVenue(opts VenueOpts) error {
 	}
 	sink := opts.Sink
 	if sink == nil {
-		sink = &LogVenueSink{Quiet: opts.Quiet, JSONOut: opts.JSONOut}
+		var err error
+		sink, err = BuildVenueSink(opts)
+		if err != nil {
+			return err
+		}
 	}
 
 	cap := DetectCapProfile(0, 0)
@@ -476,12 +516,60 @@ func slotOr(a, b int) int {
 	return b
 }
 
-// RegisterVenueSink is a hook for future builds (ndi, 2110). Stub returns log sink.
-func NewVenueSink(kind string, jsonOut, quiet bool) VenueSink {
-	switch strings.ToLower(kind) {
-	case "ndi", "st2110", "2110", "spout":
-		// not linked yet — fall through to log with warning
-		log.Printf("venue · sink %q not built yet — using log-stub", kind)
+// BuildVenueSink constructs log / NDI / ST 2110 sinks (comma-list OK).
+func BuildVenueSink(opts VenueOpts) (VenueSink, error) {
+	kind := strings.TrimSpace(opts.SinkKind)
+	if kind == "" || opts.DryRun {
+		kind = "log"
 	}
-	return &LogVenueSink{Quiet: quiet, JSONOut: jsonOut}
+	parts := strings.Split(kind, ",")
+	var sinks []VenueSink
+	for _, p := range parts {
+		p = strings.ToLower(strings.TrimSpace(p))
+		if p == "" {
+			continue
+		}
+		s, err := NewVenueSink(p, opts)
+		if err != nil {
+			return nil, err
+		}
+		sinks = append(sinks, s)
+	}
+	if len(sinks) == 0 {
+		return &LogVenueSink{Quiet: opts.Quiet, JSONOut: opts.JSONOut}, nil
+	}
+	if len(sinks) == 1 {
+		return sinks[0], nil
+	}
+	return &multiVenueSink{sinks: sinks}, nil
+}
+
+// NewVenueSink builds one named sink (log|ndi|st2110|2110).
+func NewVenueSink(kind string, opts VenueOpts) (VenueSink, error) {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "log", "stub", "dry":
+		return &LogVenueSink{Quiet: opts.Quiet, JSONOut: opts.JSONOut}, nil
+	case "ndi":
+		return NewNDIVenueSink(NDIOpts{
+			Name:        opts.NDIName,
+			Width:       opts.Width,
+			Height:      opts.Height,
+			FPS:         opts.FPS,
+			Quiet:       opts.Quiet,
+			FallbackUDP: opts.NDIFallback,
+		})
+	case "st2110", "2110", "st-2110":
+		return NewST2110VenueSink(ST2110Opts{
+			RTP:     opts.RTP,
+			SDPPath: opts.SDPPath,
+			Width:   opts.Width,
+			Height:  opts.Height,
+			FPS:     opts.FPS,
+			Quiet:   opts.Quiet,
+		})
+	case "spout":
+		return nil, fmt.Errorf("spout sink not built (mac/win GPU IPC) — use ndi or st2110")
+	default:
+		return nil, fmt.Errorf("unknown venue sink %q (log|ndi|st2110)", kind)
+	}
 }
