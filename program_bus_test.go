@@ -147,22 +147,22 @@ func TestAgentProgramEvent(t *testing.T) {
 }
 
 func TestHubStoresProgramForLateJoin(t *testing.T) {
-	// unit: hub.program field set by route
+	// unit: hub.programs[room] field
 	h := NewHub("127.0.0.1:0", true, "")
-	meta := &peerMeta{ID: "1", Nick: "dir", Role: "term"}
+	meta := &peerMeta{ID: "1", Nick: "dir", Role: "term", Room: DefaultMeshRoom}
 	bus := NewProgramBus()
 	mk := NewForgeMark(1, "d.pcap", []byte("h"))
 	bus.Take(SourceFromForge("dir", &mk, LaneGlyph), "dir")
 	msg := bus.MeshJSON("dir")
 	raw, _ := json.Marshal(msg)
-	// route needs a fake conn — call store path via route with nil except careful
-	// directly set via route's program case by invoking with mock is heavy;
-	// verify parse path used by hub write
 	var m map[string]any
 	_ = json.Unmarshal(raw, &m)
-	h.program = m
-	if h.program["type"] != "program" {
-		t.Fatal(h.program)
+	if h.programs == nil {
+		h.programs = make(map[string]map[string]any)
+	}
+	h.programs[DefaultMeshRoom] = m
+	if h.programs[DefaultMeshRoom]["type"] != "program" {
+		t.Fatal(h.programs[DefaultMeshRoom])
 	}
 	_ = meta
 }

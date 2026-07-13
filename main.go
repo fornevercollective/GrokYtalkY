@@ -84,6 +84,8 @@ func run(args []string) error {
 		return runChatBridgeCmd(args)
 	case "sfu-bridge", "glyph-bridge", "bridge-sfu":
 		return runSfuBridgeCmd(args)
+	case "mid-lane", "midlane", "edge-pub", "edge-hook":
+		return runMidLaneCmd(args)
 	case "agent", "glyph-agent", "iot":
 		return runGlyphAgentCmd(args)
 	case "venue", "venue-adapter", "sink":
@@ -325,6 +327,7 @@ commands
   %s venue                NDI · ST 2110-20/30 · 2022-7
   %s sfu-bridge           hub hexlum/vburst → SFU glyph|hex
   %s chat-bridge          hub → Space captions
+  %s mid-lane             edge mid-lane hook (program/hex → HTTP)
   %s doctor [st2110|sync|cameras]
   %s update | upgrade [--check]
   %s install | uninstall | clean-install
@@ -348,8 +351,11 @@ docs  https://fornevercollective.github.io/GrokYtalkY/
       docs.html · dojo · chat · burst · grokglyph (PWA)
   repo docs/streams-capacity.md · st2110-sync-cameras.md
 
-env   XAI_API_KEY · GROK_MODEL · GY_CAP · GY_ROLE
+env   XAI_API_KEY · GROK_MODEL · GY_CAP · GY_ROLE · GY_ROOM
+      GY_ROOM_MAX · GY_EDGE_URL · GY_EDGE_TOKEN
       GY_NO_AUTO_UPDATE=1 · --no-update
+hub   rooms: ?room= · GET /api/rooms · program-per-room
+      gy mid-lane --room dojo --edge https://…/mid
 install
   gy install                  → ~/.local/bin/gy
   gy update | gy upgrade      channel update
@@ -357,14 +363,15 @@ install
   gy uninstall
   gy install dependencies     go · ffmpeg · yt-dlp (brew --yes)
   make install                same local channel
-`, Version, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd)
+`, Version, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd)
 }
 
 func runHubOnly(bind string, port int) error {
 	static := findStatic()
 	addr := fmt.Sprintf("%s:%d", bind, port)
 	h := NewHub(addr, false, static)
-	fmt.Printf("GrokYtalkY hub %s\n  join: gy join 127.0.0.1:%d\n", Version, port)
+	fmt.Printf("GrokYtalkY hub %s\n  join: gy join 127.0.0.1:%d\n  rooms: ws://127.0.0.1:%d/?room=global · GET /api/rooms\n",
+		Version, port, port)
 	return h.ListenAndServe()
 }
 

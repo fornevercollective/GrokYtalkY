@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"os"
 	"sync"
 	"time"
 
@@ -17,6 +18,7 @@ type MeshClient struct {
 	URL  string
 	Nick string
 	Role string
+	Room string     // mesh room tenancy (default global)
 	Cap  CapProfile // advertised on join; lattice lanes respect Cap.Lanes
 
 	mu   sync.Mutex
@@ -36,11 +38,14 @@ func NewMeshClient(host, nick string) *MeshClient {
 	if role == "" {
 		role = "term"
 	}
+	room := NormalizeMeshRoom(os.Getenv("GY_ROOM"))
 	u := url.URL{
-		Scheme:   "ws",
-		Host:     host,
-		Path:     "/",
-		RawQuery: "role=" + url.QueryEscape(role) + "&nick=" + url.QueryEscape(nick),
+		Scheme: "ws",
+		Host:   host,
+		Path:   "/",
+		RawQuery: "role=" + url.QueryEscape(role) +
+			"&nick=" + url.QueryEscape(nick) +
+			"&room=" + url.QueryEscape(room),
 	}
 	// send buffer sized to backpressure hint
 	bp := cap.Backpressure
@@ -54,6 +59,7 @@ func NewMeshClient(host, nick string) *MeshClient {
 		URL:  u.String(),
 		Nick: nick,
 		Role: role,
+		Room: room,
 		Cap:  cap,
 		send: make(chan []byte, bp),
 	}
@@ -93,8 +99,10 @@ func (c *MeshClient) session(ctx context.Context) error {
 	if role == "" {
 		role = "term"
 	}
-	// capability handshake — same join for term, agent, bridge
-	_ = c.SendJSON(c.Cap.JoinFields(c.Nick, role))
+	// capability handshake — same join for term, agent, bridge (+ room tenancy)
+	join := c.Cap.JoinFields(c.Nick, role)
+	join["room"] = NormalizeMeshRoom(c.Room)
+	_ = c.SendJSON(join)
 
 	errCh := make(chan error, 2)
 	go func() {

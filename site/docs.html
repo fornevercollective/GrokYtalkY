@@ -73,7 +73,7 @@
 cd GrokYtalkY
 go build -o bin/gy .
 ./bin/gy                      # companion dock (auto-update on launch)
-./bin/gy serve                # headless hub
+./bin/gy serve                # hub + rooms (?room= · /api/rooms)
 ./bin/gy burst                # dual Glyph Matrix
 ./bin/gy watch clip.mp4
 ./bin/gy venue --sink st2110 --rtp-b rtp://…   # 2110-20 + 2022-7
@@ -435,6 +435,7 @@ export GROK_CLI_URL=http://127.0.0.1:3000   # optional notes backend</code></pre
             <tr><td><code>agent</code></td><td>Thin Glyph/IoT JSON client</td></tr>
             <tr><td><code>venue</code></td><td>NDI / ST 2110 / 2022-7 sinks</td></tr>
             <tr><td><code>sfu-bridge</code> · <code>chat-bridge</code></td><td>Hub → SFU / Space · optional <code>--program-caption</code></td></tr>
+            <tr><td><code>mid-lane</code></td><td>Edge mid-lane hook (program/hex → HTTP)</td></tr>
             <tr><td><code>doctor st2110|sync|cameras</code></td><td>Suite · PTP · tether matrix</td></tr>
             <tr><td><code>update</code> · <code>upgrade</code></td><td>Channel install (TUI also auto-updates)</td></tr>
             <tr><td><code>install</code> · <code>uninstall</code> · <code>clean install</code></td><td>Local package lifecycle</td></tr>

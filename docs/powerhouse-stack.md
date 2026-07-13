@@ -31,8 +31,9 @@ Clean route for DOJO / venue / research / jam without duplicating authority.
 
 | Concern | Owner |
 |---------|--------|
-| On-air PGM/PVW/caption | **gy program bus** (`/conductor` · `/take` · `/caption`) |
+| On-air PGM/PVW/caption | **gy program bus** (`/conductor` · `/take` · `/caption`) **per hub room** |
 | Chat → caption (opt-in) | **chat-bridge `--program-caption`** merges caption only (no take) |
+| Edge mid-lane | **gy mid-lane** → `GY_EDGE_URL` (program + hexlum envelopes) |
 | Forge identity | **cgf:** marks + lattice on hexlum |
 | ANC mark/tally/preview/caption | **OnANC** from program bus only |
 | Research notes / AI iterate | overview / blank / grok-cli |
@@ -55,8 +56,10 @@ See `integrations/powerhouse-protocol.json` (mesh types + env + ports).
 ### DOJO core
 ```bash
 gy serve
-gy                    # companion / forge
+GY_ROOM=dojo gy                    # companion / forge in room
 gy venue --sink st2110 --anc-rtp rtp://239.100.1.10:5008
+# edge mid-lane (public ladder hook — not HD on hub):
+gy mid-lane --room dojo --edge https://worker.example/mid --token "$GY_EDGE_TOKEN"
 ```
 
 ### blank + StageForge (+ optional gy)

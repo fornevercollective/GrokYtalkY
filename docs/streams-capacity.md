@@ -33,8 +33,9 @@ GrokYtalkY uses **ffmpeg** (capture / decode / scale) and **ffplay** (audio, opt
 
 | Layer | Role | Concurrency sweet spot |
 |-------|------|------------------------|
-| **GrokYtalkY hub** (`gy serve`) | Walkie bursts, lab tiles, Glyph ints, hex/binary | **8–32** hot peers / room |
+| **GrokYtalkY hub** (`gy serve`) | Walkie bursts, lab tiles, Glyph ints, hex/binary · **server-side rooms** | **8–32** hot peers / room (`GY_ROOM_MAX`, default 48 soft) |
 | **DOJO SFU** (`sfu/`) | Private rooms, WebRTC + custom lanes | **~50–200** peers / node |
+| **Edge mid-lane** (`gy mid-lane`) | Program + hexlum → HTTP edge (CF worker) | **1k+** viewers via edge ladder |
 | **Cloudflare** | Public broadcast, TLS, edge fan-out | **1k+** viewers / room |
 | **FFmpeg / JAX** | Transcode, ZipDepth, style — offline/worker | Not per-packet fan-out |
 
@@ -89,15 +90,28 @@ GY_CAP=glyph-iot gy agent    # thin IoT JSON lines (lattice pass-through)
 # resize → {type:cap, cap:…}
 ```
 
+### Hub rooms + program-per-room (v1.45+)
+
+```bash
+# tenancy: query, join field, or GY_ROOM
+ws://127.0.0.1:9876/?nick=dir&room=dojo
+GY_ROOM=dojo gy
+GET /api/rooms · GET /api/peers?room=dojo
+# soft cap: GY_ROOM_MAX=48 (0 = unlimited)
+```
+
+Traffic (chat, gyst, vburst, program) is **room-scoped**. Each room stores its own last `type:program` for late join.
+
 ### Conductor / program bus (v1.26+)
 
-On-air control plane for jam + future venue adapters (NDI / ST 2110).  
+On-air control plane for jam + venue adapters (NDI / ST 2110).  
 **Does not re-stamp lattice** — selects which forge/gyst source is program.
 
 | Mesh | Role |
 |------|------|
-| `type:program` + `bus` | Room PGM/PVW state (mode, mark, slot, lane, seq) |
-| Hub remembers last bus | Late joiners (agents/venue) sync immediately |
+| `type:program` + `bus` | Room PGM/PVW state (mode, mark, slot, lane, seq, room) |
+| Hub remembers last bus **per room** | Late joiners (agents/venue) sync immediately |
+| `gy mid-lane` | Side-car POST program/hexlum to edge (not hub fan-out of HD) |
 
 | TUI | Action |
 |-----|--------|

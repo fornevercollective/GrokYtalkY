@@ -642,8 +642,15 @@
       return "";
     }
     const nick = myNick();
+    const room = meshRoom || "global";
     if (!url.includes("nick=")) {
       url += (url.includes("?") ? "&" : "?") + "role=peer&nick=" + encodeURIComponent(nick);
+    }
+    if (!url.includes("room=")) {
+      url += (url.includes("?") ? "&" : "?") + "room=" + encodeURIComponent(room);
+    } else {
+      // refresh room= param
+      url = url.replace(/([?&])room=[^&]*/, "$1room=" + encodeURIComponent(room));
     }
     return url;
   }

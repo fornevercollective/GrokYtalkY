@@ -15,30 +15,33 @@ import (
 	"github.com/coder/websocket"
 )
 
-// Hub is the mesh WebSocket relay (hexcast-compatible frames + walkie msgs).
+// Hub is the mesh WebSocket relay with server-side room tenancy.
+// Peers only receive traffic for their room; each room has its own program bus.
 type Hub struct {
-	mu      sync.Mutex
-	peers   map[*websocket.Conn]*peerMeta
-	server  *http.Server
-	addr    string
-	quiet   bool
-	program map[string]any // last type:program bus for late joiners
+	mu       sync.Mutex
+	peers    map[*websocket.Conn]*peerMeta
+	programs map[string]map[string]any // room → last type:program
+	server   *http.Server
+	addr     string
+	quiet    bool
 }
 
 type peerMeta struct {
 	ID      string
 	Nick    string
 	Role    string
+	Room    string // normalized mesh room
 	Talking bool
-	Cap     CapProfile // capability handshake (lanes, glyph N, bp)
+	Cap     CapProfile
 	HasCap  bool
 }
 
 func NewHub(addr string, quiet bool, staticDir string) *Hub {
 	h := &Hub{
-		peers: make(map[*websocket.Conn]*peerMeta),
-		addr:  addr,
-		quiet: quiet,
+		peers:    make(map[*websocket.Conn]*peerMeta),
+		programs: make(map[string]map[string]any),
+		addr:     addr,
+		quiet:    quiet,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -46,11 +49,17 @@ func NewHub(addr string, quiet bool, staticDir string) *Hub {
 			h.handleWS(w, r)
 			return
 		}
-		// static optional (browser walkie still served if present)
 		if staticDir != "" {
 			p := filepath.Join(staticDir, filepath.Clean("/"+r.URL.Path))
 			if r.URL.Path == "/" {
-				p = filepath.Join(staticDir, "walkie.html")
+				// prefer site index / grokglyph when present
+				for _, cand := range []string{"index.html", "grokglyph.html", "walkie.html"} {
+					try := filepath.Join(staticDir, cand)
+					if st, err := os.Stat(try); err == nil && !st.IsDir() {
+						p = try
+						break
+					}
+				}
 			}
 			if st, err := os.Stat(p); err == nil && !st.IsDir() {
 				http.ServeFile(w, r, p)
@@ -58,11 +67,19 @@ func NewHub(addr string, quiet bool, staticDir string) *Hub {
 			}
 		}
 		w.Header().Set("Content-Type", "text/plain")
-		_, _ = w.Write([]byte("GrokYtalkY hub — connect with: grokytalky\n"))
+		_, _ = w.Write([]byte("GrokYtalkY hub — rooms + program bus\n  gy · ws://HOST/?nick=…&room=global\n  GET /api/rooms · /api/peers?room=\n"))
 	})
 	mux.HandleFunc("/api/peers", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"peers": h.peerList()})
+		room := NormalizeMeshRoom(r.URL.Query().Get("room"))
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"room":  room,
+			"peers": h.peerList(room),
+		})
+	})
+	mux.HandleFunc("/api/rooms", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"rooms": h.roomList()})
 	})
 	h.server = &http.Server{Addr: addr, Handler: mux}
 	return h
@@ -74,7 +91,7 @@ func (h *Hub) ListenAndServe() error {
 		return err
 	}
 	if !h.quiet {
-		log.Printf("GrokYtalkY hub on %s", ln.Addr())
+		log.Printf("GrokYtalkY hub on %s (rooms · program-per-room · max/room=%d)", ln.Addr(), RoomMaxPeers())
 	}
 	return h.server.Serve(ln)
 }
@@ -85,13 +102,17 @@ func (h *Hub) Close() error {
 	return h.server.Shutdown(ctx)
 }
 
-func (h *Hub) peerList() []map[string]any {
+// peerList returns peers in room (empty room = all peers).
+func (h *Hub) peerList(room string) []map[string]any {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	out := make([]map[string]any, 0, len(h.peers))
 	for _, m := range h.peers {
+		if room != "" && m.Room != room {
+			continue
+		}
 		row := map[string]any{
-			"id": m.ID, "nick": m.Nick, "role": m.Role, "talking": m.Talking,
+			"id": m.ID, "nick": m.Nick, "role": m.Role, "room": m.Room, "talking": m.Talking,
 		}
 		if m.HasCap {
 			row["cap"] = m.Cap.MeshMap()
@@ -99,6 +120,48 @@ func (h *Hub) peerList() []map[string]any {
 		out = append(out, row)
 	}
 	return out
+}
+
+func (h *Hub) roomList() []RoomListEntry {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	counts := map[string]int{}
+	for _, m := range h.peers {
+		counts[m.Room]++
+	}
+	// include rooms that only have stored program
+	for room := range h.programs {
+		if _, ok := counts[room]; !ok {
+			counts[room] = 0
+		}
+	}
+	if len(counts) == 0 {
+		counts[DefaultMeshRoom] = 0
+	}
+	out := make([]RoomListEntry, 0, len(counts))
+	for id, n := range counts {
+		e := RoomListEntry{ID: id, Peers: n}
+		if pgm := h.programs[id]; pgm != nil {
+			e.HasProgram = true
+			if seq, cond, mode, ok := programMetaFromMesh(pgm); ok {
+				e.ProgramSeq = seq
+				e.Conductor = cond
+				e.Mode = mode
+			}
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+func (h *Hub) roomPeerCount(room string) int {
+	n := 0
+	for _, m := range h.peers {
+		if m.Room == room {
+			n++
+		}
+	}
+	return n
 }
 
 func (h *Hub) handleWS(w http.ResponseWriter, r *http.Request) {
@@ -114,6 +177,7 @@ func (h *Hub) handleWS(w http.ResponseWriter, r *http.Request) {
 		ID:   randID(3),
 		Nick: q.Get("nick"),
 		Role: q.Get("role"),
+		Room: NormalizeMeshRoom(q.Get("room")),
 	}
 	if meta.Nick == "" {
 		meta.Nick = "peer"
@@ -121,34 +185,53 @@ func (h *Hub) handleWS(w http.ResponseWriter, r *http.Request) {
 	if meta.Role == "" {
 		meta.Role = "peer"
 	}
+
+	// soft capacity — refuse join if room full (bridges exempt)
+	max := RoomMaxPeers()
 	h.mu.Lock()
+	if max > 0 && meta.Role != "bridge" && h.roomPeerCount(meta.Room) >= max {
+		h.mu.Unlock()
+		_ = writeJSON(r.Context(), c, map[string]any{
+			"type": "error", "code": "room_full",
+			"room": meta.Room, "max": max,
+			"text": "room at capacity",
+		})
+		_ = c.Close(websocket.StatusPolicyViolation, "room full")
+		return
+	}
 	h.peers[c] = meta
-	n := len(h.peers)
+	nRoom := h.roomPeerCount(meta.Room)
+	nAll := len(h.peers)
+	pgm := h.programs[meta.Room]
 	h.mu.Unlock()
+
 	if !h.quiet {
-		log.Printf("+ %s (%s) n=%d", meta.Nick, meta.ID, n)
+		log.Printf("+ %s room=%s (%s) room_n=%d total=%d", meta.Nick, meta.Room, meta.ID, nRoom, nAll)
 	}
 
 	ctx := r.Context()
-	_ = writeJSON(ctx, c, map[string]any{"type": "hello", "id": meta.ID, "nick": meta.Nick, "version": Version})
-	_ = writeJSON(ctx, c, map[string]any{"type": "roster", "peers": h.peerList()})
-	// late join: push last program bus so venue/agents sync on-air state
-	h.mu.Lock()
-	pgm := h.program
-	h.mu.Unlock()
+	_ = writeJSON(ctx, c, map[string]any{
+		"type": "hello", "id": meta.ID, "nick": meta.Nick, "room": meta.Room, "version": Version,
+	})
+	_ = writeJSON(ctx, c, map[string]any{"type": "roster", "room": meta.Room, "peers": h.peerList(meta.Room)})
 	if pgm != nil {
 		_ = writeJSON(ctx, c, pgm)
 	}
-	h.broadcast(c, mustJSON(map[string]any{"type": "join", "id": meta.ID, "nick": meta.Nick, "role": meta.Role}))
+	h.broadcastRoom(meta.Room, c, mustJSON(map[string]any{
+		"type": "join", "id": meta.ID, "nick": meta.Nick, "role": meta.Role, "room": meta.Room,
+	}))
 
 	defer func() {
+		room := meta.Room
 		h.mu.Lock()
 		delete(h.peers, c)
 		h.mu.Unlock()
-		h.broadcast(c, mustJSON(map[string]any{"type": "leave", "id": meta.ID, "nick": meta.Nick}))
+		h.broadcastRoom(room, c, mustJSON(map[string]any{
+			"type": "leave", "id": meta.ID, "nick": meta.Nick, "room": room,
+		}))
 		_ = c.Close(websocket.StatusNormalClosure, "")
 		if !h.quiet {
-			log.Printf("- %s", meta.Nick)
+			log.Printf("- %s room=%s", meta.Nick, room)
 		}
 	}()
 
@@ -167,17 +250,26 @@ func (h *Hub) route(from *websocket.Conn, meta *peerMeta, data []byte) {
 		var hdr map[string]any
 		if json.Unmarshal(data[:i], &hdr) == nil {
 			if t, _ := hdr["type"].(string); t == "frame" {
-				h.broadcast(from, data)
+				if _, ok := hdr["room"]; !ok {
+					hdr["room"] = meta.Room
+				}
+				// re-encode header with room if we mutated — keep original body for simplicity
+				h.broadcastRoom(meta.Room, from, data)
 				return
 			}
 		}
 	}
 	var msg map[string]any
 	if err := json.Unmarshal(data, &msg); err != nil {
-		h.broadcast(from, data)
+		h.broadcastRoom(meta.Room, from, data)
 		return
 	}
 	typ, _ := msg["type"].(string)
+	// stamp room on all fan-out messages
+	if _, ok := msg["room"]; !ok {
+		msg["room"] = meta.Room
+	}
+
 	switch typ {
 	case "join", "hello":
 		if n, ok := msg["nick"].(string); ok && n != "" {
@@ -186,6 +278,10 @@ func (h *Hub) route(from *websocket.Conn, meta *peerMeta, data []byte) {
 		if r, ok := msg["role"].(string); ok && r != "" {
 			meta.Role = r
 		}
+		// room switch
+		if r, ok := msg["room"].(string); ok && r != "" {
+			h.setPeerRoom(from, meta, NormalizeMeshRoom(r))
+		}
 		if cap, ok := ParseCapFromMesh(msg); ok {
 			meta.Cap = cap
 			meta.HasCap = true
@@ -193,122 +289,194 @@ func (h *Hub) route(from *websocket.Conn, meta *peerMeta, data []byte) {
 				meta.Role = cap.Role
 			}
 		}
-		// announce peer join with cap so others can adapt glyph N / lanes
 		joinOut := map[string]any{
-			"type": "join", "id": meta.ID, "nick": meta.Nick, "role": meta.Role,
+			"type": "join", "id": meta.ID, "nick": meta.Nick, "role": meta.Role, "room": meta.Room,
 		}
 		if meta.HasCap {
 			joinOut["cap"] = meta.Cap.MeshMap()
 		}
-		h.broadcast(from, mustJSON(joinOut))
-		h.broadcast(from, mustJSON(map[string]any{"type": "roster", "peers": h.peerList()}))
-		_ = writeJSON(context.Background(), from, map[string]any{"type": "roster", "peers": h.peerList()})
+		h.broadcastRoom(meta.Room, from, mustJSON(joinOut))
+		roster := map[string]any{"type": "roster", "room": meta.Room, "peers": h.peerList(meta.Room)}
+		h.broadcastRoom(meta.Room, from, mustJSON(roster))
+		_ = writeJSON(context.Background(), from, roster)
+		// late program for (possibly new) room
+		h.mu.Lock()
+		pgm := h.programs[meta.Room]
+		h.mu.Unlock()
+		if pgm != nil {
+			_ = writeJSON(context.Background(), from, pgm)
+		}
 	case "cap":
-		// capability update (resize / late advertise)
 		if cap, ok := ParseCapFromMesh(msg); ok {
 			meta.Cap = cap
 			meta.HasCap = true
 		}
 		out := map[string]any{
-			"type": "cap", "from": coalesce(msg["from"], meta.Nick), "id": meta.ID,
+			"type": "cap", "from": coalesce(msg["from"], meta.Nick), "id": meta.ID, "room": meta.Room,
 		}
 		if meta.HasCap {
 			out["cap"] = meta.Cap.MeshMap()
 		}
-		h.broadcast(from, mustJSON(out))
+		h.broadcastRoom(meta.Room, from, mustJSON(out))
 	case "chat":
 		out := map[string]any{
 			"type": "chat",
 			"text": msg["text"],
 			"from": coalesce(msg["from"], meta.Nick),
 			"id":   meta.ID,
+			"room": meta.Room,
 			"t":    time.Now().UnixMilli(),
 		}
-		h.broadcast(from, mustJSON(out))
+		h.broadcastRoom(meta.Room, from, mustJSON(out))
 	case "ptt":
 		st, _ := msg["state"].(string)
 		meta.Talking = st == "down"
-		h.broadcast(from, mustJSON(map[string]any{
+		h.broadcastRoom(meta.Room, from, mustJSON(map[string]any{
 			"type": "ptt", "state": st,
-			"from": coalesce(msg["from"], meta.Nick), "id": meta.ID,
+			"from": coalesce(msg["from"], meta.Nick), "id": meta.ID, "room": meta.Room,
 		}))
 	case "vburst-start", "vburst-end", "vburst-frame", "vburst-audio":
-		// Siri-sized video burst walkie — relay as-is (glyph grid + jpeg)
 		if _, ok := msg["from"]; !ok {
 			msg["from"] = meta.Nick
 		}
+		msg["room"] = meta.Room
 		if typ == "vburst-start" {
 			meta.Talking = true
 		}
 		if typ == "vburst-end" {
 			meta.Talking = false
 		}
-		h.broadcast(from, mustJSON(msg))
-		// live hexlum lane: additive promote glyph[] → type:gyst kind:hexlum
-		// (SFU · agent · venue · GrokGlyph). Skip when client sets hex_lane (dual-pub).
+		h.broadcastRoom(meta.Room, from, mustJSON(msg))
 		if typ == "vburst-frame" {
 			if hexMsg, ok := VburstGlyphToHexLumMesh(msg); ok {
-				h.broadcast(from, mustJSON(hexMsg))
+				hexMsg["room"] = meta.Room
+				h.broadcastRoom(meta.Room, from, mustJSON(hexMsg))
 			}
 		}
 	case "gyst", "gyst-frame":
-		// live headless binary/hex stream packets (rgb24|hexlum|jpeg)
 		if _, ok := msg["from"]; !ok {
 			msg["from"] = meta.Nick
 		}
 		msg["type"] = "gyst"
-		// tag formal hex lane when kind is hexlum (telemetry only)
+		msg["room"] = meta.Room
 		if k, _ := msg["kind"].(string); k == "hexlum" || k == "hex" {
 			if _, has := msg["lane"]; !has {
 				msg["lane"] = LaneHex
 			}
 		}
-		h.broadcast(from, mustJSON(msg))
+		h.broadcastRoom(meta.Room, from, mustJSON(msg))
 	case "program":
-		// conductor program bus — store for late joiners, fan-out
 		if _, ok := msg["from"]; !ok {
 			msg["from"] = meta.Nick
 		}
 		msg["type"] = "program"
+		msg["room"] = meta.Room
 		h.mu.Lock()
-		h.program = msg
+		h.programs[meta.Room] = msg
 		h.mu.Unlock()
-		h.broadcast(from, mustJSON(msg))
+		h.broadcastRoom(meta.Room, from, mustJSON(msg))
 	case "program-caption", "caption-set":
-		// caption-only merge — does not change PGM/PVW/mode (conductor take authority)
 		if _, ok := msg["from"]; !ok {
 			msg["from"] = meta.Nick
 		}
 		cap, ok := ParseCaptionFromMesh(msg)
 		if !ok {
-			// empty = clear caption on bus
 			cap = CaptionPayload{}
 		}
 		h.mu.Lock()
-		stored := h.program
+		stored := h.programs[meta.Room]
 		h.mu.Unlock()
 		next := ApplyProgramCaption(stored, coalesce(msg["from"], meta.Nick), cap)
+		next["room"] = meta.Room
 		h.mu.Lock()
-		h.program = next
+		h.programs[meta.Room] = next
 		h.mu.Unlock()
-		h.broadcast(from, mustJSON(next))
+		h.broadcastRoom(meta.Room, from, mustJSON(next))
 	case "caption":
-		// informational caption event (UI / GrokGlyph) — no program authority
 		if _, ok := msg["from"]; !ok {
 			msg["from"] = meta.Nick
 		}
 		msg["type"] = "caption"
-		h.broadcast(from, mustJSON(msg))
+		msg["room"] = meta.Room
+		h.broadcastRoom(meta.Room, from, mustJSON(msg))
+	case "mid-lane", "edge-hook":
+		// edge mid-lane telemetry — room scoped (publishers / mid-lane bridge)
+		if _, ok := msg["from"]; !ok {
+			msg["from"] = meta.Nick
+		}
+		msg["room"] = meta.Room
+		h.broadcastRoom(meta.Room, from, mustJSON(msg))
 	case "audio":
-		h.broadcast(from, data)
+		h.broadcastRoom(meta.Room, from, data)
 	default:
 		if _, ok := msg["from"]; !ok {
 			msg["from"] = meta.Nick
 		}
-		h.broadcast(from, mustJSON(msg))
+		msg["room"] = meta.Room
+		h.broadcastRoom(meta.Room, from, mustJSON(msg))
 	}
 }
 
+// setPeerRoom moves a peer between rooms and notifies both rosters.
+func (h *Hub) setPeerRoom(c *websocket.Conn, meta *peerMeta, newRoom string) {
+	newRoom = NormalizeMeshRoom(newRoom)
+	if newRoom == meta.Room {
+		return
+	}
+	old := meta.Room
+	max := RoomMaxPeers()
+	h.mu.Lock()
+	if max > 0 && meta.Role != "bridge" && h.roomPeerCount(newRoom) >= max {
+		h.mu.Unlock()
+		_ = writeJSON(context.Background(), c, map[string]any{
+			"type": "error", "code": "room_full", "room": newRoom, "max": max,
+		})
+		return
+	}
+	meta.Room = newRoom
+	h.mu.Unlock()
+
+	// leave old room
+	h.broadcastRoom(old, c, mustJSON(map[string]any{
+		"type": "leave", "id": meta.ID, "nick": meta.Nick, "room": old, "reason": "room_switch",
+	}))
+	// join new
+	h.broadcastRoom(newRoom, c, mustJSON(map[string]any{
+		"type": "join", "id": meta.ID, "nick": meta.Nick, "role": meta.Role, "room": newRoom,
+	}))
+	_ = writeJSON(context.Background(), c, map[string]any{
+		"type": "roster", "room": newRoom, "peers": h.peerList(newRoom),
+	})
+	h.mu.Lock()
+	pgm := h.programs[newRoom]
+	h.mu.Unlock()
+	if pgm != nil {
+		_ = writeJSON(context.Background(), c, pgm)
+	}
+	if !h.quiet {
+		log.Printf("~ %s room %s → %s", meta.Nick, old, newRoom)
+	}
+}
+
+// broadcastRoom sends to all peers in room except the sender.
+func (h *Hub) broadcastRoom(room string, except *websocket.Conn, data []byte) {
+	room = NormalizeMeshRoom(room)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	for c, m := range h.peers {
+		if c == except {
+			continue
+		}
+		if m.Room != room {
+			continue
+		}
+		_ = c.Write(ctx, websocket.MessageText, data)
+	}
+}
+
+// broadcast is legacy all-peers fan-out (tests / rare); prefer broadcastRoom.
 func (h *Hub) broadcast(except *websocket.Conn, data []byte) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -354,7 +522,6 @@ func indexByte(b []byte, c byte) int {
 func randID(n int) string {
 	const hex = "0123456789abcdef"
 	b := make([]byte, n*2)
-	// cheap: time-based
 	t := time.Now().UnixNano()
 	for i := range b {
 		b[i] = hex[(int(t)+i*17)%16]

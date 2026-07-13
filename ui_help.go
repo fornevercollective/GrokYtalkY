@@ -210,6 +210,7 @@ func helpBodyCLI() string {
   gy watch file|url
   gy stream-pub|colossus src
   gy agent · gy venue · gy sfu-bridge · gy chat-bridge
+  gy mid-lane --room R --edge URL   edge mid-lane hook
   gy encode · gy decode · gy doctor
   gy update | upgrade [--check]
   gy install | uninstall | clean install
@@ -218,7 +219,8 @@ func helpBodyCLI() string {
 
 env
   XAI_API_KEY · GROK_MODEL · GROK_CLI_URL
-  GY_CAP · GY_ROLE · PREFIX
+  GY_CAP · GY_ROLE · GY_ROOM · GY_ROOM_MAX · PREFIX
+  GY_EDGE_URL · GY_EDGE_TOKEN
   GY_NO_AUTO_UPDATE=1 · GY_AUTO_UPDATE=0|check
   ZIPDEPTH_URL
 
@@ -241,6 +243,8 @@ func helpBodyDocs() string {
   hexlum lane  vburst glyph → gyst kind=hexlum (hub promote)
                GrokGlyph cast dual-pubs gyst + vburst
   GrokGlyph    roster search / filters · / key · focus peer
+  hub rooms    ?room= · program-per-room · /api/rooms · GY_ROOM_MAX
+  mid-lane     gy mid-lane → edge HTTP (program + hexlum)
 
 
   powerhouse stack (overview · blank · grok-cli · Qbpm)

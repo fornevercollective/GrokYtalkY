@@ -1,15 +1,29 @@
 {
   "name": "GrokYtalkY powerhouse protocol",
-  "version": "1.42.0",
+  "version": "1.45.0",
   "hub": {
     "default": "ws://127.0.0.1:9876/",
-    "env": "GY_HUB"
+    "env": "GY_HUB",
+    "room_query": "room",
+    "room_env": "GY_ROOM",
+    "room_max_env": "GY_ROOM_MAX",
+    "default_room": "global",
+    "api": {
+      "rooms": "GET /api/rooms",
+      "peers": "GET /api/peers?room="
+    }
   },
   "mesh_types": {
     "program": {
-      "owner": "gy conductor",
-      "fields": ["mode", "program", "preview", "caption", "caption_meta", "conductor", "seq"],
-      "consumers": ["gy venue", "gy TUI", "qbpm-gy-bridge", "blank multiview", "GrokGlyph", "sfu-bridge"]
+      "owner": "gy conductor (per room)",
+      "fields": ["mode", "program", "preview", "caption", "caption_meta", "conductor", "seq", "room"],
+      "consumers": ["gy venue", "gy TUI", "qbpm-gy-bridge", "blank multiview", "GrokGlyph", "sfu-bridge", "mid-lane"]
+    },
+    "mid-lane": {
+      "owner": "gy mid-lane bridge",
+      "note": "edge ingest envelope — program/hex only, never full HD",
+      "fields": ["room", "lane", "program", "gyst", "caption", "mark", "seq"],
+      "edge_env": ["GY_EDGE_URL", "GY_EDGE_TOKEN"]
     },
     "program-caption": {
       "owner": "chat-bridge --program-caption (opt-in)",
