@@ -571,6 +571,17 @@ func (vp *VideoPipe) SeekRel(delta time.Duration) error {
 	return vp.Seek(pos+delta, 0)
 }
 
+// Restart reopens the ffmpeg watch segment at the current position (vision control plane).
+func (vp *VideoPipe) Restart() error {
+	if vp == nil {
+		return fmt.Errorf("no video")
+	}
+	if vp.VideoURL == "" {
+		return fmt.Errorf("no video url")
+	}
+	return vp.Seek(vp.Position(), 0)
+}
+
 // SetRate changes playback speed (0.5, 1, 1.5, 2).
 func (vp *VideoPipe) SetRate(rate float64) error {
 	if rate < 0.25 {

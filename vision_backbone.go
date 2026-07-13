@@ -417,5 +417,6 @@ func FormatVisionBackboneDoctor(v *VisionBus) string {
 	b.WriteString("  hooks     plugin VisionHook · Subscribe() · mesh type:vision-take\n")
 	b.WriteString("  aito      GY_VISION_AITO_URL=http://127.0.0.1:8766  (zipdepth sidecar)\n")
 	b.WriteString("  future    SAM/MediaPipe/gsplat via aito sidecars (interfaces ready)\n")
+	b.WriteString(FormatVisionMediaDoctor())
 	return b.String()
 }

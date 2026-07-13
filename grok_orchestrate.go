@@ -20,7 +20,9 @@ type GrokTake struct {
 	Theme    string // breaking|politics|…|earthcam|unsorted (vision/news cluster)
 	MuteHint string // none|suggest-mute|quiet|talking
 	Note     string // optional operator note (chat only)
-	Raw      string // original reply
+	// Media is the FFmpeg control-plane ops (vision-first MEDIA lines).
+	Media []VisionMediaAction
+	Raw   string // original reply
 	// Vision marks take as vision-sourced (metrics / mesh)
 	Vision bool
 }
@@ -54,10 +56,12 @@ NOTE <optional operator tip, max 60 chars>
 
 THEME <breaking|politics|conflict|markets|weather|health|science|local|culture|earthcam|unsorted>
 MUTE_HINT <none|suggest-mute|quiet|talking>
+MEDIA <restart|kill|spawn|retune|encode|recover> [focus|all|news|watch|label] [scale=WxH fps=N | WxH@fps] [source|path]
 
 Rules: no markdown fences unless PATTERN needs them; no preamble; prefer STYLE+CAPTION always when video is live.
 For news walls pick STYLE that reads well at small tile size (hex, braille, scan, dither, neon).
-THEME/MUTE_HINT optional unless vision frame is attached (then THEME required).`
+THEME/MUTE_HINT optional unless vision frame is attached (then THEME required).
+MEDIA drives the FFmpeg control plane (spawn/restart/retune/encode supervised pipes) — use when a tile is dead, needs higher res, or a snapshot is useful.`
 }
 
 // BuildOrchestrateUserPrompt packages context for the model.
@@ -112,6 +116,10 @@ func ParseGrokTake(text string) GrokTake {
 			t.MuteHint = normalizeMuteHint(strings.TrimSpace(line[len("MUTE_HINT "):]))
 		case strings.HasPrefix(up, "MUTE ") && !strings.HasPrefix(up, "MUTE_"):
 			t.MuteHint = normalizeMuteHint(strings.TrimSpace(line[5:]))
+		case strings.HasPrefix(up, "MEDIA ") || up == "MEDIA":
+			if a, ok := ParseMediaLine(line); ok {
+				t.Media = append(t.Media, a)
+			}
 		default:
 			// fenced pattern fallback
 			if p := extractPattern(line); p != "" && t.Pattern == "" {
@@ -214,6 +222,9 @@ func (t GrokTake) TakeSummary() string {
 	}
 	if t.Effect != "" {
 		parts = append(parts, "fx")
+	}
+	if len(t.Media) > 0 {
+		parts = append(parts, fmt.Sprintf("media×%d", len(t.Media)))
 	}
 	if len(parts) == 0 {
 		return "take (empty)"

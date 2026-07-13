@@ -4657,6 +4657,20 @@ func (m *Model) startVisionTake(hint string) (tea.Model, tea.Cmd) {
 		}
 		m.status = "vision"
 		return m, nil
+	case "media", "ffmpeg", "control":
+		for _, ln := range strings.Split(strings.TrimRight(FormatVisionMediaDoctor(), "\n"), "\n") {
+			m.pushSys(ln)
+		}
+		m.status = "vision·media"
+		return m, nil
+	case "media-on", "media on":
+		VisionMedia().SetEnabled(true)
+		m.pushSys("vision·ffmpeg control plane ON")
+		return m, nil
+	case "media-off", "media off":
+		VisionMedia().SetEnabled(false)
+		m.pushSys("vision·ffmpeg control plane OFF")
+		return m, nil
 	case "":
 		// one-shot take
 	}
@@ -4743,7 +4757,8 @@ func (m *Model) startGrokOrchestrate(hint string) (tea.Model, tea.Cmd) {
 
 // note: MetricIncr("orch_takes") applied in applyGrokTake
 
-// applyGrokTake applies STYLE/CAPTION/PATTERN/GLYPH/DEPTH/EFFECT/THEME/MUTE_HINT.
+// applyGrokTake applies STYLE/CAPTION/PATTERN/GLYPH/DEPTH/EFFECT/THEME/MUTE_HINT/MEDIA.
+// MEDIA lines (and auto-recover) drive the vision→FFmpeg control plane.
 func (m *Model) applyGrokTake(take GrokTake) (tea.Model, tea.Cmd) {
 	m.grokThinking = false
 	if m.overlay != nil {
@@ -4759,6 +4774,11 @@ func (m *Model) applyGrokTake(take GrokTake) (tea.Model, tea.Cmd) {
 	}
 	var applied []string
 	var cmd tea.Cmd
+
+	// FFmpeg control plane first so style/caption apply onto recovered pipes
+	if mediaApplied := ApplyVisionMediaControl(m, take); len(mediaApplied) > 0 {
+		applied = append(applied, mediaApplied...)
+	}
 
 	if take.Theme != "" {
 		feed := ""

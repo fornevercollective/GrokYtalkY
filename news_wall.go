@@ -125,6 +125,13 @@ func NewsWallStyleName(m PixelMode) string {
 	}
 }
 
+// NewsTileOpts is optional geometry/rate for StartNewsTile (vision retune path).
+type NewsTileOpts struct {
+	W   int // pixels; 0 = default newsTileW
+	H   int
+	FPS int // 0 = default newsTileFPS
+}
+
 // NewsTilePipe is a lightweight per-broadcaster RGB capture (low FPS, small frame).
 type NewsTilePipe struct {
 	mu      sync.Mutex
@@ -137,6 +144,10 @@ type NewsTilePipe struct {
 	Err     string
 	Style   PixelMode
 	mediaID string
+	// encode geometry (vision retune)
+	W   int
+	H   int
+	FPS int
 	// recovery
 	Restarts int
 	lastDie  time.Time
@@ -146,15 +157,47 @@ type NewsTilePipe struct {
 // StartNewsTile opens a throttled ffmpeg rawvideo pipe from a resolved media URL.
 // Registers with Media() supervisor (backpressure + kill-on-exit).
 func StartNewsTile(label, videoURL string, style PixelMode) (*NewsTilePipe, error) {
+	return StartNewsTileOpts(label, videoURL, style, NewsTileOpts{})
+}
+
+// StartNewsTileOpts same as StartNewsTile with explicit scale/fps (vision control plane).
+func StartNewsTileOpts(label, videoURL string, style PixelMode, opts NewsTileOpts) (*NewsTilePipe, error) {
 	if videoURL == "" {
 		return nil, fmt.Errorf("empty video url")
 	}
 	if !Media().CanSpawn(MediaKindNews) {
 		return nil, fmt.Errorf("news wall at capacity (max %d tiles)", Media().NewsMax())
 	}
-	w, h := newsTileW, newsTileH
+	w, h, fps := opts.W, opts.H, opts.FPS
+	if w <= 0 {
+		w = newsTileW
+	}
+	if h <= 0 {
+		h = newsTileH
+	}
+	if fps <= 0 {
+		fps = newsTileFPS
+	}
+	if w < 32 {
+		w = 32
+	}
+	if w > 320 {
+		w = 320
+	}
+	if h < 18 {
+		h = 18
+	}
+	if h > 180 {
+		h = 180
+	}
 	if h%2 != 0 {
 		h++
+	}
+	if fps < 1 {
+		fps = 1
+	}
+	if fps > 15 {
+		fps = 15
 	}
 	args := []string{
 		"-hide_banner", "-loglevel", "error",
@@ -162,7 +205,7 @@ func StartNewsTile(label, videoURL string, style PixelMode) (*NewsTilePipe, erro
 		"-rw_timeout", "15000000", // 15s I/O timeout (µs)
 		"-i", videoURL,
 		"-an",
-		"-vf", fmt.Sprintf("scale=%d:%d:flags=fast_bilinear,fps=%d,format=rgb24", w, h, newsTileFPS),
+		"-vf", fmt.Sprintf("scale=%d:%d:flags=fast_bilinear,fps=%d,format=rgb24", w, h, fps),
 		"-f", "rawvideo", "-pix_fmt", "rgb24",
 		"pipe:1",
 	}
@@ -188,6 +231,9 @@ func StartNewsTile(label, videoURL string, style PixelMode) (*NewsTilePipe, erro
 		Src:     videoURL,
 		Style:   style,
 		mediaID: mid,
+		W:       w,
+		H:       h,
+		FPS:     fps,
 		Poster:  poster,
 		Frame:   poster.Clone(),
 	}
@@ -271,8 +317,8 @@ func (tp *NewsTilePipe) NeedsRestart() bool {
 	if tp.running || tp.Src == "" {
 		return false
 	}
-	// backoff: at least 4s since death, max 5 restarts
-	if tp.Restarts >= 5 {
+	// backoff: at least 4s since death, max 8 restarts (vision control plane may add)
+	if tp.Restarts >= 8 {
 		return false
 	}
 	if tp.lastDie.IsZero() {
@@ -314,17 +360,54 @@ func RestartNewsTile(old *NewsTilePipe) (*NewsTilePipe, error) {
 	}
 	old.mu.Lock()
 	label, src, style := old.Label, old.Src, old.Style
+	opts := NewsTileOpts{W: old.W, H: old.H, FPS: old.FPS}
 	restarts := old.Restarts + 1
 	poster := old.Poster
 	old.mu.Unlock()
 	if src == "" {
 		return nil, fmt.Errorf("nothing to restart")
 	}
-	if restarts > 5 {
+	if restarts > 8 {
 		return nil, fmt.Errorf("%s: max restarts", label)
 	}
 	old.Stop()
-	nt, err := StartNewsTile(label, src, style)
+	nt, err := StartNewsTileOpts(label, src, style, opts)
+	if err != nil {
+		return nil, err
+	}
+	nt.mu.Lock()
+	nt.Restarts = restarts
+	if poster != nil {
+		nt.Poster = poster
+	}
+	nt.mu.Unlock()
+	return nt, nil
+}
+
+// RetuneNewsTile restarts the tile with new ffmpeg scale/fps (vision control plane).
+func RetuneNewsTile(old *NewsTilePipe, opts NewsTileOpts) (*NewsTilePipe, error) {
+	if old == nil {
+		return nil, fmt.Errorf("nil tile")
+	}
+	old.mu.Lock()
+	label, src, style := old.Label, old.Src, old.Style
+	if opts.W <= 0 {
+		opts.W = old.W
+	}
+	if opts.H <= 0 {
+		opts.H = old.H
+	}
+	if opts.FPS <= 0 {
+		opts.FPS = old.FPS
+	}
+	restarts := old.Restarts + 1
+	poster := old.Poster
+	old.mu.Unlock()
+	if src == "" {
+		return nil, fmt.Errorf("nothing to retune")
+	}
+	old.Stop()
+	nt, err := StartNewsTileOpts(label, src, style, opts)
 	if err != nil {
 		return nil, err
 	}

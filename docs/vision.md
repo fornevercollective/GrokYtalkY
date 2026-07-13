@@ -1,22 +1,50 @@
-# Vision-first backbone (v1.68–1.69)
+# Vision-first backbone + FFmpeg control plane (v1.70)
 
-**Vision first.** Structured take path fits the existing orchestrator and media supervisor.
+**Vision first. Full media control, not partial.**  
+Structured take path drives the orchestrator **and** spawns/restarts/retunes/encodes supervised FFmpeg pipelines.
 
 ## Pipeline
 
 ```
-capture → encode (JPEG budget) → infer (provider) → parse take → apply → emit
+capture → encode (JPEG budget) → infer (provider) → parse take
+       → apply (STYLE/CAPTION/… + MEDIA→FFmpeg) → emit
 ```
 
 | Stage | Role |
 |-------|------|
 | capture | focus feed (lab active → main → burst) |
-| encode | `GY_VISION_MAX_W/H` · JPEG q |
+| encode | `GY_VISION_MAX_W/H` · JPEG q (vision API budget) |
 | infer | pluggable **VisionProvider** |
-| apply | `applyGrokTake` STYLE/CAPTION/THEME/MUTE_HINT |
+| apply | `applyGrokTake` + **`ApplyVisionMediaControl`** |
 | emit | plugin **VisionHook** + mesh `type:vision-take` |
 
-Backpressure: **max inflight 1**, min **interval**, drops counted.
+Backpressure: **max inflight 1**, min **interval**, drops counted.  
+Media ops: **`GY_VISION_MEDIA_MAX`** ops/minute.
+
+## FFmpeg control plane
+
+Vision is a first-class client of `Media()`:
+
+| MEDIA op | FFmpeg action |
+|----------|----------------|
+| `restart` / `recover` | `RestartNewsTile` / `VideoPipe.Restart` via supervisor Kill+spawn |
+| `kill` | `Media().Kill` / tile `Stop` (focus\|all\|news\|watch\|label) |
+| `retune` | `RetuneNewsTile` — new `scale=W:H,fps=N` rawvideo pipe |
+| `spawn` | resolve catalog/URL → `StartNewsTile` (budgeted) |
+| `encode` | frame JPEG dump **or** one-shot `ffmpeg` under `MediaKindEncode` |
+
+```
+MEDIA restart focus
+MEDIA recover all
+MEDIA kill news
+MEDIA retune focus 96x54@5
+MEDIA retune focus scale=128x72 fps=6
+MEDIA spawn aje
+MEDIA encode focus jpeg
+MEDIA encode jpeg /tmp/snap.jpg
+```
+
+Auto (when `GY_VISION_MEDIA_AUTO=1`): unhealthy focus news/watch after a vision take → `MEDIA recover focus`.
 
 ## Providers (backbone)
 
@@ -30,9 +58,12 @@ Backpressure: **max inflight 1**, min **interval**, drops counted.
 ```bash
 export GY_VISION_PROVIDER=grok   # or offline
 export GY_VISION_AITO_URL=http://127.0.0.1:8766
+export GY_VISION_MEDIA=1         # FFmpeg control plane (default on)
+export GY_VISION_MEDIA_MAX=4     # ops per minute
+export GY_VISION_MEDIA_AUTO=1    # auto-recover dead focus
 ```
 
-**Future slots (interfaces ready):** SAM segment, MediaPipe pose/IK, gsplat booth — as Aito sidecars implementing `VisionProvider`, no new stage primitives.
+**Future slots (interfaces ready):** SAM segment, MediaPipe pose/IK, gsplat booth — as Aito sidecars implementing `VisionProvider`.
 
 ## Event stream (plugins)
 
@@ -54,8 +85,11 @@ Mesh: `type:vision-take` · `theme` · `caption` · `style` · `mute_hint` · `d
 | `GY_VISION_MODEL` | `grok-2-vision-latest` | multimodal model |
 | `GY_VISION_OVERLAY` | off | prefer overlay record path |
 | `GY_VISION_MAX_INFLIGHT` | 1 | concurrent takes |
+| `GY_VISION_MEDIA` | on | FFmpeg control plane |
+| `GY_VISION_MEDIA_MAX` | 4 | media ops / minute |
+| `GY_VISION_MEDIA_AUTO` | on | auto recover dead focus |
 
-Requires `XAI_API_KEY` (multimodal). Text-only backend is not enough.
+Requires `XAI_API_KEY` for live grok (or `GY_VISION_OFFLINE=1`).
 
 ## CLI / TUI
 
@@ -68,7 +102,9 @@ gy lab   # or gy with /news wall
 /vision              # one-shot take on focus feed
 /vision on           # enable auto loop
 /vision off
-/vision status
+/vision status       # backbone + media plane doctor
+/vision media        # FFmpeg control plane only
+/vision media-on|off
 gy doctor vision
 ```
 
@@ -79,6 +115,7 @@ STYLE neon
 CAPTION Markets board behind desk
 THEME markets
 MUTE_HINT quiet
+MEDIA restart focus
 ```
 
 ## Aito relationship
@@ -90,6 +127,6 @@ MUTE_HINT quiet
 | `aito-mac` | **MediaPipe IK** + gsplat booth + zipdepth sidecar |
 
 GrokYtalkY does **not** embed SAM/MediaPipe/gsplat booth. Those stay in Aito.  
-Here: **lean xAI vision → orch take → stage apply**, supervisor-safe.
+Here: **lean xAI vision → orch take → stage apply + FFmpeg control plane**, supervisor-safe.
 
-Plugins can later hook `Vision().Snapshot()` / mesh `news-caption` theme as the event stream.
+Plugins can hook `Vision().Snapshot()` / `VisionMedia().Snapshot()` / mesh `news-caption` theme as the event stream.

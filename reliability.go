@@ -47,6 +47,8 @@ func MetricIncr(name string) {
 		metricUpdatesOK.Add(1)
 	case "media_drops":
 		metricMediaDrops.Add(1)
+	case "vision_media":
+		// tracked on VisionMedia bus; keep MetricIncr no-op-safe for prom
 	}
 }
 
