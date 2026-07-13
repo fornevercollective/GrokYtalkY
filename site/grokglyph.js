@@ -9,7 +9,7 @@
   const GAP = 1;
   const CAST_MS = 110; // ~9 fps cast (glyph grid is tiny)
   const RX_STALE_MS = 2500;
-  const STORAGE_KEY = "grokglyph.v3";
+  const STORAGE_KEY = "grokglyph.v4";
   const DIR_ORDER = ["n", "e", "s", "w"];
   const DIR_DELTA = {
     n: { x: 0, y: -1 },
@@ -33,6 +33,10 @@
     wrap: document.getElementById("gg-stage-wrap"),
     meshSvg: document.getElementById("gg-mesh-svg"),
     roster: document.getElementById("gg-roster"),
+    rosterCount: document.getElementById("gg-roster-count"),
+    rosterEmpty: document.getElementById("gg-roster-empty"),
+    search: document.getElementById("gg-search"),
+    searchClear: document.getElementById("gg-search-clear"),
     scaleLabel: document.getElementById("gg-scale-label"),
     countLabel: document.getElementById("gg-count-label"),
     castLabel: document.getElementById("gg-cast-label"),
@@ -67,6 +71,14 @@
   let peers = [];
   let meshOn = true;
   let drawerOpen = false;
+  /** @type {string} */
+  let rosterQuery = "";
+  /** @type {string} */
+  let rosterFilter = "all"; // all|live|on|off|rx|sim|nfc
+  /** @type {string} */
+  let rosterSort = "live"; // live|name|dir
+  /** @type {string|null} */
+  let focusPeerId = null;
   let gridCols = 1;
   let gridRows = 1;
   let cellPx = 100;
@@ -760,7 +772,8 @@
     const W = Math.max(1, Math.floor(rect.width));
     const H = Math.max(1, Math.floor(rect.height));
     const dpr = Math.min(window.devicePixelRatio || 1, 3);
-    const want = peers.filter((p) => p.on || p.self);
+    // capacity from filtered stage (search/filter shrinks crowded rooms)
+    const want = stageOrder().filter((p) => p.on || p.self);
     const nWant = Math.max(1, want.length);
     const minCell = 25;
     let best = { cols: 1, rows: nWant, cell: 1 };
@@ -790,7 +803,7 @@
     cellPx = cell;
     maxVisible = gridCols * gridRows;
 
-    const ordered = visibleOrder();
+    const ordered = stageOrder();
     ordered.forEach((p, i) => {
       if (p.self) {
         p.on = true;
@@ -798,6 +811,13 @@
         return;
       }
       p._capOff = i >= maxVisible;
+    });
+    // peers not in stage order stay cap-off when filtering
+    const stageIds = new Set(ordered.map((p) => p.id));
+    peers.forEach((p) => {
+      if (!p.self && !stageIds.has(p.id) && (rosterFilter !== "all" || rosterQuery.trim())) {
+        p._capOff = true;
+      }
     });
 
     const root = document.documentElement;
@@ -822,13 +842,88 @@
     void minCell;
   }
 
-  function visibleOrder() {
-    const self = peers.filter((p) => p.self);
-    const rest = peers.filter((p) => !p.self);
-    rest.sort((a, b) => {
-      // live RX first
-      const al = a.source === "rx" && a.lumAt ? 1 : 0;
-      const bl = b.source === "rx" && b.lumAt ? 1 : 0;
+  function isLivePeer(p) {
+    if (!p) return false;
+    if (p.self) return !!(camOn || fileOn || casting);
+    return (
+      p.source === "rx" &&
+      !!p.lumAt &&
+      performance.now() - p.lumAt < RX_STALE_MS
+    );
+  }
+
+  function peerSourceLabel(p) {
+    if (p.self) {
+      if (casting) return "cast";
+      if (camOn) return "cam";
+      if (fileOn) return "file";
+      return "sim";
+    }
+    return p.source || "sim";
+  }
+
+  function peerMatchesFilter(p) {
+    switch (rosterFilter) {
+      case "live":
+        return isLivePeer(p);
+      case "on":
+        return !!p.on;
+      case "off":
+        return !p.on && !p.self;
+      case "rx":
+        return p.source === "rx" || isLivePeer(p);
+      case "sim":
+        return peerSourceLabel(p) === "sim";
+      case "nfc":
+        return !!p.nfc;
+      case "all":
+      default:
+        return true;
+    }
+  }
+
+  function peerMatchesQuery(p) {
+    const q = rosterQuery.trim().toLowerCase();
+    if (!q) return true;
+    const hay = [
+      p.nick,
+      p.id,
+      p.dir,
+      peerSourceLabel(p),
+      p.nfc ? "nfc" : "",
+      p.self ? "you self me" : "",
+      isLivePeer(p) ? "live rx video" : "",
+      p.on ? "on" : "off",
+    ]
+      .join(" ")
+      .toLowerCase();
+    // multi-token AND
+    return q.split(/\s+/).every((tok) => hay.includes(tok));
+  }
+
+  function peerMatchesRoster(p) {
+    return peerMatchesFilter(p) && peerMatchesQuery(p);
+  }
+
+  function sortPeers(list) {
+    const arr = list.slice();
+    arr.sort((a, b) => {
+      if (focusPeerId) {
+        if (a.id === focusPeerId) return -1;
+        if (b.id === focusPeerId) return 1;
+      }
+      if (rosterSort === "name") {
+        return a.nick.localeCompare(b.nick, undefined, { sensitivity: "base" });
+      }
+      if (rosterSort === "dir") {
+        const ai = DIR_ORDER.indexOf(a.dir);
+        const bi = DIR_ORDER.indexOf(b.dir);
+        if (ai !== bi) return (ai < 0 ? 9 : ai) - (bi < 0 ? 9 : bi);
+        return a.nick.localeCompare(b.nick);
+      }
+      // live (default)
+      const al = isLivePeer(a) ? 1 : 0;
+      const bl = isLivePeer(b) ? 1 : 0;
       if (al !== bl) return bl - al;
       if (a.on !== b.on) return a.on ? -1 : 1;
       const ai = DIR_ORDER.indexOf(a.dir);
@@ -836,11 +931,56 @@
       if (ai !== bi) return (ai < 0 ? 9 : ai) - (bi < 0 ? 9 : bi);
       return a.nick.localeCompare(b.nick);
     });
+    return arr;
+  }
+
+  function visibleOrder() {
+    const self = peers.filter((p) => p.self);
+    const rest = sortPeers(peers.filter((p) => !p.self));
     return self.concat(rest);
+  }
+
+  /** Stage order: self first, then roster-filtered matches (crowded-area search). */
+  function stageOrder() {
+    const filtering = rosterFilter !== "all" || !!rosterQuery.trim();
+    let list = visibleOrder();
+    if (filtering) {
+      const matched = list.filter((p) => p.self || peerMatchesRoster(p));
+      if (matched.length) list = matched;
+    }
+    // focus to front (after self)
+    if (focusPeerId) {
+      const self = list.filter((p) => p.self);
+      const focus = list.filter((p) => !p.self && p.id === focusPeerId);
+      const rest = list.filter((p) => !p.self && p.id !== focusPeerId);
+      list = self.concat(focus, rest);
+    }
+    return list;
   }
 
   function isDrawn(p) {
     return !!(p.on && !p._capOff);
+  }
+
+  function setFocusPeer(id) {
+    focusPeerId = id || null;
+    layoutAndPaint();
+    // pulse focus tile
+    requestAnimationFrame(() => {
+      const tile =
+        els.stage &&
+        els.stage.querySelector(
+          focusPeerId ? '.gg-tile[data-id="' + focusPeerId + '"]' : ".gg-tile.is-you"
+        );
+      if (tile) {
+        tile.classList.add("is-focus");
+        try {
+          tile.focus({ preventScroll: true });
+        } catch {
+          tile.focus();
+        }
+      }
+    });
   }
 
   // ── tiles ────────────────────────────────────────────────
@@ -853,10 +993,8 @@
     els.stage.innerHTML = "";
     canvasById.clear();
 
-    for (const p of visibleOrder().filter(isDrawn)) {
-      const isVideo =
-        (p.self && (camOn || fileOn)) ||
-        (p.source === "rx" && p.lumAt && performance.now() - p.lumAt < RX_STALE_MS);
+    for (const p of stageOrder().filter(isDrawn)) {
+      const isVideo = isLivePeer(p);
       const tile = document.createElement("div");
       tile.className =
         "gg-tile" +
@@ -864,7 +1002,8 @@
         (p.self && casting ? " is-casting" : "") +
         (p.source === "rx" ? " is-rx" : "") +
         (isVideo ? " is-video" : "") +
-        (p.on ? "" : " is-off");
+        (p.on ? "" : " is-off") +
+        (focusPeerId && p.id === focusPeerId ? " is-focus" : "");
       tile.dataset.id = p.id;
       tile.setAttribute("role", "listitem");
       tile.tabIndex = 0;
@@ -922,10 +1061,18 @@
       tile.addEventListener("pointercancel", clearPress);
 
       tile.addEventListener("click", () => {
-        if (p.self) return;
-        p.on = !p.on;
-        saveState();
-        layoutAndPaint();
+        if (p.self) {
+          setFocusPeer(p.id);
+          return;
+        }
+        // single click: focus; double via second path uses toggle
+        if (focusPeerId === p.id) {
+          p.on = !p.on;
+          saveState();
+          layoutAndPaint();
+        } else {
+          setFocusPeer(p.id);
+        }
       });
 
       els.stage.appendChild(tile);
@@ -938,48 +1085,107 @@
   function renderRoster() {
     if (!els.roster) return;
     els.roster.innerHTML = "";
-    for (const p of visibleOrder()) {
+    const all = visibleOrder();
+    const matched = all.filter(peerMatchesRoster);
+    const list = sortPeers(matched.length ? matched : all.filter((p) => p.self));
+
+    if (els.rosterCount) {
+      const liveN = peers.filter(isLivePeer).length;
+      const onN = peers.filter((p) => p.on).length;
+      els.rosterCount.textContent =
+        matched.length +
+        "/" +
+        peers.length +
+        " · " +
+        onN +
+        " on · " +
+        liveN +
+        " live";
+    }
+    if (els.rosterEmpty) {
+      els.rosterEmpty.hidden = matched.length > 0;
+    }
+    if (els.searchClear) {
+      els.searchClear.hidden = !rosterQuery.trim();
+    }
+
+    for (const p of list) {
+      const live = isLivePeer(p);
       const li = document.createElement("li");
-      li.className = isDrawn(p) ? "on" : "";
+      li.className =
+        (isDrawn(p) ? "on" : "") +
+        (live ? " is-live" : "") +
+        (focusPeerId === p.id ? " is-focus" : "");
+      li.dataset.id = p.id;
+      li.title = "Focus " + p.nick;
+
       const dot = document.createElement("span");
       dot.className = "gg-dot";
       li.appendChild(dot);
+
       const label = document.createElement("span");
-      const src = p.self
-        ? camOn
-          ? "cam"
-          : fileOn
-            ? "file"
-            : "sim"
-        : p.source || "sim";
+      label.className = "gg-rlabel";
+      const src = peerSourceLabel(p);
       label.textContent =
         p.nick +
         (p.self ? " (you)" : "") +
         " · " +
         src +
+        (p.nfc ? " ·nfc" : "") +
         (p._capOff ? " · overflow" : p.on ? "" : " · off");
       li.appendChild(label);
+
       const rid = document.createElement("span");
       rid.className = "gg-rid";
       rid.textContent = (p.dir || "·").toUpperCase();
       li.appendChild(rid);
+
+      const actions = document.createElement("div");
+      actions.className = "gg-ractions";
       if (!p.self) {
         const tog = document.createElement("button");
         tog.type = "button";
         tog.textContent = p.on ? "off" : "on";
-        tog.addEventListener("click", () => {
+        tog.title = "Toggle on stage";
+        tog.addEventListener("click", (e) => {
+          e.stopPropagation();
           p.on = !p.on;
           saveState();
           layoutAndPaint();
         });
-        li.appendChild(tog);
+        actions.appendChild(tog);
         const del = document.createElement("button");
         del.type = "button";
         del.className = "danger";
-        del.textContent = "delete";
-        del.addEventListener("click", () => removePeer(p.id));
-        li.appendChild(del);
+        del.textContent = "del";
+        del.title = "Delete peer";
+        del.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (focusPeerId === p.id) focusPeerId = null;
+          removePeer(p.id);
+        });
+        actions.appendChild(del);
+      } else {
+        const focusBtn = document.createElement("button");
+        focusBtn.type = "button";
+        focusBtn.textContent = "you";
+        focusBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          setFocusPeer(p.id);
+        });
+        actions.appendChild(focusBtn);
       }
+      li.appendChild(actions);
+
+      li.addEventListener("click", () => {
+        // ensure on when focusing from search
+        if (!p.self && !p.on) {
+          p.on = true;
+          saveState();
+        }
+        setFocusPeer(p.id);
+      });
+
       els.roster.appendChild(li);
     }
   }
@@ -1304,10 +1510,85 @@
       );
     }
 
+    // roster search + filter chips
+    if (els.search) {
+      els.search.addEventListener("input", () => {
+        rosterQuery = els.search.value || "";
+        layoutAndPaint();
+      });
+      els.search.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          els.search.value = "";
+          rosterQuery = "";
+          layoutAndPaint();
+          els.search.blur();
+        }
+        if (e.key === "Enter") {
+          e.preventDefault();
+          const first = stageOrder().find((p) => !p.self && peerMatchesRoster(p));
+          if (first) setFocusPeer(first.id);
+        }
+      });
+    }
+    if (els.searchClear) {
+      els.searchClear.addEventListener("click", () => {
+        if (els.search) els.search.value = "";
+        rosterQuery = "";
+        layoutAndPaint();
+        if (els.search) els.search.focus();
+      });
+    }
+    document.querySelectorAll(".gg-chip[data-filter]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        rosterFilter = btn.getAttribute("data-filter") || "all";
+        document.querySelectorAll(".gg-chip[data-filter]").forEach((b) => {
+          b.classList.toggle("is-on", b === btn);
+        });
+        layoutAndPaint();
+      });
+    });
+    document.querySelectorAll(".gg-chip[data-sort]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        rosterSort = btn.getAttribute("data-sort") || "live";
+        document.querySelectorAll(".gg-chip[data-sort]").forEach((b) => {
+          b.classList.toggle("is-on", b === btn);
+        });
+        layoutAndPaint();
+      });
+    });
+
     document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && drawerOpen) setDrawer(false);
+      const tag = e.target && e.target.tagName;
+      const inField = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+
+      if (e.key === "Escape") {
+        if (rosterQuery && els.search) {
+          els.search.value = "";
+          rosterQuery = "";
+          layoutAndPaint();
+          return;
+        }
+        if (focusPeerId) {
+          focusPeerId = null;
+          layoutAndPaint();
+          return;
+        }
+        if (drawerOpen) setDrawer(false);
+        return;
+      }
+
+      // / opens drawer + focuses search
+      if (e.key === "/" && !inField) {
+        e.preventDefault();
+        setDrawer(true);
+        if (els.search) {
+          requestAnimationFrame(() => els.search.focus());
+        }
+        return;
+      }
+
       // shortcuts: c cam, v cast, h hub
-      if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
+      if (inField) return;
       if (e.key === "c" || e.key === "C") toggleCam();
       if (e.key === "v" || e.key === "V") toggleCast();
       if (e.key === "h" || e.key === "H") toggleHub();

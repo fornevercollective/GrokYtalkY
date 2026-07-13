@@ -509,7 +509,103 @@ html, body.gg-body {
   font-size: 0.7rem;
 }
 
-/* roster */
+/* roster + search */
+.gg-roster-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.gg-roster-count {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.gg-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.gg-search-label {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+.gg-search {
+  width: 100%;
+  padding: 0.45rem 2rem 0.45rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+.gg-search:focus {
+  outline: none;
+  border-color: rgba(125, 211, 252, 0.55);
+  box-shadow: 0 0 0 2px rgba(125, 211, 252, 0.12);
+}
+.gg-search-clear {
+  position: absolute;
+  right: 0.35rem;
+  top: 50%;
+  transform: translateY(-50%);
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.2rem 0.35rem;
+}
+.gg-search-clear:hover { color: var(--err); }
+
+.gg-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+}
+.gg-sort-label {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-right: 0.15rem;
+}
+.gg-chip {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: #12121a;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  padding: 0.22rem 0.45rem;
+  border-radius: 999px;
+  cursor: pointer;
+  line-height: 1.2;
+}
+.gg-chip:hover {
+  border-color: rgba(125, 211, 252, 0.4);
+  color: var(--accent);
+}
+.gg-chip.is-on {
+  border-color: rgba(74, 222, 128, 0.5);
+  color: var(--live);
+  background: rgba(74, 222, 128, 0.08);
+}
+
 .gg-roster-list {
   list-style: none;
   display: flex;
@@ -517,6 +613,8 @@ html, body.gg-body {
   gap: 0.3rem;
   margin: 0;
   padding: 0;
+  max-height: min(40vh, 280px);
+  overflow-y: auto;
 }
 .gg-roster-list li {
   display: flex;
@@ -528,6 +626,19 @@ html, body.gg-body {
   background: var(--bg-elev);
   font-family: var(--mono);
   font-size: 0.72rem;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.gg-roster-list li:hover {
+  border-color: rgba(125, 211, 252, 0.35);
+}
+.gg-roster-list li.is-focus {
+  border-color: rgba(125, 211, 252, 0.65);
+  background: rgba(125, 211, 252, 0.08);
+  box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.15);
+}
+.gg-roster-list li.is-match-dim {
+  opacity: 0.45;
 }
 .gg-roster-list .gg-dot {
   width: 0.4rem;
@@ -537,10 +648,26 @@ html, body.gg-body {
   flex-shrink: 0;
 }
 .gg-roster-list li.on .gg-dot { background: var(--live); }
+.gg-roster-list li.is-live .gg-dot {
+  background: #f87171;
+  box-shadow: 0 0 6px rgba(248, 113, 113, 0.5);
+}
+.gg-roster-list .gg-rlabel {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .gg-roster-list .gg-rid {
   color: var(--faint);
   font-size: 0.62rem;
-  margin-left: auto;
+  flex-shrink: 0;
+}
+.gg-roster-list .gg-ractions {
+  display: flex;
+  gap: 0.25rem;
+  flex-shrink: 0;
 }
 .gg-roster-list button {
   appearance: none;
@@ -560,6 +687,18 @@ html, body.gg-body {
 .gg-roster-list button.danger:hover {
   border-color: var(--err);
   color: var(--err);
+}
+
+/* focused glyph on stage */
+.gg-tile.is-focus {
+  outline: 1px solid rgba(125, 211, 252, 0.85);
+  outline-offset: -1px;
+  z-index: 3;
+  box-shadow: 0 0 16px rgba(125, 211, 252, 0.2);
+}
+.gg-tile.is-search-miss {
+  opacity: 0.2;
+  filter: grayscale(0.8);
 }
 
 .gg-hint {

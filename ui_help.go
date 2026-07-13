@@ -239,6 +239,7 @@ func helpBodyDocs() string {
   docs  …/docs.html · dojo · chat · burst · grokglyph (PWA)
   hexlum lane  vburst glyph → gyst kind=hexlum (hub promote)
                GrokGlyph cast dual-pubs gyst + vburst
+  GrokGlyph    roster search / filters · / key · focus peer
 
 
   powerhouse stack (overview · blank · grok-cli · Qbpm)

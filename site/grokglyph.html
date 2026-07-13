@@ -112,11 +112,38 @@
           </div>
         </section>
 
-        <section class="gg-drawer-sec" aria-label="Peer list">
-          <h2 class="gg-h2">On room <span id="gg-cap-hint" class="gg-muted"></span></h2>
+        <section class="gg-drawer-sec" aria-label="Peer roster and search">
+          <div class="gg-roster-head">
+            <h2 class="gg-h2">Roster <span id="gg-cap-hint" class="gg-muted"></span></h2>
+            <span class="gg-roster-count" id="gg-roster-count" aria-live="polite"></span>
+          </div>
+          <label class="gg-search-label">
+            <span class="gg-sr-only">Search peers</span>
+            <input type="search" id="gg-search" class="gg-search"
+              placeholder="Search nick · dir · rx · nfc…"
+              autocomplete="off" spellcheck="false"
+              enterkeyhint="search" />
+            <button type="button" class="gg-search-clear" id="gg-search-clear" title="Clear search" hidden>×</button>
+          </label>
+          <div class="gg-filter-row" role="toolbar" aria-label="Roster filters">
+            <button type="button" class="gg-chip is-on" data-filter="all">all</button>
+            <button type="button" class="gg-chip" data-filter="live">live</button>
+            <button type="button" class="gg-chip" data-filter="on">on</button>
+            <button type="button" class="gg-chip" data-filter="off">off</button>
+            <button type="button" class="gg-chip" data-filter="rx">rx</button>
+            <button type="button" class="gg-chip" data-filter="sim">sim</button>
+            <button type="button" class="gg-chip" data-filter="nfc">nfc</button>
+          </div>
+          <div class="gg-filter-row" role="toolbar" aria-label="Sort roster">
+            <span class="gg-sort-label">sort</span>
+            <button type="button" class="gg-chip is-on" data-sort="live">live</button>
+            <button type="button" class="gg-chip" data-sort="name">name</button>
+            <button type="button" class="gg-chip" data-sort="dir">dir</button>
+          </div>
           <ul id="gg-roster" class="gg-roster-list"></ul>
+          <p class="gg-hint" id="gg-roster-empty" hidden>No peers match — clear search or add with + / compass.</p>
           <p class="gg-hint" id="gg-nfc-hint">
-            NFC: tap a tag or peer phone (NDEF text/url with id=…). Long-press a glyph to delete.
+            Search filters stage + list. Tap a row to focus that glyph. <kbd>/</kbd> search · long-press tile to delete.
           </p>
         </section>
 
