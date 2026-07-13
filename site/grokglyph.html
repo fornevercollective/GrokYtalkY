@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>GrokGlyph · 25×25 luminance mesh</title>
-  <meta name="description" content="GrokGlyph PWA — full-page multi-user 25×25 Glyph Matrix with 1px mesh stack, header essentials, footer drawer." />
+  <title>GrokGlyph · video cast · 25×25</title>
+  <meta name="description" content="GrokGlyph PWA — cast live video as multi-user 25×25 luminance Glyph Matrices with 1px stack, mesh, and hub fan-out." />
   <meta name="theme-color" content="#0c0c0f" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -20,7 +20,7 @@
 <body class="gg-body">
   <div class="noise" aria-hidden="true"></div>
 
-  <!-- slim header: main needs only -->
+  <!-- slim header: main needs (video cast + mesh) -->
   <header class="gg-header" id="gg-header">
     <a class="gg-brand" href="./" title="GrokYtalkY home">
       <span class="brand-mark">◈</span>
@@ -28,15 +28,18 @@
     </a>
 
     <div class="gg-header-main" role="toolbar" aria-label="Main controls">
-      <button type="button" class="gg-hbtn primary" id="gg-add" title="Add peer">+</button>
+      <button type="button" class="gg-hbtn" id="gg-cam" title="Camera → your glyph" aria-pressed="false">cam</button>
+      <button type="button" class="gg-hbtn primary" id="gg-cast" title="Cast video as 25×25 luminance" aria-pressed="false">cast</button>
+      <button type="button" class="gg-hbtn" id="gg-hub" title="Connect mesh hub" aria-pressed="false">hub</button>
+      <button type="button" class="gg-hbtn" id="gg-add" title="Add peer slot">+</button>
       <button type="button" class="gg-hbtn" id="gg-mesh-toggle" title="Mesh join" aria-pressed="true">mesh</button>
-      <button type="button" class="gg-hbtn" id="gg-nfc-add" title="NFC tap add">nfc</button>
+      <button type="button" class="gg-hbtn gg-hide-narrow" id="gg-nfc-add" title="NFC tap add">nfc</button>
       <span class="gg-status" id="gg-status" aria-live="polite">
+        <span id="gg-cast-label">idle</span>
+        <span class="gg-status-sep">·</span>
         <span id="gg-count-label">0</span>
         <span class="gg-status-sep">·</span>
         <span id="gg-scale-label">—</span>
-        <span class="gg-status-sep gg-hide-narrow">·</span>
-        <span id="gg-mesh-label" class="gg-hide-narrow">mesh</span>
       </span>
     </div>
 
@@ -47,9 +50,14 @@
     </button>
   </header>
 
+  <!-- hidden video elements for sampling (not displayed) -->
+  <video id="gg-local-video" class="gg-hidden-media" playsinline muted autoplay></video>
+  <video id="gg-file-video" class="gg-hidden-media" playsinline muted loop></video>
+  <canvas id="gg-sample" class="gg-hidden-media" width="25" height="25" aria-hidden="true"></canvas>
+
   <!-- full remaining page: side-by-side glyphs, 1px gutters -->
   <main class="gg-stage-wrap" id="gg-stage-wrap">
-    <div class="gg-stage" id="gg-stage" role="list" aria-label="Glyph Matrix users"></div>
+    <div class="gg-stage" id="gg-stage" role="list" aria-label="Glyph Matrix video cast"></div>
     <svg class="gg-mesh-svg" id="gg-mesh-svg" aria-hidden="true"></svg>
   </main>
 
@@ -65,10 +73,22 @@
       </div>
 
       <div class="gg-drawer-body">
-        <section class="gg-drawer-sec" aria-label="Identity">
+        <section class="gg-drawer-sec" aria-label="Identity and hub">
           <label class="gg-nick-label">
             You
             <input type="text" id="gg-nick" maxlength="16" placeholder="nick" autocomplete="nickname" />
+          </label>
+          <label class="gg-hub-label">
+            Hub WS
+            <input type="text" id="gg-hub-url" placeholder="ws://127.0.0.1:9876/" autocomplete="off" spellcheck="false" />
+          </label>
+          <p class="gg-hint" id="gg-hub-hint">
+            Cam samples face → 25×25 luminance. <strong>Cast</strong> ships frames on the hub
+            (<code>vburst-frame</code> + glyph grid). Peers appear as live tiles.
+          </p>
+          <label class="gg-file-label btn ghost">
+            Video file → you
+            <input type="file" id="gg-video-file" accept="video/*" hidden />
           </label>
           <button type="button" class="btn ghost" id="gg-install" hidden>Install app</button>
         </section>
@@ -96,7 +116,7 @@
           <h2 class="gg-h2">On room <span id="gg-cap-hint" class="gg-muted"></span></h2>
           <ul id="gg-roster" class="gg-roster-list"></ul>
           <p class="gg-hint" id="gg-nfc-hint">
-            NFC: tap a tag or peer phone (NDEF text/url with id=…). Delete from roster or long-press a glyph.
+            NFC: tap a tag or peer phone (NDEF text/url with id=…). Long-press a glyph to delete.
           </p>
         </section>
 

@@ -92,7 +92,6 @@ html, body.gg-body {
   background: rgba(125, 211, 252, 0.12);
   border-color: rgba(125, 211, 252, 0.4);
   color: var(--accent);
-  font-size: 1rem;
   font-weight: 600;
   padding: 0 0.65rem;
 }
@@ -100,6 +99,27 @@ html, body.gg-body {
   border-color: rgba(74, 222, 128, 0.5);
   color: var(--live);
   background: rgba(74, 222, 128, 0.08);
+}
+.gg-hbtn.is-live,
+.gg-hbtn#gg-cast[aria-pressed="true"] {
+  border-color: rgba(248, 113, 113, 0.65);
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.12);
+}
+.gg-hbtn#gg-hub[aria-pressed="true"] {
+  border-color: rgba(125, 211, 252, 0.55);
+  color: var(--accent);
+}
+
+/* hidden media used only for sampling → 25×25 */
+.gg-hidden-media {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  overflow: hidden !important;
+  left: -9999px !important;
 }
 .gg-hbtn.gg-drawer-toggle {
   margin-left: auto;
@@ -196,6 +216,19 @@ html, body.gg-body {
   outline: 1px solid rgba(74, 222, 128, 0.55);
   outline-offset: -1px;
   z-index: 1;
+}
+.gg-tile.is-casting {
+  outline: 1px solid rgba(248, 113, 113, 0.7);
+  outline-offset: -1px;
+  z-index: 2;
+}
+.gg-tile.is-rx {
+  outline: 1px solid rgba(125, 211, 252, 0.45);
+  outline-offset: -1px;
+}
+.gg-tile.is-video .gg-dir-badge.gg-live-badge {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.2);
 }
 .gg-tile.is-off {
   opacity: 0.22;
@@ -386,22 +419,33 @@ html, body.gg-body {
   font-family: var(--mono);
 }
 
-.gg-nick-label {
-  display: inline-flex;
+.gg-nick-label,
+.gg-hub-label {
+  display: flex;
   align-items: center;
   gap: 0.45rem;
   font-size: 0.8rem;
   color: var(--muted);
+  width: 100%;
 }
-.gg-nick-label input {
-  width: 8rem;
+.gg-nick-label input,
+.gg-hub-label input {
+  flex: 1;
+  min-width: 0;
   padding: 0.4rem 0.55rem;
   border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--bg-card);
   color: var(--text);
   font-family: var(--mono);
-  font-size: 0.8rem;
+  font-size: 0.78rem;
+}
+.gg-nick-label input { max-width: 10rem; }
+.gg-file-label {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  width: fit-content;
 }
 
 /* compass (drawer) */

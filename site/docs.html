@@ -113,14 +113,14 @@ go build -o bin/gy .
         <p>
           Progressive web app for multi-user <strong>25×25 luminance</strong> Glyph Matrix previews.
           Glyphs stack <strong>side-by-side with a 1px gutter</strong> and fill the page under a slim header;
-          compass, roster, NFC, and site links live in a <strong>footer pop-up drawer</strong>.
+          each matrix can <strong>cast live video</strong> as 25×25 luminance (cam or file) over the gy hub.
         </p>
         <ul>
+          <li><strong>Video cast</strong> — <code>cam</code> samples face → 25×25; <code>cast</code> ships <code>vburst-frame</code> + glyph grid; peers paint as RX tiles</li>
           <li><strong>Full-page grid</strong> — 1px column/row between matrices; cell size from device scale</li>
-          <li><strong>Header</strong> — + peer · mesh · nfc · live count (main needs)</li>
-          <li><strong>Footer drawer</strong> — compass N/E/S/W add/subtract · roster on/off/delete · nick · links</li>
-          <li><strong>NFC tap add</strong> (Web NFC on Android Chrome) + long-press / × delete</li>
-          <li>Installable: <a href="grokglyph.html">grokglyph.html</a> → Install / Add to Home Screen</li>
+          <li><strong>Header</strong> — cam · cast · hub · + · mesh (main needs)</li>
+          <li><strong>Footer drawer</strong> — hub URL · video file · compass · roster · NFC · links</li>
+          <li>Keys: <kbd>c</kbd> cam · <kbd>v</kbd> cast · <kbd>h</kbd> hub · long-press glyph to delete</li>
         </ul>
         <pre class="code-block"><code># local: gy serve  then open
 # http://127.0.0.1:9876/grokglyph.html

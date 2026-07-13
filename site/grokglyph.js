@@ -1,14 +1,15 @@
 /**
- * GrokGlyph PWA — full-page multi-user 25×25 luminance stack.
- * Side-by-side tiles with 1px column/row gutters; slim header;
- * footer pop-up drawer for compass / roster / NFC / rest.
+ * GrokGlyph PWA — full-page multi-user 25×25 luminance video cast.
+ * Side-by-side 1px stack · cam/file → glyph · cast via hub vburst-frame · RX peers.
  */
 (function () {
   "use strict";
 
-  const N = 25; // Glyph Matrix side
-  const GAP = 1; // px between glyphs (column + row)
-  const STORAGE_KEY = "grokglyph.v2";
+  const N = 25;
+  const GAP = 1;
+  const CAST_MS = 110; // ~9 fps cast (glyph grid is tiny)
+  const RX_STALE_MS = 2500;
+  const STORAGE_KEY = "grokglyph.v3";
   const DIR_ORDER = ["n", "e", "s", "w"];
   const DIR_DELTA = {
     n: { x: 0, y: -1 },
@@ -17,7 +18,15 @@
     w: { x: -1, y: 0 },
   };
 
-  /** @typedef {{ id: string, nick: string, dir: string, on: boolean, seed: number, self?: boolean, nfc?: boolean, _capOff?: boolean }} Peer */
+  /**
+   * @typedef {{
+   *   id: string, nick: string, dir: string, on: boolean, seed: number,
+   *   self?: boolean, nfc?: boolean, _capOff?: boolean,
+   *   source?: 'sim'|'cam'|'file'|'rx',
+   *   lum?: Uint8Array,
+   *   lumAt?: number
+   * }} Peer
+   */
 
   const els = {
     stage: document.getElementById("gg-stage"),
@@ -26,20 +35,33 @@
     roster: document.getElementById("gg-roster"),
     scaleLabel: document.getElementById("gg-scale-label"),
     countLabel: document.getElementById("gg-count-label"),
-    meshLabel: document.getElementById("gg-mesh-label"),
+    castLabel: document.getElementById("gg-cast-label"),
     capHint: document.getElementById("gg-cap-hint"),
     nick: document.getElementById("gg-nick"),
+    hubUrl: document.getElementById("gg-hub-url"),
+    hubHint: document.getElementById("gg-hub-hint"),
     addBtn: document.getElementById("gg-add"),
+    camBtn: document.getElementById("gg-cam"),
+    castBtn: document.getElementById("gg-cast"),
+    hubBtn: document.getElementById("gg-hub"),
     meshToggle: document.getElementById("gg-mesh-toggle"),
     nfcAdd: document.getElementById("gg-nfc-add"),
     nfcHint: document.getElementById("gg-nfc-hint"),
     installBtn: document.getElementById("gg-install"),
+    videoFile: document.getElementById("gg-video-file"),
+    localVideo: document.getElementById("gg-local-video"),
+    fileVideo: document.getElementById("gg-file-video"),
+    sample: document.getElementById("gg-sample"),
     drawer: document.getElementById("gg-drawer"),
-    drawerRoot: document.getElementById("gg-drawer-root"),
     drawerToggle: document.getElementById("gg-drawer-toggle"),
     drawerHandle: document.getElementById("gg-drawer-handle"),
     drawerScrim: document.getElementById("gg-drawer-scrim"),
   };
+
+  const sampleCtx = els.sample
+    ? els.sample.getContext("2d", { willReadFrequently: true })
+    : null;
+  if (sampleCtx) sampleCtx.imageSmoothingEnabled = true;
 
   /** @type {Peer[]} */
   let peers = [];
@@ -51,16 +73,34 @@
   let maxVisible = 4;
   let raf = 0;
   let t0 = performance.now();
+  let lastCastAt = 0;
+  let camOn = false;
+  let fileOn = false;
+  let casting = false;
+  let castSession = false; // vburst-start sent
+  /** @type {MediaStream | null} */
+  let mediaStream = null;
+  /** @type {WebSocket | null} */
+  let ws = null;
   /** @type {Map<string, HTMLCanvasElement>} */
   const canvasById = new Map();
+  const lumBuf = new Map();
   /** @type {BeforeInstallPromptEvent | null} */
   let deferredInstall = null;
-  const lumBuf = new Map();
+  // jpeg encode helper (reuse)
+  const jpegCanvas = document.createElement("canvas");
+  jpegCanvas.width = 100;
+  jpegCanvas.height = 100;
+  const jpegCtx = jpegCanvas.getContext("2d");
+  if (jpegCtx) jpegCtx.imageSmoothingEnabled = false;
 
   // ── persistence ──────────────────────────────────────────
   function loadState() {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem("grokglyph.v1");
+      const raw =
+        localStorage.getItem(STORAGE_KEY) ||
+        localStorage.getItem("grokglyph.v2") ||
+        localStorage.getItem("grokglyph.v1");
       if (!raw) return null;
       return JSON.parse(raw);
     } catch {
@@ -73,8 +113,9 @@
       localStorage.setItem(
         STORAGE_KEY,
         JSON.stringify({
-          nick: (els.nick && els.nick.value.trim()) || "you",
+          nick: myNick(),
           meshOn,
+          hubUrl: els.hubUrl ? els.hubUrl.value.trim() : "",
           peers: peers.map((p) => ({
             id: p.id,
             nick: p.nick,
@@ -91,12 +132,24 @@
     }
   }
 
+  function myNick() {
+    return ((els.nick && els.nick.value) || "you").trim().slice(0, 16) || "you";
+  }
+
   function uid(prefix) {
     return (prefix || "p") + "-" + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-3);
   }
 
   function defaultSelf() {
-    return { id: "self", nick: "you", dir: "c", on: true, seed: 42, self: true };
+    return {
+      id: "self",
+      nick: "you",
+      dir: "c",
+      on: true,
+      seed: 42,
+      self: true,
+      source: "sim",
+    };
   }
 
   function makePeer(dir, nickHint) {
@@ -108,150 +161,88 @@
       on: true,
       seed: (Math.random() * 1e9) | 0,
       nfc: false,
+      source: "sim",
     };
   }
 
   function initPeers() {
     const st = loadState();
     if (st && Array.isArray(st.peers) && st.peers.length) {
-      peers = st.peers;
+      peers = st.peers.map((p) => ({ ...p, source: p.self ? "sim" : p.source || "sim" }));
       meshOn = st.meshOn !== false;
       if (st.nick && els.nick) els.nick.value = st.nick;
+      if (st.hubUrl && els.hubUrl) els.hubUrl.value = st.hubUrl;
       if (!peers.some((p) => p.self || p.id === "self")) peers.unshift(defaultSelf());
     } else {
-      peers = [defaultSelf(), makePeer("n", "north"), makePeer("e", "east")];
+      peers = [defaultSelf()];
+      if (els.hubUrl && !els.hubUrl.value) {
+        els.hubUrl.value = defaultHubURL();
+      }
     }
     applyNick();
+    if (els.hubUrl && !els.hubUrl.value) els.hubUrl.value = defaultHubURL();
   }
 
   function applyNick() {
-    if (!els.nick) return;
-    const n = (els.nick.value || "you").trim().slice(0, 16) || "you";
     const self = peers.find((p) => p.self || p.id === "self");
-    if (self) self.nick = n;
+    if (self) self.nick = myNick();
   }
 
-  // ── layout: full stage, 1px gutters, maximize cell ───────
+  function defaultHubURL() {
+    const host = location.hostname || "127.0.0.1";
+    const h =
+      host === "localhost" || host === "127.0.0.1" || host === ""
+        ? "127.0.0.1"
+        : host;
+    // Pages on github.io can't reach local hub without tunnel — still default local for gy serve
+    if (location.protocol === "https:" && h.includes("github.io")) {
+      return "wss://";
+    }
+    return "ws://" + h + ":9876/";
+  }
+
+  // ── video → 25×25 luminance ──────────────────────────────
   /**
-   * Fit all drawn peers into the stage with 1px column/row gaps.
-   * Picks cols/rows that maximize square cell size for count n.
+   * Sample a video/image element into out (length N*N). Returns false if not ready.
+   * @param {CanvasImageSource} src
+   * @param {Uint8Array} out
    */
-  function computeLayout() {
-    const wrap = els.wrap;
-    if (!wrap) return;
-
-    const rect = wrap.getBoundingClientRect();
-    const W = Math.max(1, Math.floor(rect.width));
-    const H = Math.max(1, Math.floor(rect.height));
-    const dpr = Math.min(window.devicePixelRatio || 1, 3);
-
-    // how many peers want to be drawn (on + not capacity-forced yet)
-    // first pass: assume all "on" peers; capacity = what fits at min readable size
-    const want = peers.filter((p) => p.on || p.self);
-    // always try to show as many as fit; self first
-    const nWant = Math.max(1, want.length);
-
-    // min cell ~ 25px (1 CSS px per LED); prefer larger
-    const minCell = 25;
-    let best = { cols: 1, rows: nWant, cell: minCell };
-
-    for (let cols = 1; cols <= nWant; cols++) {
-      const rows = Math.ceil(nWant / cols);
-      const cellW = Math.floor((W - (cols - 1) * GAP) / cols);
-      const cellH = Math.floor((H - (rows - 1) * GAP) / rows);
-      const cell = Math.min(cellW, cellH);
-      if (cell < minCell) continue;
-      // prefer larger cells; tie-break: more square grid, then more columns (side-by-side)
-      if (
-        cell > best.cell ||
-        (cell === best.cell && Math.abs(cols - rows) < Math.abs(best.cols - best.rows)) ||
-        (cell === best.cell && cols > best.cols)
-      ) {
-        best = { cols, rows, cell };
-      }
+  function sampleSourceToLum(src, out) {
+    if (!sampleCtx || !els.sample || !src) return false;
+    try {
+      // @ts-ignore
+      if (src.readyState != null && src.readyState < 2) return false;
+      // @ts-ignore
+      if (src.videoWidth === 0 && src.naturalWidth === 0 && !(src.width > 0)) return false;
+    } catch {
+      /* continue */
     }
-
-    // if nothing fit minCell, shrink to fill with all peers
-    if (best.cell < minCell || (best.cols === 1 && best.rows === nWant && best.cell === minCell)) {
-      for (let cols = 1; cols <= nWant; cols++) {
-        const rows = Math.ceil(nWant / cols);
-        const cellW = Math.floor((W - (cols - 1) * GAP) / cols);
-        const cellH = Math.floor((H - (rows - 1) * GAP) / rows);
-        const cell = Math.max(1, Math.min(cellW, cellH));
-        if (cell > best.cell) best = { cols, rows, cell };
-      }
+    sampleCtx.drawImage(src, 0, 0, N, N);
+    let img;
+    try {
+      img = sampleCtx.getImageData(0, 0, N, N);
+    } catch {
+      return false; // tainted
     }
-
-    // optional: snap down to multiple of N for integer LED scale when close
-    let cell = best.cell;
-    if (cell >= N) {
-      const snapped = Math.floor(cell / N) * N;
-      if (snapped >= N && snapped >= cell * 0.85) cell = snapped;
+    const d = img.data;
+    for (let i = 0, g = 0; i < d.length; i += 4, g++) {
+      // Rec.601 luminance + slight gamma for LED readability
+      const L = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      out[g] = Math.max(0, Math.min(255, Math.pow(L / 255, 0.85) * 255)) | 0;
     }
-
-    gridCols = best.cols;
-    gridRows = best.rows;
-    cellPx = cell;
-    maxVisible = gridCols * gridRows;
-
-    // capacity: mark overflow peers (_capOff) after ordering
-    const ordered = visibleOrder();
-    ordered.forEach((p, i) => {
-      if (p.self) {
-        p.on = true;
-        p._capOff = false;
-        return;
-      }
-      p._capOff = i >= maxVisible;
-    });
-
-    const root = document.documentElement;
-    root.style.setProperty("--gg-gap", GAP + "px");
-    root.style.setProperty("--gg-cell", cellPx + "px");
-    root.style.setProperty("--gg-cols", String(gridCols));
-    root.style.setProperty("--gg-rows", String(gridRows));
-
-    const drawn = peers.filter((p) => isDrawn(p)).length;
-    if (els.scaleLabel) {
-      els.scaleLabel.textContent =
-        cellPx + "px · " + gridCols + "×" + gridRows + " · " + dpr.toFixed(1) + "×";
-    }
-    if (els.countLabel) {
-      els.countLabel.textContent = drawn + "/" + peers.length;
-    }
-    if (els.capHint) {
-      els.capHint.textContent =
-        "(" + gridCols + "×" + gridRows + " · " + cellPx + "px · 1px gap · cap " + maxVisible + ")";
-    }
-    if (els.meshLabel) {
-      els.meshLabel.textContent = meshOn ? "mesh" : "off";
-    }
-    if (els.meshToggle) {
-      els.meshToggle.setAttribute("aria-pressed", meshOn ? "true" : "false");
-      els.meshToggle.textContent = meshOn ? "mesh" : "mesh";
-    }
+    return true;
   }
 
-  function visibleOrder() {
-    const self = peers.filter((p) => p.self);
-    const rest = peers.filter((p) => !p.self);
-    rest.sort((a, b) => {
-      // on first, then compass order
-      if (a.on !== b.on) return a.on ? -1 : 1;
-      const ai = DIR_ORDER.indexOf(a.dir);
-      const bi = DIR_ORDER.indexOf(b.dir);
-      if (ai !== bi) return (ai < 0 ? 9 : ai) - (bi < 0 ? 9 : bi);
-      return a.nick.localeCompare(b.nick);
-    });
-    return self.concat(rest);
+  function ensureLum(id) {
+    let buf = lumBuf.get(id);
+    if (!buf) {
+      buf = new Uint8Array(N * N);
+      lumBuf.set(id, buf);
+    }
+    return buf;
   }
 
-  function isDrawn(p) {
-    return !!(p.on && !p._capOff);
-  }
-
-  // ── luminance ────────────────────────────────────────────
-  function fillLuminance(out, seed, t, isSelf) {
+  function fillSimLuminance(out, seed, t, isSelf) {
     const cx = 12,
       cy = 12;
     const pulse = 0.55 + 0.45 * Math.sin(t * (isSelf ? 2.1 : 1.4) + (seed % 7) * 0.3);
@@ -282,53 +273,563 @@
     return (n >>> 0) / 4294967295;
   }
 
-  function drawGlyph(canvas, data, accent) {
+  function drawGlyph(canvas, data, mode) {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     if (canvas.width !== N) canvas.width = N;
     if (canvas.height !== N) canvas.height = N;
     const img = ctx.createImageData(N, N);
     const d = img.data;
+    // mode: self | cast | rx | sim
     for (let i = 0; i < N * N; i++) {
       const L = data[i];
-      const r = (L * (accent ? 0.55 : 0.35)) | 0;
-      const g = (L * (accent ? 0.95 : 0.85)) | 0;
-      const b = (L * (accent ? 1.0 : 0.95)) | 0;
+      let r, g, b;
+      if (mode === "cast") {
+        r = Math.min(255, (L * 1.0) | 0);
+        g = Math.min(255, (L * 0.55) | 0);
+        b = Math.min(255, (L * 0.5) | 0);
+      } else if (mode === "rx") {
+        r = (L * 0.4) | 0;
+        g = (L * 0.85) | 0;
+        b = Math.min(255, (L * 1.05) | 0);
+      } else if (mode === "self") {
+        r = (L * 0.55) | 0;
+        g = (L * 0.95) | 0;
+        b = Math.min(255, L);
+      } else {
+        r = (L * 0.35) | 0;
+        g = (L * 0.85) | 0;
+        b = (L * 0.95) | 0;
+      }
       const o = i * 4;
-      d[o] = Math.min(255, r + (L > 200 ? 20 : 0));
-      d[o + 1] = Math.min(255, g);
-      d[o + 2] = Math.min(255, b);
+      d[o] = r;
+      d[o + 1] = g;
+      d[o + 2] = b;
       d[o + 3] = 255;
     }
     ctx.putImageData(img, 0, 0);
   }
 
+  // ── camera / file ────────────────────────────────────────
+  async function enableCam() {
+    if (camOn && mediaStream) return true;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setCastLabel("no cam API");
+      return false;
+    }
+    try {
+      mediaStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: "user",
+          width: { ideal: 320 },
+          height: { ideal: 320 },
+        },
+        audio: false,
+      });
+      if (els.localVideo) {
+        els.localVideo.srcObject = mediaStream;
+        els.localVideo.muted = true;
+        els.localVideo.playsInline = true;
+        await els.localVideo.play();
+      }
+      camOn = true;
+      fileOn = false;
+      const self = peers.find((p) => p.self);
+      if (self) self.source = "cam";
+      if (els.camBtn) {
+        els.camBtn.setAttribute("aria-pressed", "true");
+        els.camBtn.textContent = "cam";
+      }
+      setCastLabel(casting ? "casting" : "cam live");
+      return true;
+    } catch (err) {
+      camOn = false;
+      setCastLabel("cam blocked");
+      if (els.hubHint) {
+        els.hubHint.textContent =
+          "Camera blocked — allow permission or use a video file. " +
+          (err && err.message ? err.message : "");
+      }
+      return false;
+    }
+  }
+
+  function stopCam() {
+    if (mediaStream) {
+      mediaStream.getTracks().forEach((t) => t.stop());
+      mediaStream = null;
+    }
+    if (els.localVideo) els.localVideo.srcObject = null;
+    camOn = false;
+    if (els.camBtn) {
+      els.camBtn.setAttribute("aria-pressed", "false");
+    }
+    const self = peers.find((p) => p.self);
+    if (self && self.source === "cam") self.source = fileOn ? "file" : "sim";
+  }
+
+  async function toggleCam() {
+    if (camOn) {
+      if (casting) await stopCast();
+      stopCam();
+      setCastLabel("idle");
+      return;
+    }
+    await enableCam();
+  }
+
+  async function loadVideoFile(file) {
+    if (!file || !els.fileVideo) return;
+    const url = URL.createObjectURL(file);
+    els.fileVideo.src = url;
+    els.fileVideo.loop = true;
+    els.fileVideo.muted = true;
+    try {
+      await els.fileVideo.play();
+      fileOn = true;
+      // prefer file over cam for self when chosen
+      if (camOn) stopCam();
+      const self = peers.find((p) => p.self);
+      if (self) self.source = "file";
+      setCastLabel(casting ? "casting file" : "file live");
+      if (els.hubHint) els.hubHint.textContent = "Playing " + file.name + " → your glyph.";
+    } catch (e) {
+      setCastLabel("file error");
+    }
+  }
+
+  // ── cast / hub ───────────────────────────────────────────
+  function setCastLabel(t) {
+    if (els.castLabel) els.castLabel.textContent = t;
+  }
+
+  function sendJSON(obj) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+    try {
+      ws.send(JSON.stringify(obj));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function hubURL() {
+    let url = (els.hubUrl && els.hubUrl.value.trim()) || defaultHubURL();
+    if (url === "wss://" || url === "ws://") {
+      return "";
+    }
+    const nick = myNick();
+    if (!url.includes("nick=")) {
+      url += (url.includes("?") ? "&" : "?") + "role=peer&nick=" + encodeURIComponent(nick);
+    }
+    return url;
+  }
+
+  function connectHub() {
+    const url = hubURL();
+    if (!url) {
+      setCastLabel("set hub url");
+      setDrawer(true);
+      return;
+    }
+    if (ws) {
+      try {
+        ws.close();
+      } catch {
+        /* ignore */
+      }
+      ws = null;
+    }
+    setCastLabel("hub…");
+    try {
+      ws = new WebSocket(url);
+    } catch (e) {
+      setCastLabel("hub error");
+      return;
+    }
+    ws.onopen = () => {
+      sendJSON({ type: "join", nick: myNick(), role: "grokglyph" });
+      if (els.hubBtn) els.hubBtn.setAttribute("aria-pressed", "true");
+      setCastLabel(casting ? "casting" : "hub on");
+      saveState();
+    };
+    ws.onclose = () => {
+      if (els.hubBtn) els.hubBtn.setAttribute("aria-pressed", "false");
+      if (castSession) {
+        castSession = false;
+      }
+      if (casting) {
+        casting = false;
+        if (els.castBtn) els.castBtn.setAttribute("aria-pressed", "false");
+      }
+      setCastLabel("hub off");
+    };
+    ws.onerror = () => setCastLabel("hub err");
+    ws.onmessage = onHubMessage;
+  }
+
+  function disconnectHub() {
+    if (casting) stopCast();
+    if (ws) {
+      try {
+        ws.close();
+      } catch {
+        /* ignore */
+      }
+      ws = null;
+    }
+    if (els.hubBtn) els.hubBtn.setAttribute("aria-pressed", "false");
+    setCastLabel(camOn || fileOn ? "local" : "idle");
+  }
+
+  function toggleHub() {
+    if (ws && ws.readyState === WebSocket.OPEN) disconnectHub();
+    else connectHub();
+  }
+
+  async function startCast() {
+    // need a video source
+    if (!camOn && !fileOn) {
+      const ok = await enableCam();
+      if (!ok && !fileOn) {
+        setCastLabel("need cam/file");
+        setDrawer(true);
+        return;
+      }
+    }
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      connectHub();
+      // wait briefly for open
+      await new Promise((r) => setTimeout(r, 400));
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        setCastLabel("hub first");
+        setDrawer(true);
+        return;
+      }
+    }
+    casting = true;
+    if (els.castBtn) {
+      els.castBtn.setAttribute("aria-pressed", "true");
+      els.castBtn.classList.add("is-live");
+    }
+    if (!castSession) {
+      sendJSON({ type: "vburst-start", from: myNick(), t: Date.now() });
+      castSession = true;
+    }
+    const self = peers.find((p) => p.self);
+    if (self) self.source = camOn ? "cam" : fileOn ? "file" : self.source;
+    setCastLabel("casting");
+    layoutAndPaint();
+  }
+
+  function stopCast() {
+    if (castSession) {
+      sendJSON({ type: "vburst-end", from: myNick(), t: Date.now() });
+      castSession = false;
+    }
+    casting = false;
+    if (els.castBtn) {
+      els.castBtn.setAttribute("aria-pressed", "false");
+      els.castBtn.classList.remove("is-live");
+    }
+    setCastLabel(
+      ws && ws.readyState === WebSocket.OPEN
+        ? "hub on"
+        : camOn || fileOn
+          ? "local"
+          : "idle"
+    );
+    layoutAndPaint();
+  }
+
+  async function toggleCast() {
+    if (casting) stopCast();
+    else await startCast();
+  }
+
+  function jpegB64FromLum(lum) {
+    if (!jpegCtx || !sampleCtx || !els.sample) return "";
+    const img = sampleCtx.createImageData(N, N);
+    for (let i = 0; i < N * N; i++) {
+      const L = lum[i];
+      const o = i * 4;
+      img.data[o] = L;
+      img.data[o + 1] = L;
+      img.data[o + 2] = L;
+      img.data[o + 3] = 255;
+    }
+    sampleCtx.putImageData(img, 0, 0);
+    jpegCtx.drawImage(els.sample, 0, 0, 100, 100);
+    const dataUrl = jpegCanvas.toDataURL("image/jpeg", 0.5);
+    return dataUrl.split(",")[1] || "";
+  }
+
+  function sendCastFrame(lum) {
+    if (!casting || !ws || ws.readyState !== WebSocket.OPEN) return;
+    const glyph = new Array(N * N);
+    for (let i = 0; i < N * N; i++) glyph[i] = lum[i];
+    const b64 = jpegB64FromLum(lum);
+    sendJSON({
+      type: "vburst-frame",
+      from: myNick(),
+      fmt: "jpeg",
+      b64: b64,
+      w: 100,
+      h: 100,
+      glyph: glyph,
+      glyphN: N,
+      t: Date.now(),
+    });
+  }
+
+  function onHubMessage(ev) {
+    let msg;
+    try {
+      msg = JSON.parse(ev.data);
+    } catch {
+      return;
+    }
+    const typ = msg.type;
+    const from = msg.from || msg.nick || "";
+    if (!from || from === myNick()) return;
+
+    if (typ === "vburst-start" || (typ === "ptt" && msg.state === "down")) {
+      ensureRxPeer(from);
+      setCastLabel("rx " + from);
+    }
+    if (typ === "vburst-end" || (typ === "ptt" && msg.state === "up")) {
+      const p = findPeerByNick(from);
+      if (p && p.source === "rx") {
+        // keep last frame; mark stale via lumAt
+        p.lumAt = 0;
+      }
+    }
+    if (typ === "vburst-frame") {
+      applyRxFrame(from, msg);
+    }
+    // hub hexlum / glyph packets (stream-pub / agent / terminal)
+    if (typ === "hexlum" || typ === "glyph" || typ === "gyst") {
+      applyHexLum(from, msg);
+    }
+    if (typ === "join" || typ === "roster") {
+      // optional: show roster peers as empty slots
+      if (typ === "roster" && Array.isArray(msg.peers)) {
+        msg.peers.forEach((pr) => {
+          const n = pr.nick || pr.id;
+          if (n && n !== myNick()) ensureRxPeer(n, false);
+        });
+      }
+    }
+  }
+
+  function findPeerByNick(nick) {
+    const low = String(nick).toLowerCase();
+    return peers.find((p) => !p.self && p.nick.toLowerCase() === low);
+  }
+
+  function ensureRxPeer(nick, turnOn) {
+    let p = findPeerByNick(nick);
+    if (!p) {
+      const dir = DIR_ORDER[peers.filter((x) => !x.self).length % 4];
+      p = makePeer(dir, nick);
+      p.source = "rx";
+      p.on = turnOn !== false;
+      peers.push(p);
+      saveState();
+      layoutAndPaint();
+    } else {
+      p.source = "rx";
+      if (turnOn !== false) p.on = true;
+    }
+    return p;
+  }
+
+  function applyRxFrame(from, msg) {
+    const p = ensureRxPeer(from, true);
+    const buf = ensureLum(p.id);
+    let ok = false;
+    if (Array.isArray(msg.glyph) && msg.glyph.length >= N * N) {
+      for (let i = 0; i < N * N; i++) buf[i] = Math.max(0, Math.min(255, Number(msg.glyph[i]) | 0));
+      ok = true;
+    } else if (Array.isArray(msg.data) && msg.data.length >= N * N) {
+      for (let i = 0; i < N * N; i++) buf[i] = Math.max(0, Math.min(255, Number(msg.data[i]) | 0));
+      ok = true;
+    } else if (msg.b64) {
+      // decode jpeg async into peer lum
+      const im = new Image();
+      im.onload = () => {
+        const b = ensureLum(p.id);
+        if (sampleSourceToLum(im, b)) {
+          p.lum = b;
+          p.lumAt = performance.now();
+          p.source = "rx";
+        }
+      };
+      im.src = "data:image/jpeg;base64," + msg.b64;
+      return;
+    }
+    if (ok) {
+      p.lum = buf;
+      p.lumAt = performance.now();
+      p.source = "rx";
+    }
+  }
+
+  function applyHexLum(from, msg) {
+    const data = msg.data || msg.glyph || msg.lum;
+    if (!data) return;
+    const p = ensureRxPeer(from || msg.mark || "stream", true);
+    const buf = ensureLum(p.id);
+    if (Array.isArray(data) && data.length >= N * N) {
+      for (let i = 0; i < N * N; i++) buf[i] = Math.max(0, Math.min(255, Number(data[i]) | 0));
+    } else if (typeof data === "string") {
+      // base64 bytes
+      try {
+        const bin = atob(data);
+        const n = Math.min(N * N, bin.length);
+        for (let i = 0; i < n; i++) buf[i] = bin.charCodeAt(i);
+      } catch {
+        return;
+      }
+    } else return;
+    p.lum = buf;
+    p.lumAt = performance.now();
+    p.source = "rx";
+  }
+
+  // ── layout (1px stack) ───────────────────────────────────
+  function computeLayout() {
+    const wrap = els.wrap;
+    if (!wrap) return;
+    const rect = wrap.getBoundingClientRect();
+    const W = Math.max(1, Math.floor(rect.width));
+    const H = Math.max(1, Math.floor(rect.height));
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    const want = peers.filter((p) => p.on || p.self);
+    const nWant = Math.max(1, want.length);
+    const minCell = 25;
+    let best = { cols: 1, rows: nWant, cell: 1 };
+
+    for (let cols = 1; cols <= nWant; cols++) {
+      const rows = Math.ceil(nWant / cols);
+      const cellW = Math.floor((W - (cols - 1) * GAP) / cols);
+      const cellH = Math.floor((H - (rows - 1) * GAP) / rows);
+      const cell = Math.max(1, Math.min(cellW, cellH));
+      if (
+        cell > best.cell ||
+        (cell === best.cell && Math.abs(cols - rows) < Math.abs(best.cols - best.rows)) ||
+        (cell === best.cell && cols > best.cols)
+      ) {
+        best = { cols, rows, cell };
+      }
+    }
+
+    let cell = best.cell;
+    if (cell >= N) {
+      const snapped = Math.floor(cell / N) * N;
+      if (snapped >= N && snapped >= cell * 0.85) cell = snapped;
+    }
+
+    gridCols = best.cols;
+    gridRows = best.rows;
+    cellPx = cell;
+    maxVisible = gridCols * gridRows;
+
+    const ordered = visibleOrder();
+    ordered.forEach((p, i) => {
+      if (p.self) {
+        p.on = true;
+        p._capOff = false;
+        return;
+      }
+      p._capOff = i >= maxVisible;
+    });
+
+    const root = document.documentElement;
+    root.style.setProperty("--gg-gap", GAP + "px");
+    root.style.setProperty("--gg-cell", cellPx + "px");
+    root.style.setProperty("--gg-cols", String(gridCols));
+    root.style.setProperty("--gg-rows", String(gridRows));
+
+    const drawn = peers.filter((p) => isDrawn(p)).length;
+    if (els.scaleLabel) {
+      els.scaleLabel.textContent = cellPx + "px · " + gridCols + "×" + gridRows;
+    }
+    if (els.countLabel) els.countLabel.textContent = drawn + "/" + peers.length;
+    if (els.capHint) {
+      els.capHint.textContent =
+        "(" + gridCols + "×" + gridRows + " · " + cellPx + "px · 1px · video cast)";
+    }
+    if (els.meshToggle) {
+      els.meshToggle.setAttribute("aria-pressed", meshOn ? "true" : "false");
+    }
+    void dpr;
+    void minCell;
+  }
+
+  function visibleOrder() {
+    const self = peers.filter((p) => p.self);
+    const rest = peers.filter((p) => !p.self);
+    rest.sort((a, b) => {
+      // live RX first
+      const al = a.source === "rx" && a.lumAt ? 1 : 0;
+      const bl = b.source === "rx" && b.lumAt ? 1 : 0;
+      if (al !== bl) return bl - al;
+      if (a.on !== b.on) return a.on ? -1 : 1;
+      const ai = DIR_ORDER.indexOf(a.dir);
+      const bi = DIR_ORDER.indexOf(b.dir);
+      if (ai !== bi) return (ai < 0 ? 9 : ai) - (bi < 0 ? 9 : bi);
+      return a.nick.localeCompare(b.nick);
+    });
+    return self.concat(rest);
+  }
+
+  function isDrawn(p) {
+    return !!(p.on && !p._capOff);
+  }
+
   // ── tiles ────────────────────────────────────────────────
   function renderTiles() {
     if (!els.stage) return;
+    // preserve canvases if same peer set? simpler rebuild
+    const prevFocus = document.activeElement && document.activeElement.dataset
+      ? document.activeElement.dataset.id
+      : null;
     els.stage.innerHTML = "";
     canvasById.clear();
 
-    const order = visibleOrder().filter(isDrawn);
-    for (const p of order) {
+    for (const p of visibleOrder().filter(isDrawn)) {
+      const isVideo =
+        (p.self && (camOn || fileOn)) ||
+        (p.source === "rx" && p.lumAt && performance.now() - p.lumAt < RX_STALE_MS);
       const tile = document.createElement("div");
-      tile.className = "gg-tile" + (p.self ? " is-you" : "") + (p.on ? "" : " is-off");
+      tile.className =
+        "gg-tile" +
+        (p.self ? " is-you" : "") +
+        (p.self && casting ? " is-casting" : "") +
+        (p.source === "rx" ? " is-rx" : "") +
+        (isVideo ? " is-video" : "") +
+        (p.on ? "" : " is-off");
       tile.dataset.id = p.id;
       tile.setAttribute("role", "listitem");
       tile.tabIndex = 0;
-      tile.title = p.nick + (p.self ? " (you)" : "");
+      tile.title = p.nick + (p.self ? " (you)" : "") + (isVideo ? " · video" : "");
 
-      if (p.dir && p.dir !== "c") {
-        const badge = document.createElement("span");
-        badge.className = "gg-dir-badge";
-        badge.textContent = p.dir.toUpperCase();
-        tile.appendChild(badge);
-      }
+      const badge = document.createElement("span");
+      badge.className = "gg-dir-badge" + (isVideo ? " gg-live-badge" : "");
+      if (p.self && casting) badge.textContent = "TX";
+      else if (isVideo && p.source === "rx") badge.textContent = "RX";
+      else if (p.self && (camOn || fileOn)) badge.textContent = "CAM";
+      else if (p.dir && p.dir !== "c") badge.textContent = p.dir.toUpperCase();
+      if (badge.textContent) tile.appendChild(badge);
 
       const c = document.createElement("canvas");
       c.width = N;
       c.height = N;
-      c.setAttribute("aria-label", "Glyph 25×25 " + p.nick);
+      c.setAttribute(
+        "aria-label",
+        "Glyph 25×25 video " + p.nick + (isVideo ? " live" : "")
+      );
       tile.appendChild(c);
       canvasById.set(p.id, c);
 
@@ -343,7 +844,6 @@
         del.type = "button";
         del.className = "gg-tile-del";
         del.title = "Delete";
-        del.setAttribute("aria-label", "Delete " + p.nick);
         del.textContent = "×";
         del.addEventListener("click", (e) => {
           e.stopPropagation();
@@ -353,13 +853,10 @@
       }
       tile.appendChild(meta);
 
-      // long-press delete (touch)
       let pressT = 0;
       tile.addEventListener("pointerdown", (e) => {
         if (p.self || e.button === 2) return;
-        pressT = window.setTimeout(() => {
-          removePeer(p.id);
-        }, 650);
+        pressT = window.setTimeout(() => removePeer(p.id), 650);
       });
       const clearPress = () => {
         if (pressT) clearTimeout(pressT);
@@ -377,8 +874,8 @@
       });
 
       els.stage.appendChild(tile);
+      if (prevFocus && prevFocus === p.id) tile.focus();
     }
-
     renderRoster();
     requestAnimationFrame(() => drawMesh());
   }
@@ -393,16 +890,24 @@
       dot.className = "gg-dot";
       li.appendChild(dot);
       const label = document.createElement("span");
+      const src = p.self
+        ? camOn
+          ? "cam"
+          : fileOn
+            ? "file"
+            : "sim"
+        : p.source || "sim";
       label.textContent =
         p.nick +
         (p.self ? " (you)" : "") +
+        " · " +
+        src +
         (p._capOff ? " · overflow" : p.on ? "" : " · off");
       li.appendChild(label);
       const rid = document.createElement("span");
       rid.className = "gg-rid";
       rid.textContent = (p.dir || "·").toUpperCase();
       li.appendChild(rid);
-
       if (!p.self) {
         const tog = document.createElement("button");
         tog.type = "button";
@@ -424,48 +929,39 @@
     }
   }
 
-  // ── mesh: join 4-neighbors in the grid (side-by-side stack) ─
   function drawMesh() {
     const svg = els.meshSvg;
     if (!svg || !els.wrap) return;
     while (svg.firstChild) svg.removeChild(svg.firstChild);
     if (!meshOn) return;
-
     const wrapRect = els.wrap.getBoundingClientRect();
     svg.setAttribute("viewBox", "0 0 " + wrapRect.width + " " + wrapRect.height);
     svg.setAttribute("width", String(wrapRect.width));
     svg.setAttribute("height", String(wrapRect.height));
-
     const tiles = [...els.stage.querySelectorAll(".gg-tile")];
     if (tiles.length < 2) return;
-
-    // place lines through the 1px gutters between adjacent grid cells
     const centers = tiles.map((t, idx) => {
       const r = t.getBoundingClientRect();
       return {
-        idx,
-        id: t.dataset.id,
         col: idx % gridCols,
         row: Math.floor(idx / gridCols),
         x: r.left + r.width / 2 - wrapRect.left,
         y: r.top + r.height / 2 - wrapRect.top,
         you: t.classList.contains("is-you"),
+        cast: t.classList.contains("is-casting"),
       };
     });
-
     const byPos = new Map();
     centers.forEach((c) => byPos.set(c.col + "," + c.row, c));
-
     function link(a, b) {
       const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
       line.setAttribute("x1", String(a.x));
       line.setAttribute("y1", String(a.y));
       line.setAttribute("x2", String(b.x));
       line.setAttribute("y2", String(b.y));
-      if (a.you || b.you) line.classList.add("gg-mesh-strong");
+      if (a.you || b.you || a.cast || b.cast) line.classList.add("gg-mesh-strong");
       svg.appendChild(line);
     }
-
     centers.forEach((c) => {
       const right = byPos.get(c.col + 1 + "," + c.row);
       const down = byPos.get(c.col + "," + (c.row + 1));
@@ -474,7 +970,7 @@
     });
   }
 
-  // ── peers ────────────────────────────────────────────────
+  // ── peers CRUD ───────────────────────────────────────────
   function addInDirection(dir) {
     if (!DIR_DELTA[dir]) return;
     const count = peers.filter((p) => p.dir === dir).length + 1;
@@ -497,6 +993,7 @@
   function removePeer(id) {
     peers = peers.filter((p) => p.id !== id);
     if (!peers.some((p) => p.self)) peers.unshift(defaultSelf());
+    lumBuf.delete(id);
     saveState();
     layoutAndPaint();
   }
@@ -508,7 +1005,7 @@
     layoutAndPaint();
   }
 
-  // ── NFC ──────────────────────────────────────────────────
+  // ── NFC (unchanged spirit) ───────────────────────────────
   function nfcSupported() {
     return "NDEFReader" in window;
   }
@@ -517,7 +1014,7 @@
     if (!nfcSupported()) {
       if (els.nfcHint) {
         els.nfcHint.textContent =
-          "Web NFC not available. Use + or compass. (Chrome on Android + HTTPS.)";
+          "Web NFC not available. Use + / compass. (Chrome Android + HTTPS.)";
       }
       setDrawer(true);
       return;
@@ -527,21 +1024,33 @@
       const reader = new NDEFReader();
       await reader.scan();
       if (els.nfcAdd) els.nfcAdd.textContent = "nfc…";
-      if (els.nfcHint) els.nfcHint.textContent = "Hold a tag / peer phone near the device…";
       setDrawer(true);
       reader.addEventListener("reading", ({ message, serialNumber }) => {
-        addFromNfc(parseNdef(message, serialNumber));
-      });
-      reader.addEventListener("readingerror", () => {
-        if (els.nfcHint) els.nfcHint.textContent = "NFC read error — try again.";
+        const parsed = parseNdef(message, serialNumber);
+        const existing = peers.find((p) => p.id === parsed.id);
+        if (existing) {
+          existing.on = true;
+          existing.nfc = true;
+        } else {
+          const dir = DIR_ORDER[peers.filter((p) => !p.self).length % 4];
+          peers.push({
+            id: parsed.id,
+            nick: parsed.nick,
+            dir,
+            on: true,
+            seed: hashStr(parsed.id),
+            nfc: true,
+            source: "sim",
+          });
+        }
+        saveState();
+        layoutAndPaint();
       });
     } catch (err) {
       if (els.nfcHint) {
         els.nfcHint.textContent =
-          "NFC unavailable: " + (err && err.message ? err.message : String(err));
+          "NFC: " + (err && err.message ? err.message : String(err));
       }
-      if (els.nfcAdd) els.nfcAdd.textContent = "nfc";
-      setDrawer(true);
     }
   }
 
@@ -551,8 +1060,9 @@
     try {
       for (const rec of message.records || []) {
         if (rec.recordType === "text") {
-          const dec = new TextDecoder(rec.encoding || "utf-8");
-          text += dec.decode(rec.data).replace(/^[a-z]{2,3}\|?/, "") + " ";
+          text += new TextDecoder(rec.encoding || "utf-8")
+            .decode(rec.data)
+            .replace(/^[a-z]{2,3}\|?/, "") + " ";
         } else if (rec.recordType === "url" || rec.recordType === "absolute-url") {
           url = new TextDecoder().decode(rec.data);
         }
@@ -573,21 +1083,6 @@
     return { id, nick };
   }
 
-  function addFromNfc({ id, nick }) {
-    const existing = peers.find((p) => p.id === id || (p.nfc && p.nick === nick));
-    if (existing) {
-      existing.on = true;
-      existing.nfc = true;
-      if (els.nfcHint) els.nfcHint.textContent = "NFC: re-enabled " + existing.nick;
-    } else {
-      const dir = DIR_ORDER[peers.filter((p) => !p.self).length % 4];
-      peers.push({ id, nick, dir, on: true, seed: hashStr(id), nfc: true });
-      if (els.nfcHint) els.nfcHint.textContent = "NFC: added " + nick;
-    }
-    saveState();
-    layoutAndPaint();
-  }
-
   function hashStr(s) {
     let h = 0;
     for (let i = 0; i < s.length; i++) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
@@ -601,34 +1096,74 @@
       els.drawer.classList.toggle("is-open", drawerOpen);
       els.drawer.setAttribute("aria-hidden", drawerOpen ? "false" : "true");
     }
-    if (els.drawerToggle) {
-      els.drawerToggle.setAttribute("aria-expanded", drawerOpen ? "true" : "false");
-    }
-    if (els.drawerScrim) {
-      els.drawerScrim.hidden = !drawerOpen;
-    }
-    document.body.classList.toggle("gg-drawer-open", drawerOpen);
+    if (els.drawerToggle) els.drawerToggle.setAttribute("aria-expanded", drawerOpen ? "true" : "false");
+    if (els.drawerScrim) els.drawerScrim.hidden = !drawerOpen;
   }
 
   function toggleDrawer() {
     setDrawer(!drawerOpen);
   }
 
-  // ── animation ────────────────────────────────────────────
+  // ── animation: sample video every frame ──────────────────
   function tick(now) {
     const t = (now - t0) / 1000;
+    const self = peers.find((p) => p.self);
+
     for (const p of peers) {
       if (!isDrawn(p)) continue;
       const c = canvasById.get(p.id);
       if (!c) continue;
-      let buf = lumBuf.get(p.id);
-      if (!buf) {
-        buf = new Uint8Array(N * N);
-        lumBuf.set(p.id, buf);
+      const buf = ensureLum(p.id);
+      let mode = "sim";
+
+      if (p.self) {
+        let sampled = false;
+        if (camOn && els.localVideo) {
+          sampled = sampleSourceToLum(els.localVideo, buf);
+          if (sampled) {
+            p.source = "cam";
+            mode = casting ? "cast" : "self";
+          }
+        }
+        if (!sampled && fileOn && els.fileVideo) {
+          sampled = sampleSourceToLum(els.fileVideo, buf);
+          if (sampled) {
+            p.source = "file";
+            mode = casting ? "cast" : "self";
+          }
+        }
+        if (!sampled) {
+          fillSimLuminance(buf, p.seed, t, true);
+          mode = "sim";
+        } else {
+          p.lum = buf;
+          p.lumAt = now;
+          // cast frames
+          if (casting && now - lastCastAt >= CAST_MS) {
+            lastCastAt = now;
+            sendCastFrame(buf);
+          }
+        }
+      } else if (
+        p.source === "rx" &&
+        p.lum &&
+        p.lumAt &&
+        now - p.lumAt < RX_STALE_MS
+      ) {
+        buf.set(p.lum);
+        mode = "rx";
+      } else if (p.lum && p.lumAt && now - p.lumAt < RX_STALE_MS) {
+        buf.set(p.lum);
+        mode = p.source === "rx" ? "rx" : "sim";
+      } else {
+        fillSimLuminance(buf, p.seed, t, false);
+        mode = "sim";
       }
-      fillLuminance(buf, p.seed, t, !!p.self);
-      drawGlyph(c, buf, !!p.self);
+
+      drawGlyph(c, buf, mode);
     }
+
+    // light roster badge refresh without full relayout (every ~1s)
     raf = requestAnimationFrame(tick);
   }
 
@@ -661,16 +1196,24 @@
     });
 
     if (els.addBtn) els.addBtn.addEventListener("click", addManualPeer);
+    if (els.camBtn) els.camBtn.addEventListener("click", () => toggleCam());
+    if (els.castBtn) els.castBtn.addEventListener("click", () => toggleCast());
+    if (els.hubBtn) els.hubBtn.addEventListener("click", () => toggleHub());
     if (els.meshToggle) {
       els.meshToggle.addEventListener("click", () => {
         meshOn = !meshOn;
         saveState();
-        if (els.meshLabel) els.meshLabel.textContent = meshOn ? "mesh" : "off";
-        els.meshToggle.setAttribute("aria-pressed", meshOn ? "true" : "false");
         drawMesh();
+        els.meshToggle.setAttribute("aria-pressed", meshOn ? "true" : "false");
       });
     }
     if (els.nfcAdd) els.nfcAdd.addEventListener("click", startNfcAdd);
+    if (els.videoFile) {
+      els.videoFile.addEventListener("change", () => {
+        const f = els.videoFile.files && els.videoFile.files[0];
+        if (f) loadVideoFile(f);
+      });
+    }
 
     if (els.drawerToggle) els.drawerToggle.addEventListener("click", toggleDrawer);
     if (els.drawerHandle) {
@@ -682,22 +1225,18 @@
         }
       });
     }
-    if (els.drawerScrim) {
-      els.drawerScrim.addEventListener("click", () => setDrawer(false));
-    }
+    if (els.drawerScrim) els.drawerScrim.addEventListener("click", () => setDrawer(false));
 
-    // swipe down on handle to close / up on footer to open
     let touchY0 = null;
-    const swipeTarget = els.drawerHandle || els.drawer;
-    if (swipeTarget) {
-      swipeTarget.addEventListener(
+    if (els.drawerHandle) {
+      els.drawerHandle.addEventListener(
         "touchstart",
         (e) => {
           touchY0 = e.changedTouches[0].clientY;
         },
         { passive: true }
       );
-      swipeTarget.addEventListener(
+      els.drawerHandle.addEventListener(
         "touchend",
         (e) => {
           if (touchY0 == null) return;
@@ -712,6 +1251,11 @@
 
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && drawerOpen) setDrawer(false);
+      // shortcuts: c cam, v cast, h hub
+      if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
+      if (e.key === "c" || e.key === "C") toggleCam();
+      if (e.key === "v" || e.key === "V") toggleCast();
+      if (e.key === "h" || e.key === "H") toggleHub();
     });
 
     if (els.nick) {
@@ -723,8 +1267,11 @@
       els.nick.addEventListener("input", () => {
         applyNick();
         const selfTile = els.stage && els.stage.querySelector(".gg-tile.is-you .gg-name");
-        if (selfTile) selfTile.textContent = els.nick.value.trim() || "you";
+        if (selfTile) selfTile.textContent = myNick();
       });
+    }
+    if (els.hubUrl) {
+      els.hubUrl.addEventListener("change", saveState);
     }
 
     if (els.installBtn) {
@@ -739,7 +1286,7 @@
 
     if (!nfcSupported() && els.nfcHint) {
       els.nfcHint.textContent =
-        "NFC API not in this browser — use + / compass. Delete via × overlay or roster.";
+        "NFC API not in this browser — use + / compass. Video: cam · cast · hub.";
     }
 
     let resizeT = 0;
@@ -750,10 +1297,10 @@
     window.addEventListener("resize", onResize);
     if (window.visualViewport) window.visualViewport.addEventListener("resize", onResize);
 
-    // re-layout after fonts / first paint
-    if (document.fonts && document.fonts.ready) {
-      document.fonts.ready.then(() => layoutAndPaint());
-    }
+    window.addEventListener("beforeunload", () => {
+      if (castSession) sendJSON({ type: "vburst-end", from: myNick(), t: Date.now() });
+      stopCam();
+    });
   }
 
   // boot
