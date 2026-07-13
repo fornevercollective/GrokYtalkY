@@ -21,7 +21,7 @@ import (
 // Defaults are used for plain `go build` / `go run`.
 var (
 	// Default when not set by ldflags. make install uses git describe.
-	Version = "1.54.0"
+	Version = "1.55.0"
 	Commit  = "dev"
 	Date    = "unknown"
 )
@@ -114,7 +114,8 @@ func fetchLatestRelease(timeout time.Duration) (*ghRelease, error) {
 }
 
 func fetchLatestTag(timeout time.Duration) (*ghRelease, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/tags?per_page=1", githubOwner, githubRepo)
+	// Fetch a page of tags and pick highest semver (not just first by push date).
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/tags?per_page=30", githubOwner, githubRepo)
 	client := &http.Client{Timeout: timeout}
 	req, _ := http.NewRequest(http.MethodGet, url, nil)
 	req.Header.Set("Accept", "application/vnd.github+json")
@@ -134,12 +135,29 @@ func fetchLatestTag(timeout time.Duration) (*ghRelease, error) {
 		return nil, err
 	}
 	if len(tags) == 0 {
-		return nil, fmt.Errorf("no tags on %s/%s", githubOwner, githubRepo)
+		return nil, fmt.Errorf("no tags on %s/%s — publish: git tag vX.Y.Z && gh release create vX.Y.Z", githubOwner, githubRepo)
+	}
+	best := tags[0].Name
+	for _, t := range tags[1:] {
+		if compareSemver(t.Name, best) > 0 {
+			best = t.Name
+		}
 	}
 	return &ghRelease{
-		TagName: tags[0].Name,
-		HTMLURL: fmt.Sprintf("https://github.com/%s/%s/releases", githubOwner, githubRepo),
+		TagName: best,
+		HTMLURL: fmt.Sprintf("https://github.com/%s/%s/releases/tag/%s", githubOwner, githubRepo, best),
 	}, nil
+}
+
+// moduleInstallRef returns go install module@version from update check.
+func moduleInstallRef(res updateResult) string {
+	if res.Latest != "" {
+		v := normalizeVersion(res.Latest)
+		if v != "" {
+			return goModule + "@v" + v
+		}
+	}
+	return goModule + "@latest"
 }
 
 // normalizeVersion strips leading v and build suffixes like -burst, -dock.
@@ -394,91 +412,122 @@ func syscallExec(exe string, args, env []string) error {
 }
 
 func printUpdateCheck(res updateResult) {
-	fmt.Printf("current:  %s\n", res.Current)
+	fmt.Printf("  current:  %s\n", res.Current)
 	if res.Err != nil {
-		fmt.Printf("latest:   (unavailable: %v)\n", res.Err)
-		fmt.Printf("channel:  %s\n", res.Channel)
-		fmt.Println("status:   unknown — publish a GitHub release/tag to enable checks")
+		fmt.Printf("  latest:   (unavailable: %v)\n", res.Err)
+		fmt.Printf("  channel:  %s\n", res.Channel)
+		fmt.Println("  status:   unknown — will try module @latest if updating")
 		return
 	}
-	fmt.Printf("latest:   %s\n", res.Latest)
-	fmt.Printf("channel:  %s\n", res.Channel)
+	fmt.Printf("  latest:   %s\n", res.Latest)
+	fmt.Printf("  channel:  %s\n", res.Channel)
 	switch res.Status {
 	case "up-to-date":
-		fmt.Println("status:   up to date")
+		fmt.Println("  status:   ✓ up to date")
 	case "ahead":
-		fmt.Println("status:   local is newer than GitHub (dev build)")
+		fmt.Println("  status:   local is newer than GitHub (dev build)")
 	case "update-available":
-		fmt.Println("status:   update available")
+		fmt.Println("  status:   ▲ update available")
 		if res.URL != "" {
-			fmt.Printf("release:  %s\n", res.URL)
+			fmt.Printf("  release:  %s\n", res.URL)
 		}
 	default:
-		fmt.Printf("status:   %s\n", res.Status)
+		fmt.Printf("  status:   %s\n", res.Status)
 	}
 }
 
-// runUpdate checks GitHub and optionally installs via the same channel.
+// runUpdate checks GitHub and installs via channel with progress bars.
 func runUpdate(checkOnly bool) error {
+	printInstallBanner("GrokYtalkY update")
+	prog := newInstallProgress(5)
+	prog.Step("check GitHub releases / tags")
 	res := checkUpdate()
 	printUpdateCheck(res)
+
 	if checkOnly {
 		if res.Status == "update-available" {
-			return errUpdateAvailable // exit 2 for scripts
+			prog.Note("run: gy update   (without --check) to install")
+			return errUpdateAvailable
 		}
-		// no tags / network: not a hard failure for --check
-		return nil
-	}
-	if res.Status == "up-to-date" || res.Status == "ahead" {
-		return nil
-	}
-	if res.Err != nil {
-		// still try go install @latest (works without tags via module proxy)
-		fmt.Println()
-		fmt.Println("no GitHub release metadata — trying go install @latest anyway")
-		if _, err := exec.LookPath("go"); err == nil {
-			return goInstallLatestToPreferred()
+		if res.Err == nil {
+			prog.Done("check complete")
 		}
-		return res.Err
-	}
-	if res.Status != "update-available" {
 		return nil
 	}
 
-	fmt.Println()
-	return goInstallLatestToPreferred()
+	if res.Status == "up-to-date" {
+		prog.Step("already on latest")
+		prog.Done(fmt.Sprintf("gy %s", res.Current))
+		return nil
+	}
+	if res.Status == "ahead" {
+		prog.Step("local ahead of GitHub — keep current")
+		prog.Done(fmt.Sprintf("gy %s (dev)", res.Current))
+		return nil
+	}
+
+	ref := moduleInstallRef(res)
+	if res.Err != nil {
+		prog.Note("no release metadata — falling back to %s", ref)
+	} else {
+		prog.Step(fmt.Sprintf("plan install %s → %s", res.Current, res.Latest))
+	}
+
+	prog.Step("download + compile module")
+	if err := goInstallWithProgress(res); err != nil {
+		prog.Fail("install", err)
+		return err
+	}
+	prog.Step("link gy symlink + verify")
+	if err := verifyInstalledBinary(); err != nil {
+		prog.Note("verify warning: %v", err)
+	}
+	label := res.Latest
+	if label == "" {
+		label = "latest"
+	}
+	prog.Done(fmt.Sprintf("updated · gy %s", label))
+	printNewUserGuide(defaultInstallBinDir())
+	return nil
 }
 
-// goInstallLatestToPreferred picks GOBIN from install channel.
-func goInstallLatestToPreferred() error {
+// goInstallWithProgress installs via channel with spinner progress.
+func goInstallWithProgress(res updateResult) error {
 	exe := mustExe()
-	ch := installChannel(exe)
+	ch := res.Channel
+	if ch == "" {
+		ch = installChannel(exe)
+	}
+	ref := moduleInstallRef(res)
 	switch ch {
 	case "homebrew":
-		fmt.Println("→ Homebrew install detected")
-		fmt.Println("  brew update && brew upgrade grokytalky")
-		if err := runCmdHint("brew", "upgrade", "grokytalky"); err != nil {
-			fmt.Println("  (formula may be local-only — use: brew install --build-from-source ./Formula/grokytalky.rb)")
+		fmt.Println("  channel: homebrew")
+		if err := runCmdSpinner("brew upgrade grokytalky", "brew", "upgrade", "grokytalky"); err != nil {
+			fmt.Println("  (formula may be local-only — brew install --build-from-source ./Formula/grokytalky.rb)")
 			return err
 		}
 		return nil
 	case "local":
-		fmt.Println("→ local (~/.local/bin) install")
-		if _, err := exec.LookPath("go"); err == nil {
-			return goInstallLatestTo(filepath.Dir(exe))
+		dir := filepath.Dir(exe)
+		if dir == "" || dir == "." {
+			dir = defaultInstallBinDir()
 		}
-		fmt.Println("  re-run from checkout: git pull && make install")
-		return fmt.Errorf("auto-update needs go on PATH, or pull + make install")
+		return goInstallRefTo(dir, ref)
 	case "go-install":
-		fmt.Println("→ go install channel")
-		return goInstallLatest()
+		return goInstallRef(ref)
 	default:
-		fmt.Println("→ trying go install @latest")
-		if _, err := exec.LookPath("go"); err == nil {
-			return goInstallLatest()
+		dir := defaultInstallBinDir()
+		_ = os.MkdirAll(dir, 0o755)
+		if err := goInstallRefTo(dir, ref); err == nil {
+			return nil
 		}
-		return fmt.Errorf("cannot auto-update; install go or use brew/make")
+		return goInstallRef(ref)
 	}
+}
+
+// goInstallLatestToPreferred picks GOBIN from install channel (legacy callers).
+func goInstallLatestToPreferred() error {
+	return goInstallWithProgress(checkUpdate())
 }
 
 type updateAvail struct{}
@@ -500,26 +549,29 @@ func mustExe() string {
 }
 
 func goInstallLatest() error {
-	mod := goModule + "@latest"
-	fmt.Printf("  go install %s\n", mod)
-	cmd := exec.Command("go", "install", mod)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("go install: %w", err)
-	}
-	fmt.Println("done — re-open shell or hash -r if the binary path is cached")
-	return nil
+	return goInstallRef(goModule + "@latest")
 }
 
 func goInstallLatestTo(dir string) error {
-	mod := goModule + "@latest"
-	fmt.Printf("  GOBIN=%s go install %s\n", dir, mod)
-	cmd := exec.Command("go", "install", mod)
+	return goInstallRefTo(dir, goModule+"@latest")
+}
+
+func goInstallRef(ref string) error {
+	label := "go install " + ref
+	cmd := exec.Command("go", "install", ref)
+	if err := runWithSpinner(label, cmd); err != nil {
+		return fmt.Errorf("go install: %w", err)
+	}
+	fmt.Println("  tip: hash -r  if the shell cached an old gy path")
+	return nil
+}
+
+func goInstallRefTo(dir, ref string) error {
+	_ = os.MkdirAll(dir, 0o755)
+	label := fmt.Sprintf("GOBIN=%s go install %s", dir, ref)
+	cmd := exec.Command("go", "install", ref)
 	cmd.Env = append(os.Environ(), "GOBIN="+dir)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	if err := runWithSpinner(label, cmd); err != nil {
 		return fmt.Errorf("go install: %w", err)
 	}
 	// ensure short alias
@@ -527,10 +579,41 @@ func goInstallLatestTo(dir string) error {
 	short := filepath.Join(dir, "gy")
 	if _, err := os.Stat(full); err == nil {
 		_ = os.Remove(short)
-		_ = os.Symlink("grokytalky", short)
+		if err := os.Symlink("grokytalky", short); err != nil {
+			_ = copyFile(full, short)
+		}
 	}
-	fmt.Printf("updated %s (+ gy symlink)\n", full)
+	fmt.Printf("  binary  %s\n", full)
+	fmt.Printf("  link    %s → grokytalky\n", short)
 	return nil
+}
+
+func verifyInstalledBinary() error {
+	exe := mustExe()
+	// prefer gy on PATH or next to current
+	candidates := []string{}
+	if p, err := exec.LookPath("gy"); err == nil {
+		candidates = append(candidates, p)
+	}
+	if exe != "" {
+		candidates = append(candidates, exe, filepath.Join(filepath.Dir(exe), "gy"))
+	}
+	candidates = append(candidates, filepath.Join(defaultInstallBinDir(), "gy"))
+	for _, p := range candidates {
+		if p == "" {
+			continue
+		}
+		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			cmd := exec.Command(p, "--version")
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				continue
+			}
+			fmt.Printf("  version %s", string(out))
+			return nil
+		}
+	}
+	return fmt.Errorf("gy binary not found on PATH")
 }
 
 func runCmdHint(name string, args ...string) error {

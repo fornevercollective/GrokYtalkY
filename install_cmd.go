@@ -24,21 +24,33 @@ func defaultInstallBinDir() string {
 func installHelp() string {
 	return `gy install | uninstall | clean-install | install-dependencies
 
-  gy install                 install gy → ~/.local/bin (go install or make)
-  gy install dependencies    check / install go · ffmpeg · yt-dlp (brew when available)
+  gy install                 install gy → ~/.local/bin (progress + spinner)
+  gy install dependencies    check / install go · ffmpeg · yt-dlp (brew -y)
   gy install deps            alias for install dependencies
   gy clean install           uninstall then install (fresh local channel)
   gy clean-install           same as clean install
   gy uninstall               remove gy / grokytalky / gy-burst from local + /usr/local/bin
-  gy update | upgrade        channel update (GitHub → go install / brew / make)
+  gy update | upgrade        GitHub check + progress install (module @vX.Y.Z)
   gy update --check          report only; exit 2 if newer release exists
+
+new user (from scratch)
+  # need Go: https://go.dev/dl/  or  brew install go
+  go install github.com/fornevercollective/grokytalky@latest
+  mkdir -p ~/.local/bin
+  ln -sfn "$(go env GOPATH)/bin/grokytalky" ~/.local/bin/gy
+  # or clone + scripts/install.sh (progress bars, version ldflags)
+
+  gy install deps -y         ffmpeg · yt-dlp
+  gy serve                   hub · phone cast URL on LAN
+  gy                         companion dock
 
 env
   PREFIX=~/.local            install root (bin under PREFIX/bin)
   GOBIN=…                    used by go install channel
+  GY_NO_AUTO_UPDATE=1         skip TUI launch auto-update
 
 see also
-  make install · make uninstall · scripts/install.sh · scripts/install-system.sh`
+  make install · scripts/install.sh · docs @ fornevercollective.github.io/GrokYtalkY`
 }
 
 // runInstallCmd dispatches install / clean-install / deps from CLI words.
@@ -94,53 +106,85 @@ func runCleanInstall(args []string) error {
 
 // runLocalInstall puts gy + grokytalky on PATH via go install @latest or make install from checkout.
 func runLocalInstall(force bool) error {
+	printInstallBanner("GrokYtalkY install")
+	prog := newInstallProgress(6)
 	binDir := defaultInstallBinDir()
+	prog.Step("prepare install dir")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		prog.Fail("mkdir", err)
 		return fmt.Errorf("mkdir %s: %w", binDir, err)
 	}
-	fmt.Printf("→ install target %s\n", binDir)
+	prog.Note("target %s", binDir)
 
 	// Prefer source checkout (Makefile) when we are running from a git worktree with go.mod.
 	if root := findRepoRoot(); root != "" {
 		if _, err := os.Stat(filepath.Join(root, "go.mod")); err == nil {
 			if _, err := exec.LookPath("make"); err == nil {
-				fmt.Printf("→ make install (PREFIX=%s) from %s\n", filepath.Dir(binDir), root)
+				prog.Step("build from checkout (make install)")
+				prog.Note("PREFIX=%s · %s", filepath.Dir(binDir), root)
 				cmd := exec.Command("make", "install")
 				cmd.Dir = root
 				cmd.Env = append(os.Environ(), "PREFIX="+filepath.Dir(binDir))
-				cmd.Stdout = os.Stdout
-				cmd.Stderr = os.Stderr
-				if err := cmd.Run(); err != nil {
+				if err := runWithSpinner("make install", cmd); err != nil {
+					prog.Fail("make install", err)
 					return fmt.Errorf("make install: %w", err)
 				}
+				prog.Step("verify binary")
+				_ = verifyInstalledBinary()
+				prog.Done("installed from source")
 				printInstallDone(binDir)
+				printNewUserGuide(binDir)
 				return nil
 			}
 			// make missing — go build from checkout
 			if _, err := exec.LookPath("go"); err == nil {
-				return installFromSource(root, binDir)
+				prog.Step("build from checkout (go build)")
+				if err := installFromSource(root, binDir); err != nil {
+					prog.Fail("go build", err)
+					return err
+				}
+				prog.Done("installed from source")
+				printNewUserGuide(binDir)
+				return nil
 			}
 		}
 	}
 
 	// Module install (published or proxy)
+	prog.Step("locate Go toolchain")
 	if _, err := exec.LookPath("go"); err != nil {
-		return fmt.Errorf("go not on PATH — install Go, or clone the repo and run: make install\n  https://go.dev/dl/")
+		prog.Fail("go missing", err)
+		return fmt.Errorf("go not on PATH — install Go, then re-run: gy install\n  https://go.dev/dl/\n  or: brew install go")
+	}
+
+	// Prefer versioned tag when GitHub has one
+	prog.Step("resolve latest release")
+	res := checkUpdate()
+	ref := moduleInstallRef(res)
+	if res.Latest != "" {
+		prog.Note("GitHub latest v%s", normalizeVersion(res.Latest))
+	} else {
+		prog.Note("using %s", ref)
 	}
 	if force {
-		fmt.Println("→ go install " + goModule + "@latest (clean)")
-	} else {
-		fmt.Println("→ go install " + goModule + "@latest")
+		prog.Note("clean install forced")
 	}
-	if err := goInstallLatestTo(binDir); err != nil {
-		// goInstallLatestTo already prints; try GOBIN default then symlink
-		if err2 := goInstallLatest(); err2 != nil {
+
+	prog.Step("download + compile " + ref)
+	if err := goInstallRefTo(binDir, ref); err != nil {
+		// try default GOBIN then symlink
+		prog.Note("retry default GOBIN…")
+		if err2 := goInstallRef(ref); err2 != nil {
+			prog.Fail("go install", err)
 			return err
 		}
-		// copy/symlink from GOPATH/bin if different
-		return ensureGySymlinks(binDir)
+		_ = ensureGySymlinks(binDir)
 	}
+	prog.Step("verify install")
+	_ = verifyInstalledBinary()
+	prog.Done("ready")
 	printInstallDone(binDir)
+	printNewUserGuide(binDir)
 	return nil
 }
 
@@ -217,16 +261,16 @@ func goBinDir() string {
 
 func printInstallDone(binDir string) {
 	fmt.Println()
-	fmt.Println("Installed:")
+	fmt.Println("  Installed")
+	fmt.Println("  ─────────")
 	fmt.Printf("  %s/gy\n", binDir)
 	fmt.Printf("  %s/grokytalky\n", binDir)
 	if !pathHasDir(binDir) {
 		fmt.Println()
-		fmt.Println("Add to PATH (zsh):")
-		fmt.Printf("  echo 'export PATH=\"%s:$PATH\"' >> ~/.zshrc && source ~/.zshrc\n", binDir)
+		fmt.Println("  Add to PATH (zsh):")
+		fmt.Printf("    echo 'export PATH=\"%s:$PATH\"' >> ~/.zshrc && source ~/.zshrc\n", binDir)
 	}
 	fmt.Println()
-	fmt.Println("Try:  gy version · gy update · gy doctor · gy --help")
 	if p := filepath.Join(binDir, "gy"); fileExists(p) {
 		cmd := exec.Command(p, "--version")
 		cmd.Stdout = os.Stdout
