@@ -22,6 +22,7 @@
     </a>
     <nav>
       <a href="./">Home</a>
+      <a href="chat.html">Chat</a>
       <a href="docs.html" class="nav-active">Docs</a>
       <a href="./#conversation">Stream hero</a>
       <a href="https://github.com/fornevercollective/GrokYtalkY" rel="noopener">GitHub</a>
@@ -38,6 +39,7 @@
       <a href="#vwall">VWall simulcast</a>
       <a href="#burst">Burst / Glyph</a>
       <a href="#streams-scale">Stream scale</a>
+      <a href="#chat-space">Space chat</a>
       <a href="#burst">Video burst / Glyph</a>
       <a href="#patterns">Patterns</a>
       <a href="#midi">MIDI</a>
@@ -218,7 +220,14 @@ curl -s http://127.0.0.1:9880/health
             <tr><td>Media of the Space</td><td>CF Calls / SFU mid|full</td><td>viewers</td></tr>
           </tbody>
         </table>
-        <p>Docs: <code>docs/chat.md</code> · scaffold: <code>chat/</code> · schema: <code>chat/protocol.json</code></p>
+        <p>
+          Docs: <code>docs/chat.md</code> · scaffold: <code>chat/</code> · schema: <code>chat/protocol.json</code> ·
+          demo: <a href="chat.html">chat.html</a>
+        </p>
+        <pre class="code-block"><code>gy serve
+cd chat/worker && npx wrangler dev
+gy chat-bridge --hosts YOUR_NICK
+# open chat.html → Public Space · stage lines from gy ↗ bridge</code></pre>
       </section>
 
       <section id="patterns" class="docs-section">

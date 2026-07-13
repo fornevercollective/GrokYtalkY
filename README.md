@@ -40,12 +40,15 @@ Site: [burst.html](https://fornevercollective.github.io/GrokYtalkY/burst.html) �
 
 **Hybrid streams:** Cloudflare for 1k+ web viewers · DOJO SFU sidecar for private rooms + glyph/hex lanes · terminals stay 25²/half-block. See [`docs/streams-capacity.md`](docs/streams-capacity.md) · scaffold [`sfu/`](sfu/README.md).
 
-**Space-style chat:** public 1k+ → CF Workers + Durable Objects (`chat/worker`) · DOJO 16–32 → `gy` hub / SFU `chat`. Same JSON envelope. See [`docs/chat.md`](docs/chat.md).
+**Space-style chat:** public 1k+ → CF Workers + Durable Objects (`chat/worker`) · DOJO 16–32 → `gy` hub / SFU `chat`. Same JSON envelope. Demo: [chat.html](https://fornevercollective.github.io/GrokYtalkY/chat.html). See [`docs/chat.md`](docs/chat.md).
 
 ```bash
+gy serve
+cd chat/worker && npm i && npx wrangler dev          # public Space :8787
+gy chat-bridge --hosts YOUR_NICK                     # DOJO → Space captions
+# open site/chat.html  (Public Space | DOJO hub)
+
 make sfu && ./sfu/target/release/gy-sfu --bind 127.0.0.1:9880
-# gy serve  → :9876 mesh   |  gy-sfu → :9880 signaling
-# cd chat/worker && npm i && npx wrangler dev   # public Space chat
 ```
 
 ### Install (pick one)

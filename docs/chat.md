@@ -94,10 +94,22 @@ Optional Space-like extensions (CF DO only until hub opts in):
 
 | Path | Role |
 |------|------|
-| [`chat/`](../chat/README.md) | Protocol + CF Worker/DO stub + hub bridge notes |
+| [`chat/`](../chat/README.md) | Protocol + CF Worker/DO + full-flow runbook |
+| `gy chat-bridge` | Thin DOJO → Space caption bridge (`chat_bridge.go`) |
+| [`site/chat.html`](../site/chat.html) | Dual-path demo panel (Public Space / DOJO) |
 | [`sfu/`](../sfu/README.md) | DOJO WS `chat` fan-out (lane-adjacent) |
 | `hub.go` | Existing mesh `type: chat` relay |
 | [`streams-capacity.md`](streams-capacity.md) | Hybrid media + chat tables |
+
+### Full flow (one glance)
+
+```bash
+gy serve
+cd chat/worker && npx wrangler dev
+gy chat-bridge --hosts yournick
+# open site/chat.html → Public Space
+# gy --nick yournick → send chat (↗ appears on Space panel)
+```
 
 ## Non-goals
 

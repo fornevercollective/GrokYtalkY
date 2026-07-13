@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Space chat · GrokYtalkY</title>
+  <meta name="description" content="Dual-path chat demo — public Space (CF) + private DOJO hub. Creator Studio–style text plane." />
+  <meta name="theme-color" content="#0c0c0f" />
+  <link rel="canonical" href="https://fornevercollective.github.io/GrokYtalkY/chat.html" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    .chat-page { max-width: 720px; margin: 0 auto; padding: 1.5rem 1rem 4rem; }
+    .chat-page h1 { font-size: 1.4rem; letter-spacing: -0.03em; margin: 0.25rem 0 0.35rem; }
+    .chat-lede { color: var(--muted); font-size: 0.92rem; margin-bottom: 1.25rem; max-width: 36rem; }
+    .chat-modes { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; }
+    .chat-modes button {
+      font-family: var(--mono); font-size: 0.72rem; padding: 0.4rem 0.75rem;
+      border-radius: 999px; border: 1px solid var(--border); background: var(--bg-elev);
+      color: var(--muted); cursor: pointer;
+    }
+    .chat-modes button.active {
+      border-color: var(--accent); color: var(--accent); background: rgba(125,211,252,.08);
+    }
+    .chat-config {
+      display: grid; gap: 0.5rem; margin-bottom: 1rem;
+      padding: 0.85rem; border: 1px solid var(--border); border-radius: var(--radius);
+      background: var(--bg-elev);
+    }
+    .chat-config label {
+      display: grid; grid-template-columns: 5.5rem 1fr; gap: 0.5rem; align-items: center;
+      font-family: var(--mono); font-size: 0.68rem; color: var(--faint);
+    }
+    .chat-config input {
+      font-family: var(--mono); font-size: 0.75rem; padding: 0.4rem 0.55rem;
+      border-radius: 8px; border: 1px solid var(--border); background: var(--bg);
+      color: var(--text);
+    }
+    .chat-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; }
+    .chat-status {
+      font-family: var(--mono); font-size: 0.68rem; color: var(--faint); margin-bottom: 0.75rem;
+    }
+    .chat-status.live { color: var(--live); }
+    .chat-status.err { color: var(--err); }
+    .chat-log {
+      height: min(52vh, 420px); overflow-y: auto;
+      border: 1px solid var(--border); border-radius: var(--radius);
+      background: #08080c; padding: 0.75rem; margin-bottom: 0.75rem;
+      font-family: var(--mono); font-size: 0.78rem; line-height: 1.45;
+    }
+    .chat-line { margin-bottom: 0.45rem; word-break: break-word; }
+    .chat-line .who { color: var(--accent); }
+    .chat-line .who.host { color: var(--live); }
+    .chat-line .who.system { color: var(--faint); }
+    .chat-line.bridged .who::after { content: " ↗"; color: var(--warn); font-size: 0.65rem; }
+    .chat-compose { display: flex; gap: 0.5rem; }
+    .chat-compose input {
+      flex: 1; font-family: var(--mono); font-size: 0.85rem; padding: 0.55rem 0.7rem;
+      border-radius: 10px; border: 1px solid var(--border); background: var(--bg-elev); color: var(--text);
+    }
+    .chat-hint { margin-top: 1.25rem; font-size: 0.8rem; color: var(--faint); line-height: 1.5; }
+    .chat-hint code { color: var(--muted); font-family: var(--mono); font-size: 0.75rem; }
+  </style>
+</head>
+<body>
+  <div class="noise" aria-hidden="true"></div>
+  <header class="nav">
+    <a class="brand" href="./">
+      <span class="brand-mark">◈</span>
+      <span class="brand-name">GrokYtalkY</span>
+    </a>
+    <nav>
+      <a href="./">Home</a>
+      <a href="burst.html">Burst</a>
+      <a href="chat.html" class="nav-active">Chat</a>
+      <a href="docs.html">Docs</a>
+      <a href="https://github.com/fornevercollective/GrokYtalkY">GitHub</a>
+    </nav>
+  </header>
+
+  <main class="chat-page">
+    <p class="eyebrow">hybrid text plane · space / dojo</p>
+    <h1>Space chat demo</h1>
+    <p class="chat-lede">
+      Public Creator Studio–style chat on Cloudflare (1k+), private DOJO chat on the gy hub (16–32).
+      Same JSON envelope. Host captions bridge DOJO → public via <code>gy chat-bridge</code>.
+    </p>
+
+    <div class="chat-modes" role="group" aria-label="Chat path">
+      <button type="button" id="mode-space" class="active">Public Space (CF)</button>
+      <button type="button" id="mode-dojo">DOJO hub</button>
+    </div>
+
+    <div class="chat-config">
+      <label>WS URL <input id="ws-url" spellcheck="false" /></label>
+      <label>Room <input id="room" value="space:demo" spellcheck="false" /></label>
+      <label>Nick <input id="nick" value="viewer" maxlength="64" /></label>
+    </div>
+
+    <div class="chat-actions">
+      <button type="button" class="btn primary" id="btn-connect">Connect</button>
+      <button type="button" class="btn ghost" id="btn-disconnect">Disconnect</button>
+      <button type="button" class="btn ghost" id="btn-clear">Clear</button>
+    </div>
+    <p class="chat-status" id="status">idle · pick path and connect</p>
+
+    <div class="chat-log" id="log" aria-live="polite"></div>
+
+    <form class="chat-compose" id="compose">
+      <input id="input" type="text" maxlength="2000" placeholder="message…" autocomplete="off" />
+      <button type="submit" class="btn primary">Send</button>
+    </form>
+
+    <p class="chat-hint">
+      <strong>Full flow</strong><br />
+      <code>gy serve</code> · <code>cd chat/worker && npx wrangler dev</code> ·
+      <code>gy chat-bridge --hosts YOUR_NICK</code> · this panel on Public Space ·
+      terminal <code>gy</code> chat for DOJO stage lines (↗ bridged).
+      Docs: <a href="docs.html#chat-space">docs</a> ·
+      <a href="https://github.com/fornevercollective/GrokYtalkY/blob/main/docs/chat.md">chat.md</a>
+    </p>
+  </main>
+  <script src="chat-panel.js"></script>
+</body>
+</html>

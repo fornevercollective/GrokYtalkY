@@ -61,23 +61,33 @@ Endpoints (when running):
 | `GET` | `/ws?room=space:demo&nick=viewer` | Space chat WebSocket |
 | `GET` | `/history?room=space:demo` | recent messages (DO memory) |
 
-## Bridge (optional next)
+## Full flow (shipped)
 
-- **DOJO → CF:** small process reads hub WS, POSTs host lines into DO (public captions).
-- **CF → DOJO:** moderated only (rate limit + host approve) so 1k chatters never flood the terminal.
+```bash
+# A — DOJO mesh
+gy serve
 
-Stub note in `worker/src/bridge.ts`.
+# B — public Space chat (local edge)
+cd chat/worker && npm i && npx wrangler dev   # :8787
+
+# C — thin caption bridge (prod: --hosts only)
+gy chat-bridge --hosts YOUR_NICK
+
+# D — demo panel
+open site/chat.html   # Public Space → Connect
+# gy --nick YOUR_NICK → chat lines appear on Space (↗ bridged)
+```
+
+Bridge: `gy chat-bridge --dry-run` · `--hosts a,b` · `--space 'ws://…'`  
+CF → DOJO is **not** open by default (keeps terminal pure). Helpers in `worker/src/bridge.ts`.
 
 ## Layout
 
 ```
 chat/
   README.md
-  protocol.json          # shared message schema
-  worker/                # CF Workers + Durable Object
-    package.json
-    wrangler.toml
-    src/index.ts
-    src/room-do.ts
-    src/bridge.ts
+  protocol.json
+  worker/                 # CF Workers + Durable Object
+site/chat.html            # dual-path demo panel
+chat_bridge.go            # gy chat-bridge
 ```
