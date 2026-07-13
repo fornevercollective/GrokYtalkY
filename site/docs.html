@@ -234,20 +234,23 @@ gy venue --sink st2110 --profile 2110-20 --tp 2110TPN \
 gy venue --rtp rtp://239.100.1.10:5004 \
   --rtp-b rtp://239.100.2.10:5004          # ST 2022-7 dual-dest tee
 gy venue --audio-rtp rtp://239.100.1.10:5006  # ST 2110-30 L24
+gy venue --anc-rtp rtp://239.100.1.10:5008    # ST 2110-40 mark/tally/bus ANC
 gy doctor st2110 · sync · cameras</code></pre>
         <table class="docs-table">
           <thead><tr><th>Piece</th><th>Notes</th></tr></thead>
           <tbody>
             <tr><td>ST 2110-20</td><td>Full fmtp (TCS/RANGE/PAR/exactframerate/PM/TP) · uyvy or v210</td></tr>
             <tr><td>ST 2110-30</td><td>AES67-constrained L24/48k · ST 2059-2 PTP profile required in prod</td></tr>
+            <tr><td>ST 2110-40</td><td>Program bus → DID 0x5F mark/tally/bus ANC · <code>OnANC</code> · not CEA-708</td></tr>
             <tr><td>ST 2022-7</td><td>Single-encode tee to A/B RTP · best-effort hitless diversity</td></tr>
             <tr><td>NDI</td><td>libndi_newtek when present · MPEG-TS UDP fallback</td></tr>
             <tr><td>Cameras</td><td><code>gy doctor cameras</code> — Sony/ARRI/RED/BMD/Canon/… tether matrix</td></tr>
           </tbody>
         </table>
         <p>
-          Honest limits: free-run PTP until facility GM; no NMOS/GM in-process; 2110-40 ANC still facility-side.
-          Spec write-up: <code>docs/st2110-sync-cameras.md</code> · capacity: <code>docs/streams-capacity.md</code>.
+          ANC capture point: conductor <code>/take</code> · <code>/hold</code> · <code>/black</code> (hub <code>type:program</code>).
+          Honest limits: free-run PTP until facility GM; no NMOS/GM; CEA-708/full VANC = facility.
+          Spec: <code>docs/st2110-sync-cameras.md</code> · capacity: <code>docs/streams-capacity.md</code>.
         </p>
       </section>
 

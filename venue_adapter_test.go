@@ -11,6 +11,7 @@ type recordSink struct {
 	mu     sync.Mutex
 	progs  []ProgramBus
 	glyphs []VenueGlyphFrame
+	anc    []ANCPacket
 	blacks int
 	holds  int
 }
@@ -34,6 +35,11 @@ func (r *recordSink) OnBlack(ProgramBus) {
 func (r *recordSink) OnHold(ProgramBus) {
 	r.mu.Lock()
 	r.holds++
+	r.mu.Unlock()
+}
+func (r *recordSink) OnANC(pkts []ANCPacket) {
+	r.mu.Lock()
+	r.anc = append(r.anc, pkts...)
 	r.mu.Unlock()
 }
 func (r *recordSink) Close() error { return nil }

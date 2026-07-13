@@ -171,29 +171,30 @@ func helpBodyForge() string {
 }
 
 func helpBodyVenue() string {
-	return `venue · ST 2110 · NDI · 2022-7
-  gy venue --sink log|ndi|st2110|st2110-30
+	return `venue · ST 2110 · NDI · 2022-7 · ANC
+  gy venue --sink log|ndi|st2110|st2110-30|st2110-40
   gy venue --sink st2110 --profile 2110-20
   gy venue --tp 2110TPN --fps-exact 30000/1001
   gy venue --depth 10 --sampling YCbCr-4:2:2
   gy venue --rtp A --rtp-b B     ST 2022-7 dual-dest tee
-  gy venue --audio-rtp …         ST 2110-30 L24 companion
+  gy venue --audio-rtp …         ST 2110-30 L24
+  gy venue --anc-rtp …           ST 2110-40 mark/tally/bus ANC
   gy venue --sink ndi,st2110,log multi-sink
 
+  ANC capture point = program bus
+    /take · /hold · /black → DID 0x5F SDID 01 mark · 02 tally · 03 bus
+    OnANC on every VenueSink · jsonl sidecar
+
   doctor
-    gy doctor st2110   suite + PTP + 2022-7
-    gy doctor sync     SyncClockReport
-    gy doctor cameras  tether matrix (Sony/ARRI/…)
+    gy doctor st2110 · sync · cameras
 
   bridges
-    gy sfu-bridge    hub gyst/vburst → SFU glyph|hex
-    gy chat-bridge   hub → Space captions
-    gy agent         thin Glyph/IoT JSON (no TUI)
+    gy sfu-bridge · gy chat-bridge · gy agent
 
   honest limits
-    PTP free-run until facility GM (ST 2059-2)
-    2022-7 = single-encode dual-dest (not multi-NIC clone)
-    2110-40 ANC / NMOS still facility-side`
+    PTP free-run until facility GM
+    2022-7 dual-dest tee (not multi-NIC clone)
+    CEA-708 / full VANC = facility`
 }
 
 func helpBodyCLI() string {

@@ -185,6 +185,8 @@ func (s *ffmpegPipeSink) OnHold(bus ProgramBus) {
 	}
 }
 
+func (s *ffmpegPipeSink) OnANC([]ANCPacket) {} // video path ignores ANC
+
 func (s *ffmpegPipeSink) writeRGB(w io.Writer, rgb []byte) error {
 	if w == nil || len(rgb) == 0 {
 		return fmt.Errorf("no writer")
@@ -319,6 +321,11 @@ func (m *multiVenueSink) OnBlack(bus ProgramBus) {
 func (m *multiVenueSink) OnHold(bus ProgramBus) {
 	for _, s := range m.sinks {
 		s.OnHold(bus)
+	}
+}
+func (m *multiVenueSink) OnANC(pkts []ANCPacket) {
+	for _, s := range m.sinks {
+		s.OnANC(pkts)
 	}
 }
 func (m *multiVenueSink) Close() error {

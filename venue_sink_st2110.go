@@ -52,6 +52,8 @@ type ST2110Opts struct {
 	Sync     SyncClockReport
 	// ST 2022-7 hitless dual destination (secondary video RTP)
 	RTPB string // e.g. rtp://239.100.1.11:5004
+	// ST 2110-40 ANC companion
+	AncRTP string
 }
 
 // NewST2110VenueSink builds an ST 2110 VenueSink.
@@ -148,6 +150,9 @@ func NewST2110VenueSink(opts ST2110Opts) (VenueSink, error) {
 	video := newFFmpegPipeSink(sinkName, "st2110", opts.Width, opts.Height, pipeFPS, args, opts.Quiet)
 	video.metaPath = metaPath
 
+	var sinks []VenueSink
+	sinks = append(sinks, video)
+
 	if opts.AudioRTP != "" && profile == ST2110Profile211020 {
 		aOpts := ST211030Opts{
 			RTP: opts.AudioRTP, Quiet: opts.Quiet, MetaDir: opts.MetaDir,
@@ -157,6 +162,7 @@ func NewST2110VenueSink(opts ST2110Opts) (VenueSink, error) {
 		if err != nil {
 			return nil, fmt.Errorf("2110-30: %w", err)
 		}
+		sinks = append(sinks, audio)
 		multiPath := opts.MultiSDP
 		if multiPath == "" {
 			multiPath = filepath.Join(opts.MetaDir, "gy-st2110-bundle.sdp")
@@ -165,12 +171,36 @@ func NewST2110VenueSink(opts ST2110Opts) (VenueSink, error) {
 		if err := writeST2110MultiEssenceSDPTight(multiPath, host, port, aHost, aPort, vp, aOpts, sync); err != nil {
 			return nil, err
 		}
-		if !opts.Quiet {
-			log.Printf("venue · st2110 · multi-essence SDP %s (20+30)", multiPath)
+		// optional ANC media line on bundle
+		if opts.AncRTP != "" {
+			if _, ancPort, err := parseRTPURL(opts.AncRTP); err == nil {
+				if b, err := os.ReadFile(multiPath); err == nil {
+					ah, _, _ := parseRTPURL(opts.AncRTP)
+					_ = ah
+					nb := AppendANCToMultiEssence(string(b), host, ancPort)
+					_ = os.WriteFile(multiPath, []byte(nb), 0o644)
+				}
+			}
 		}
-		return &multiVenueSink{sinks: []VenueSink{video, audio}}, nil
+		if !opts.Quiet {
+			log.Printf("venue · st2110 · multi-essence SDP %s", multiPath)
+		}
 	}
-	return video, nil
+
+	if opts.AncRTP != "" {
+		anc, err := NewST211040Sink(ST211040Opts{
+			RTP: opts.AncRTP, Quiet: opts.Quiet, MetaDir: opts.MetaDir, Sync: sync,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("2110-40: %w", err)
+		}
+		sinks = append(sinks, anc)
+	}
+
+	if len(sinks) == 1 {
+		return sinks[0], nil
+	}
+	return &multiVenueSink{sinks: sinks}, nil
 }
 
 func buildST211020Params(opts ST2110Opts) ST211020Params {

@@ -143,6 +143,8 @@ func (s *st211030Sink) OnHold(bus ProgramBus) {
 	s.mu.Unlock()
 }
 
+func (s *st211030Sink) OnANC([]ANCPacket) {} // audio path ignores ANC
+
 func (s *st211030Sink) ensureStarted() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

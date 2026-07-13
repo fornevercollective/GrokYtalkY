@@ -174,7 +174,7 @@ func ST2110SuiteTable() []ST2110EssenceLine {
 		{ST2110_22, "CBR compressed video", ST2110_10, "lab profile H.264 RTP (not claiming 2110-22)"},
 		{ST2110_30, "PCM digital audio (AES67 constrained)", ST2110_10 + " + ST 2059-2 (not AES67 PTP profile)", "L24/48000 RTP + channel-order + multi-essence SDP"},
 		{ST2110_31, "AES3 transparent", ST2110_10, "not implemented (gateway facility)"},
-		{ST2110_40, "Ancillary data", ST2110_10, "program bus mark in sidecar JSON; full ANC TBD"},
+		{ST2110_40, "Ancillary data", ST2110_10, "program bus → DID 0x5F mark/tally/bus ANC; --anc-rtp + OnANC"},
 		{ST2059_1, "Align essence to PTP epoch", "IEEE 1588 / facility GM", "documented; lock via facility ptp4l/BC"},
 		{ST2059_2, "PTP profile for pro media", "Grandmaster + BC/TC", "required by 2110; gy signals profile, does not run GM"},
 	}

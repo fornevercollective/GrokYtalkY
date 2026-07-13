@@ -14,7 +14,7 @@ Basis coverage for venue IP (GrokYtalkY `gy venue`) and production planning.
 | **ST 2110-22** | CBR compressed video | Lab H.264 only (not claiming 22) |
 | **ST 2110-30** | PCM audio (AES67 constrained) | `--audio-rtp` / `--sink st2110-30` |
 | **ST 2110-31** | AES3 transparent | Facility gateway |
-| **ST 2110-40** | ANC / captions | Program mark sidecar; full ANC TBD |
+| **ST 2110-40** | ANC / captions | Program bus → mark/tally/bus DID 0x5F; `--anc-rtp` · `OnANC` |
 
 ```bash
 gy doctor st2110     # suite + PTP gaps
@@ -99,11 +99,30 @@ gy venue --sink st2110 \
 
 **Honest limit:** professional hitless merge wants bit-identical packets on both paths from a multi-NIC packetizer. gy dual-dest tee is **path diversity from a single encode** — the right software span; facility gateways can still re-clone for full 2022-7.
 
+## ST 2110-40 ANC (program bus capture)
+
+Cleanest starting point — **not** a full caption engine:
+
+| Capture | DID/SDID | Content |
+|---------|----------|---------|
+| mark-as-ANC | `0x5F` / `0x01` | UTF-8 `cgf:…` |
+| tally / mode | `0x5F` / `0x02` | live/hold/black + slot + conductor |
+| bus snapshot | `0x5F` / `0x03` | compact JSON |
+
+```bash
+# capture point = conductor take/hold/black (hub type:program)
+gy venue --sink st2110 --anc-rtp rtp://239.100.1.10:5008
+gy venue --sink st2110-40 --anc-rtp rtp://239.100.1.10:5008
+# sidecar: $TMPDIR/gy-venue/st2110-40-anc.jsonl
+```
+
+`VenueSink.OnANC` fires after every program update. CEA-708 / full VANC inserters remain facility-side.
+
 ## What gy does *not* claim
 
 - Running a PTP grandmaster or boundary clock
 - NMOS IS-04/05 registry
-- Full ST 2110-40 ANC packing
+- Full CEA-708 captions / standard SMPTE DID registry packing
 - ST 2110-31 AES3
 - Hardware traffic shapers (2110-21 TPN is **signaled**, not enforced)
 - Bit-identical multi-NIC 2022-7 packet cloning (tee is best-effort hitless diversity)

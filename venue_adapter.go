@@ -33,6 +33,9 @@ type VenueSink interface {
 	OnBlack(bus ProgramBus)
 	// OnHold freeze last frame (mode=hold) — sinks should stop advancing.
 	OnHold(bus ProgramBus)
+	// OnANC delivers ST 2110-40 ancillary packets (mark/tally/bus from program bus).
+	// Sinks that ignore ANC may no-op.
+	OnANC(pkts []ANCPacket)
 	Close() error
 }
 
@@ -68,6 +71,7 @@ type VenueOpts struct {
 	ST2110Prof    string // 2110-20 (default) | lab
 	ST2110Payload string // lab only: mpegts|rtp
 	AudioRTP      string // ST 2110-30 companion
+	AncRTP        string // ST 2110-40 ANC companion
 	// 2110-20 tightening
 	ST2110TP       string // 2110TPN|TPNL|TPW
 	ST2110FPSExact string // 30 | 30000/1001 | 29.97
@@ -170,6 +174,26 @@ func (s *LogVenueSink) OnHold(bus ProgramBus) {
 	}
 }
 
+func (s *LogVenueSink) OnANC(pkts []ANCPacket) {
+	if len(pkts) == 0 {
+		return
+	}
+	if !s.Quiet {
+		for _, p := range pkts {
+			log.Printf("venue · ANC · %s", FormatANCPacket(p))
+		}
+	}
+	if s.JSONOut {
+		for _, p := range pkts {
+			emitVenueJSON(map[string]any{
+				"type": "anc", "kind": p.Kind, "did": p.DID, "sdid": p.SDID,
+				"line": p.Line, "seq": p.Seq, "note": p.Note,
+				"udw_b64": "", "udw_len": len(p.UDW),
+			})
+		}
+	}
+}
+
 func (s *LogVenueSink) Close() error { return nil }
 
 func emitVenueJSON(v any) {
@@ -203,43 +227,40 @@ func runVenueCmd(args []string) error {
   --sink      log|ndi|st2110|comma-list  (default log)
   --ndi-name  NDI source name (default GrokYtalkY-PGM)
   --ndi-udp   fallback MPEG-TS UDP if libndi_newtek missing
-  --rtp       ST 2110-20 primary RTP (default rtp://239.100.1.10:5004)
-  --rtp-b     ST 2022-7 secondary RTP (hitless dual-dest tee)
-  --audio-rtp ST 2110-30 audio RTP (optional)
-  --sdp       path to write video SDP
-  --profile   2110-20 (default) | lab
-  --tp        2110TPN|2110TPNL|2110TPW
-  --fps-exact 30 | 30000/1001 | 29.97
-  --sampling  YCbCr-4:2:2 | YCbCr-4:2:0
-  --depth     8 | 10
-  --width --height --fps
+  --rtp       ST 2110-20 primary RTP
+  --rtp-b     ST 2022-7 secondary RTP
+  --audio-rtp ST 2110-30 audio RTP
+  --anc-rtp   ST 2110-40 ANC RTP (mark/tally/bus from program bus)
+  --sdp · --profile 2110-20|lab · --tp · --fps-exact · --sampling · --depth
   --json · --quiet · --dry-run
 
-PTP free-run until facility GM. 2022-7: dual-path tee (see doctor st2110).
-docs/st2110-sync-cameras.md
+Program bus is the ANC capture point: take/hold/black → DID 0x5F packets.
+docs/st2110-sync-cameras.md · gy doctor st2110
 
 Example:
-  gy venue --sink st2110 --rtp rtp://239.100.1.10:5004 --rtp-b rtp://239.100.2.10:5004
-  gy venue --sink st2110 --tp 2110TPN --fps-exact 30000/1001
+  gy venue --sink st2110 --anc-rtp rtp://239.100.1.10:5008
+  gy venue --sink st2110-40 --anc-rtp rtp://239.100.1.10:5008
+  gy venue --sink st2110 --rtp A --rtp-b B --audio-rtp C --anc-rtp D
 `)
 	}
 	hub := fs.String("hub", "ws://127.0.0.1:9876/", "DOJO hub WebSocket")
 	nick := fs.String("nick", "venue", "venue sink nick")
-	sinkKind := fs.String("sink", "log", "log|ndi|st2110|st2110-30|comma-list")
+	sinkKind := fs.String("sink", "log", "log|ndi|st2110|st2110-30|st2110-40|…")
 	ndiName := fs.String("ndi-name", "GrokYtalkY-PGM", "NDI source name")
 	ndiUDP := fs.String("ndi-udp", "udp://127.0.0.1:13000?pkt_size=1316", "NDI fallback MPEG-TS")
 	rtp := fs.String("rtp", "rtp://239.100.1.10:5004", "ST 2110-20 primary RTP")
-	rtpB := fs.String("rtp-b", "", "ST 2022-7 secondary RTP (hitless dual-dest)")
-	audioRTP := fs.String("audio-rtp", "", "ST 2110-30 audio RTP (optional)")
+	rtpB := fs.String("rtp-b", "", "ST 2022-7 secondary RTP")
+	audioRTP := fs.String("audio-rtp", "", "ST 2110-30 audio RTP")
+	ancRTP := fs.String("anc-rtp", "", "ST 2110-40 ANC RTP")
 	sdp := fs.String("sdp", "", "SDP output path")
 	profile := fs.String("profile", ST2110Profile211020, "st2110: 2110-20|lab")
-	tp := fs.String("tp", ST2110TPN, "ST 2110-21 TP= sender type")
-	fpsExact := fs.String("fps-exact", "", "exactframerate 30|30000/1001|29.97")
+	tp := fs.String("tp", ST2110TPN, "ST 2110-21 TP=")
+	fpsExact := fs.String("fps-exact", "", "exactframerate")
 	sampling := fs.String("sampling", "YCbCr-4:2:2", "2110-20 sampling")
 	depth := fs.Int("depth", 8, "bit depth 8|10")
 	width := fs.Int("width", VenueDefaultW, "output width")
 	height := fs.Int("height", VenueDefaultH, "output height")
-	fps := fs.Int("fps", VenueDefaultFPS, "output fps (integer)")
+	fps := fs.Int("fps", VenueDefaultFPS, "output fps")
 	quiet := fs.Bool("quiet", false, "less logging")
 	dry := fs.Bool("dry-run", false, "force log sink only")
 	jsonOut := fs.Bool("json", false, "stdout JSON lines")
@@ -270,6 +291,7 @@ Example:
 		SDPPath:        *sdp,
 		ST2110Prof:     *profile,
 		AudioRTP:       *audioRTP,
+		AncRTP:         *ancRTP,
 		ST2110TP:       *tp,
 		ST2110FPSExact: *fpsExact,
 		ST2110Sampling: *sampling,
@@ -406,6 +428,8 @@ func (rt *VenueRuntime) handleHubRaw(raw []byte) {
 		default:
 			rt.sink.OnProgram(bus)
 		}
+		// ST 2110-40: program bus is the capture point for mark/tally/bus ANC
+		rt.sink.OnANC(ProgramBusToANC(bus))
 
 	case MeshTypeGYST, "gyst-frame":
 		rt.handleGyst(msg, from)
@@ -600,6 +624,7 @@ func NewVenueSink(kind string, opts VenueOpts) (VenueSink, error) {
 			Depth:       opts.ST2110Depth,
 			TP:          opts.ST2110TP,
 			AudioRTP:    opts.AudioRTP,
+			AncRTP:      opts.AncRTP,
 			Sync:        DefaultSyncClockReport(),
 		})
 	case "st2110-30", "2110-30", "aes67":
@@ -607,9 +632,15 @@ func NewVenueSink(kind string, opts VenueOpts) (VenueSink, error) {
 			RTP: firstNonEmpty(opts.AudioRTP, opts.RTP, "rtp://239.100.1.10:5006"),
 			Quiet: opts.Quiet,
 		})
+	case "st2110-40", "2110-40", "anc":
+		return NewST211040Sink(ST211040Opts{
+			RTP: firstNonEmpty(opts.AncRTP, opts.RTP, "rtp://239.100.1.10:5008"),
+			Quiet: opts.Quiet,
+			Sync:  DefaultSyncClockReport(),
+		})
 	case "spout":
 		return nil, fmt.Errorf("spout sink not built (mac/win GPU IPC) — use ndi or st2110")
 	default:
-		return nil, fmt.Errorf("unknown venue sink %q (log|ndi|st2110|st2110-30)", kind)
+		return nil, fmt.Errorf("unknown venue sink %q (log|ndi|st2110|st2110-30|st2110-40)", kind)
 	}
 }
