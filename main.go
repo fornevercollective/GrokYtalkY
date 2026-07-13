@@ -241,6 +241,9 @@ TUI launches auto-update by default (check GitHub → install → re-exec).
 		case "platform", "integrate", "handoff", "stream-platform":
 			fmt.Print(FormatPlatformDoctor(SamplePlatformReadiness()))
 			return nil
+		case "look", "lighting", "camctrl", "camera-controls":
+			fmt.Print(FormatCameraDoctor())
+			return nil
 		}
 		fmt.Print(StreamDoctor())
 		fmt.Print(FormatPackageManagersDoctor())
@@ -254,7 +257,7 @@ TUI launches auto-update by default (check GitHub → install → re-exec).
 		fmt.Printf("gy binary: %s\n", versionLine())
 		cap := DetectCapProfile(80, 24)
 		fmt.Println(cap.SummaryLine())
-		fmt.Println("doctor st2110 · sync · cameras · nmos · packages · reliability · plugins · space · vision · sfu · platform")
+		fmt.Println("doctor st2110 · sync · cameras · nmos · packages · reliability · plugins · space · vision · sfu · platform · camera")
 		fmt.Println("deps: gy install deps -y · gy install deps --list")
 		if p, err := os.Executable(); err == nil {
 			fmt.Printf("path: %s\n", p)

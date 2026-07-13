@@ -45,6 +45,7 @@ GrokYtalkY is the **terminal + mesh authority**: vision takes drive style, theme
 | **1.75.1** | **Docs** site header matches all pages |
 | **1.76** | **Platform readiness** doctor + JSON export + contract |
 | **1.77** | **Cast wiring** — Live News → glyph-cast full-res (BroadcastChannel + hub) |
+| **1.78** | **Camera / lighting** — phone/film controls (aito-aligned) + mesh `camera-controls` |
 
 Three bullets for external recaps:
 

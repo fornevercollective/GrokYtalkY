@@ -144,6 +144,7 @@ func helpBodyStream() string {
   gy doctor reliability · metrics   process health / prom text
   gy doctor plugins · space · vision · sfu · platform
   gy platform export · sfu-token · sfu-bridge  platform handoff + SFU
+  /camera · /look film|night|daylight   phone/film + lighting (aito-aligned)
   /social @user      social handle · lazy lab fill
   /duplex            open-mic full duplex (RX duck)
   /meshmidi          Strudel/walkie → hub type:midi

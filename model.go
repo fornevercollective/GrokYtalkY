@@ -1614,6 +1614,8 @@ func (m *Model) slash(line string) (tea.Model, tea.Cmd) {
 		return m.startGrokOrchestrate(arg)
 	case "vision", "see", "gv", "vision-take":
 		return m.startVisionTake(arg)
+	case "camera", "camctrl", "look", "lighting", "wb":
+		return m.applyCameraCmd(arg)
 	case "newswall", "news-wall", "news", "vwall", "agencies":
 		return m.startNewsWall(arg)
 	case "newswall-stop", "news-stop", "stopnews":
@@ -4762,6 +4764,55 @@ func (m *Model) startGrokOrchestrate(hint string) (tea.Model, tea.Cmd) {
 	}
 }
 
+// applyCameraCmd handles /camera|/look film|night|daylight|exp=… presets + mesh fan-out.
+func (m *Model) applyCameraCmd(arg string) (tea.Model, tea.Cmd) {
+	arg = strings.TrimSpace(arg)
+	switch strings.ToLower(arg) {
+	case "", "status", "doctor", "show":
+		for _, ln := range strings.Split(strings.TrimRight(FormatCameraDoctor(), "\n"), "\n") {
+			m.pushSys(ln)
+		}
+		m.status = Camera().Look().LookSummary()
+		return m, nil
+	case "reset", "neutral", "off":
+		Camera().SetLook(DefaultCameraLook())
+		m.pushSys("camera · reset neutral")
+		m.status = "look neutral"
+		if m.client != nil {
+			_ = m.client.SendJSON(Camera().Look().MeshJSON(m.nick))
+		}
+		return m, nil
+	}
+	// bare preset or CAMERA-style tokens
+	line := arg
+	if !strings.Contains(strings.ToUpper(arg), "CAMERA") && !strings.HasPrefix(strings.ToUpper(arg), "LOOK") {
+		if strings.Contains(arg, "=") {
+			line = "CAMERA " + arg
+		} else {
+			line = "LOOK " + arg
+		}
+	}
+	look, _, ok := ParseCameraLookLine(line)
+	if !ok {
+		// try as preset only
+		look = ApplyCameraPreset(Camera().Look(), arg)
+	} else if !strings.Contains(arg, "=") {
+		// LOOK film
+		look = ApplyCameraPreset(Camera().Look(), strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(line, "LOOK "), "CAMERA ")))
+	}
+	Camera().SetLook(look)
+	// grade active frame if present
+	if m.frame != nil {
+		ApplyCameraLook(m.frame, look)
+	}
+	m.pushSys("camera · " + look.LookSummary())
+	m.status = look.LookSummary()
+	if m.client != nil {
+		_ = m.client.SendJSON(look.MeshJSON(m.nick))
+	}
+	return m, nil
+}
+
 // note: MetricIncr("orch_takes") applied in applyGrokTake
 
 // applyGrokTake applies STYLE/CAPTION/PATTERN/GLYPH/DEPTH/EFFECT/THEME/MUTE_HINT/MEDIA.
@@ -4862,6 +4913,18 @@ func (m *Model) applyGrokTake(take GrokTake) (tea.Model, tea.Cmd) {
 	if take.Theme != "" {
 		if tv := ApplyThemeVisionPlugin(m, take); len(tv) > 0 {
 			applied = append(applied, tv...)
+		}
+	}
+
+	// camera look from CAMERA/LOOK lines (already applied to bus in ParseGrokTake)
+	if take.Note != "" && strings.HasPrefix(take.Note, "look ") {
+		look := Camera().Look()
+		if m.frame != nil {
+			ApplyCameraLook(m.frame, look)
+		}
+		applied = append(applied, "camera")
+		if m.client != nil {
+			_ = m.client.SendJSON(look.MeshJSON(m.nick))
 		}
 	}
 

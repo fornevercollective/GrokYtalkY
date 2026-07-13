@@ -54,6 +54,7 @@ func SamplePlatformReadiness() PlatformReadiness {
 			"v1.75.1 docs site nav consistency",
 			"v1.76 platform readiness export",
 			"v1.77 Live News → glyph-cast full-res wire",
+			"v1.78 phone/film camera + lighting (aito-aligned)",
 		},
 		OutOfScope: []string{
 			"auto-cast every livenews feed (manual pin/shuffle only)",

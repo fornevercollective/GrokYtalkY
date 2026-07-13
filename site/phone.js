@@ -18,9 +18,15 @@
     cast: document.getElementById("ph-cast"),
     cam: document.getElementById("ph-cam"),
     hub: document.getElementById("ph-hub"),
+    look: document.getElementById("ph-look"),
+    camPanel: document.getElementById("ph-cam-panel"),
     nick: document.getElementById("ph-nick"),
     hubUrl: document.getElementById("ph-hub-url"),
   };
+
+  const CAM = window.GY_CAMERA;
+  let look = CAM ? CAM.clone(CAM.DEFAULTS) : {};
+  look.facing = "user";
 
   const sampleCtx = els.sample ? els.sample.getContext("2d", { willReadFrequently: true }) : null;
   const glyphCtx = els.glyph ? els.glyph.getContext("2d") : null;
@@ -180,12 +186,39 @@
     }
   }
 
+  function onLookChange(l, key) {
+    look = CAM ? CAM.clone(l) : l;
+    // hardware constraints when track live
+    if (mediaStream && CAM && CAM.applyHardware) {
+      const track = mediaStream.getVideoTracks()[0];
+      if (track) {
+        CAM.applyHardware(track, look).then(function (r) {
+          if (r && r.applied && r.applied.length) {
+            setStatus("look · hw " + r.applied.join(",") + " · " + CAM.summary(look), "is-live");
+          }
+        });
+      }
+    }
+    // mesh fan-out
+    if (CAM) sendJSON(CAM.meshMessage(look, myNick()));
+    if (els.look) els.look.textContent = "Look · " + (CAM ? CAM.summary(look) : "on");
+  }
+
+  function toggleLookPanel() {
+    if (!els.camPanel || !CAM) return;
+    const hide = !els.camPanel.hidden;
+    els.camPanel.hidden = hide;
+    if (!hide) {
+      CAM.mountPanel(els.camPanel, look, onLookChange);
+    }
+  }
+
   async function enableCam() {
     if (camOn && mediaStream) return true;
     try {
       mediaStream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: "user",
+          facingMode: look.facing || "user",
           width: { ideal: 480 },
           height: { ideal: 640 },
         },
@@ -199,7 +232,12 @@
       }
       camOn = true;
       if (els.cam) els.cam.classList.add("is-on");
-      setStatus("camera on · hold Cast to stream", "is-live");
+      // apply hardware look constraints if panel was used
+      if (CAM && mediaStream) {
+        const track = mediaStream.getVideoTracks()[0];
+        if (track) CAM.applyHardware(track, look);
+      }
+      setStatus("camera on · hold Cast · Look for lighting", "is-live");
       return true;
     } catch (e) {
       setStatus("camera denied · " + (e && e.message ? e.message : e), "is-err");
@@ -235,6 +273,11 @@
       img = sampleCtx.getImageData(0, 0, n, n);
     } catch {
       return null;
+    }
+    // phone/film lighting grade (aito-aligned)
+    if (CAM && CAM.applyLookToImageData) {
+      CAM.applyLookToImageData(img, look);
+      sampleCtx.putImageData(img, 0, 0);
     }
     const d = img.data;
     const glyph = new Array(n * n);
@@ -275,6 +318,13 @@
     const sx = Math.floor((vw - side) / 2);
     const sy = Math.floor((vh - side) * 0.2);
     jpegCtx.drawImage(els.video, sx, sy, side, side, 0, 0, 96, 96);
+    if (CAM && CAM.applyLookToImageData) {
+      try {
+        const img = jpegCtx.getImageData(0, 0, 96, 96);
+        CAM.applyLookToImageData(img, look);
+        jpegCtx.putImageData(img, 0, 0);
+      } catch (_) {}
+    }
     try {
       const url = jpegCanvas.toDataURL("image/jpeg", 0.55);
       const i = url.indexOf(",");
@@ -314,6 +364,7 @@
     } else {
       burst.fmt = "hexlum";
     }
+    if (CAM) burst.look = CAM.clone(look);
     sendJSON(burst);
 
     // formal gyst hexlum for stream-pub / SFU / terminal hex style
@@ -416,6 +467,7 @@
     }
     fetchLanHint();
     if (els.cam) els.cam.addEventListener("click", () => (camOn ? stopCam() : enableCam()));
+    if (els.look) els.look.addEventListener("click", toggleLookPanel);
     if (els.hub) els.hub.addEventListener("click", () => connectHub());
     bindCastButton();
     // auto-connect when served from hub

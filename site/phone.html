@@ -141,18 +141,46 @@
     <button type="button" class="primary" id="ph-cast" aria-pressed="false">Hold to cast · or tap lock</button>
     <button type="button" id="ph-cam">Camera</button>
     <button type="button" id="ph-hub">Connect hub</button>
+    <button type="button" id="ph-look" title="Phone/film lighting controls">Look</button>
   </div>
   <div class="ph-row">
     <input type="text" id="ph-nick" maxlength="16" placeholder="nick" autocomplete="nickname" />
     <input type="text" id="ph-hub-url" placeholder="ws://192.168.x.x:9876/" autocomplete="off" spellcheck="false" />
   </div>
+  <div id="ph-cam-panel" class="ph-cam-panel" hidden></div>
   <p class="ph-hint">
     On the laptop: <code>gy serve</code> (bind <code>0.0.0.0</code>) then open the printed
     <strong>phone cast</strong> URL here. Streams <code>vburst-frame</code> + <code>gyst</code> hexlum
     to the mesh — terminal peers see dual Glyph / hex styles.
+    <strong>Look</strong> opens phone/film exposure · WB · fill · night (aito-aligned).
     Discover: <code>GET /api/lan</code> · UDP <code>GYWHO1</code>.
   </p>
 
+  <script src="camera-controls.js"></script>
   <script src="phone.js"></script>
+  <style>
+    .ph-cam-panel {
+      margin: 0.5rem 0.75rem 0;
+      padding: 0.65rem 0.75rem;
+      border: 1px solid #2a2a32;
+      border-radius: 10px;
+      background: #0e0e14;
+      max-height: 42vh;
+      overflow-y: auto;
+    }
+    .cam-panel-title { font-family: ui-monospace, monospace; font-size: 0.7rem; color: #9ca3af; margin-bottom: 0.4rem; }
+    .cam-presets { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.5rem; }
+    .cam-preset, .cam-toggle {
+      font-family: ui-monospace, monospace; font-size: 0.62rem;
+      padding: 0.25rem 0.45rem; border-radius: 6px; border: 1px solid #333;
+      background: #15151c; color: #ccc; cursor: pointer;
+    }
+    .cam-preset.is-on, .cam-toggle.is-on { border-color: #34d399; color: #a7f3d0; background: rgba(16,185,129,0.12); }
+    .cam-row { display: grid; grid-template-columns: 5.5rem 1fr 2.4rem; gap: 0.35rem; align-items: center;
+      font-family: ui-monospace, monospace; font-size: 0.62rem; color: #9ca3af; margin: 0.25rem 0; }
+    .cam-row input[type=range] { width: 100%; }
+    .cam-row em { font-style: normal; color: #e5e7eb; text-align: right; }
+    .cam-toggles { display: flex; gap: 0.35rem; margin: 0.4rem 0; flex-wrap: wrap; }
+  </style>
 </body>
 </html>

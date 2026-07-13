@@ -1,6 +1,6 @@
 {
   "name": "GrokYtalkY · Grok streaming platform integration",
-  "version": "1.77.0",
+  "version": "1.78.0",
   "status": "ready",
   "audience": [
     "ffmpeg pipeline operators",
@@ -109,8 +109,19 @@
     { "v": "1.75", "item": "Live News browser segment_top + pose" },
     { "v": "1.75.1", "item": "Docs site header nav consistency" },
     { "v": "1.76", "item": "Platform integration contract + readiness doctor" },
-    { "v": "1.77", "item": "Live News → glyph-cast full-res cast wire (demo punch)" }
+    { "v": "1.77", "item": "Live News → glyph-cast full-res cast wire (demo punch)" },
+    { "v": "1.78", "item": "Phone/film camera + lighting controls (aito-aligned)" }
   ],
+  "camera": {
+    "docs": "docs/camera-controls.md",
+    "browser": "site/camera-controls.js",
+    "mesh": "type:camera-controls",
+    "cli": ["/camera", "/look film|night|daylight", "CAMERA exp=… fill=…"],
+    "grade": ["exposure", "contrast", "saturation", "temperature", "tint", "clarity", "sharpen", "vignette", "fill", "shadows", "highlights", "grain"],
+    "hardware": ["iso", "ev", "wb_mode", "color_temp_k", "focus_mode", "torch", "zoom", "facing"],
+    "presets": ["neutral", "daylight", "cloudy", "tungsten", "neon", "night", "film", "punchy", "soft", "bleach"],
+    "aito": "https://fornevercollective.github.io/aito/ · store.adjustments + tether ISO/shutter"
+  },
   "out_of_scope": [
     "Full auto-cycling screen cast of every livenews feed (manual pin/shuffle/cycle only)",
     "In-process TensorFlow / SAM / MediaPipe / full 3D gsplat viewer",

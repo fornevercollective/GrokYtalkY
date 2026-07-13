@@ -120,6 +120,14 @@ func ParseGrokTake(text string) GrokTake {
 			if a, ok := ParseMediaLine(line); ok {
 				t.Media = append(t.Media, a)
 			}
+		case strings.HasPrefix(up, "CAMERA ") || up == "CAMERA" || strings.HasPrefix(up, "LOOK "):
+			if look, _, ok := ParseCameraLookLine(line); ok {
+				// stash as effect note for apply path via Camera bus
+				Camera().SetLook(look)
+				if t.Note == "" {
+					t.Note = look.LookSummary()
+				}
+			}
 		default:
 			// fenced pattern fallback
 			if p := extractPattern(line); p != "" && t.Pattern == "" {
