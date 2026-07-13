@@ -99,6 +99,7 @@ gy lab                 # or V inside companion
 # social: /watch @user · /social twitch:name · yt:@ch · tt:@user  (live first · lazy lab)
 # live:   gy stream-pub sim|cam|- --kind hexlum --room dojo --dual
 # jam:    /duplex · /meshmidi · /overlay auto · /grok-cap · /grok-fx
+# phone:  gy serve → open http://LAN:9876/phone.html on phone (same Wi‑Fi)
 # layouts: side | stack | grid | focus
 ```
 

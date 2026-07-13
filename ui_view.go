@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Companion layout: lean chrome; video expands to fill the scale *between*
@@ -76,7 +77,9 @@ func (m *Model) renderBurstOrb(w, h int) string {
 	peer := m.burstPeerFrame
 
 	var parts []string
-	parts = append(parts, clampCells(m.headerLine(cols), cols))
+	for _, ln := range strings.Split(m.headerLine(cols), "\n") {
+		parts = append(parts, clampCells(ln, cols))
+	}
 	switch {
 	case m.forgeRX != nil:
 		parts = append(parts, clampCells(BurstForgeStatusLine(cols, tx, rx, m.nick, len(m.peers), m.forgeRX), cols))
@@ -150,10 +153,12 @@ func (m *Model) renderFull(w, h int) string {
 
 // renderVideoChrome — shared layout: header · viz · [video fill] · chat · prompt
 func (m *Model) renderVideoChrome(w, h int, sc videoScale) string {
-	parts := []string{
-		clampCells(m.headerLine(w), w),
-		clampCells(m.vizLine(w), w),
+	var parts []string
+	// headerLine is 2 rows (unix+drift · brand)
+	for _, ln := range strings.Split(m.headerLine(w), "\n") {
+		parts = append(parts, clampCells(ln, w))
 	}
+	parts = append(parts, clampCells(m.vizLine(w), w))
 
 	if sc.Active && m.frame != nil {
 		body := fitHalfBlock(
@@ -189,12 +194,16 @@ func (m *Model) renderVideoChrome(w, h int, sc videoScale) string {
 	parts = append(parts, clampCells(m.footerPrompt(w), w))
 
 	if len(parts) > h {
-		// keep header + video head + prompt
+		// keep unix+brand header (2 lines) + video head + prompt
+		hdrN := 2
+		if hdrN > len(parts)-1 {
+			hdrN = max(1, len(parts)-1)
+		}
 		keep := make([]string, 0, h)
-		keep = append(keep, parts[0])
+		keep = append(keep, parts[:hdrN]...)
 		tail := parts[len(parts)-1]
-		mid := parts[1 : len(parts)-1]
-		budget := h - 2
+		mid := parts[hdrN : len(parts)-1]
+		budget := h - hdrN - 1
 		if budget < 0 {
 			budget = 0
 		}
@@ -203,7 +212,7 @@ func (m *Model) renderVideoChrome(w, h int, sc videoScale) string {
 			mid = mid[:budget]
 		}
 		keep = append(keep, mid...)
-		if h > 1 {
+		if h > hdrN {
 			keep = append(keep, tail)
 		}
 		parts = keep
@@ -211,8 +220,20 @@ func (m *Model) renderVideoChrome(w, h int, sc videoScale) string {
 	return strings.Join(parts, "\n")
 }
 
-// headerLine: ◈ gy ● chat·live·grok·watch  flags        crumb
+// headerLine: unix+drift on top, then ◈ gy ● modes flags crumb
+// All views (companion / full / lab / burst) share this top chrome.
 func (m *Model) headerLine(w int) string {
+	if w < 1 {
+		w = 80
+	}
+	// ── line 0: Unix time + epoch drift (+ PTP offset when set) ──
+	clock := FormatUnixClockLine()
+	if cellWidth(clock) > w {
+		clock = FormatUnixClockCompact()
+	}
+	clockLine := clampCells(styDim().Render(clock), w)
+
+	// ── line 1: brand · conn · modes · flags · crumb ──
 	conn := styDim().Render("○")
 	if m.connected {
 		conn = styLive().Render("●")
@@ -260,6 +281,8 @@ func (m *Model) headerLine(w int) string {
 	}
 
 	crumb := m.statusCrumb()
+	// short ISO wall time on the right of brand line when room allows
+	wall := time.Now().Format("15:04:05")
 	line := left + mid
 	if crumb != "" {
 		need := cellWidth(stripANSI(line)) + 1 + cellWidth(crumb)
@@ -270,8 +293,18 @@ func (m *Model) headerLine(w int) string {
 			}
 			line = left + mid + strings.Repeat(" ", gap) + styDim().Render(crumb)
 		}
+	} else {
+		// pack HH:MM:SS on the right of brand row when no status crumb
+		need := cellWidth(stripANSI(line)) + 1 + len(wall)
+		if need <= w {
+			gap := w - need
+			if gap < 1 {
+				gap = 1
+			}
+			line = left + mid + strings.Repeat(" ", gap) + styDim().Render(wall)
+		}
 	}
-	return clampCells(line, w)
+	return clockLine + "\n" + clampCells(line, w)
 }
 
 func (m *Model) statusCrumb() string {

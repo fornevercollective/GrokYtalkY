@@ -20,18 +20,18 @@ func (m *Model) renderLab(w, h int) string {
 	m.tickLabSims()
 
 	var parts []string
-	// header
-	parts = append(parts, clampCells(m.headerLine(w), w))
+	// header is 2 lines (unix+drift, brand) — split so height accounting is exact
+	for _, ln := range strings.Split(m.headerLine(w), "\n") {
+		parts = append(parts, clampCells(ln, w))
+	}
 	// control strip (always)
 	parts = append(parts, l.ControlStrip(w))
 	parts = append(parts, clampCells(styDim().Render(l.BudgetLine()), w))
 	// optional expanded lists
-	listH := 0
 	if l.ShowList {
 		list := l.ControlList(w)
 		for _, ln := range strings.Split(list, "\n") {
 			parts = append(parts, ln)
-			listH++
 		}
 	}
 

@@ -1354,6 +1354,18 @@ func (m *Model) slash(line string) (tea.Model, tea.Cmd) {
 			m.lab.On = true
 		}
 		return m.startWatch(src, true)
+	case "lan", "phone", "wifi":
+		// same-WiFi phone → terminal join banner
+		port := 9876
+		if m.host != "" {
+			port = ParseHubPort(m.host)
+		}
+		info := BuildLanInfo(port, "")
+		for _, line := range strings.Split(strings.TrimRight(FormatLanBanner(info), "\n"), "\n") {
+			m.pushSys(line)
+		}
+		m.status = "phone cast"
+		return m, nil
 	case "duplex", "openmic", "fullduplex":
 		m.duplexOn = !m.duplexOn
 		if m.duplexOn {

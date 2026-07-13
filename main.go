@@ -351,7 +351,7 @@ TUI ( ? multi-page help · tab pages )
   F       full/companion        space PTT · [ ] glyph scale · g res
   /forge a.pcap b…   multi-pcap + cgf: marks · dual-left rotate
   /conductor · /take · /preview · /hold · /black · /program
-  /colossus · /watch · /social · /duplex · /overlay · /meshmidi
+  /colossus · /watch · /social · /duplex · /overlay · /lan · /phone
 
 venue / 2110
   gy venue --sink st2110 --rtp A --rtp-b B   # 2022-7 dual-dest
@@ -382,8 +382,14 @@ func runHubOnly(bind string, port int) error {
 	static := findStatic()
 	addr := fmt.Sprintf("%s:%d", bind, port)
 	h := NewHub(addr, false, static)
-	fmt.Printf("GrokYtalkY hub %s\n  join: gy join 127.0.0.1:%d\n  rooms: ws://127.0.0.1:%d/?room=global · GET /api/rooms\n",
-		Version, port, port)
+	info := BuildLanInfo(port, NormalizeMeshRoom(os.Getenv("GY_ROOM")))
+	fmt.Printf("GrokYtalkY hub %s\n", Version)
+	fmt.Printf("  local join  gy join 127.0.0.1:%d\n", port)
+	fmt.Print(FormatLanBanner(info))
+	fmt.Printf("  api         http://127.0.0.1:%d/api/lan · /api/rooms\n", port)
+	if static != "" {
+		fmt.Printf("  static      %s\n", static)
+	}
 	return h.ListenAndServe()
 }
 

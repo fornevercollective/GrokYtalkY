@@ -25,6 +25,9 @@ type Hub struct {
 	server   *http.Server
 	addr     string
 	quiet    bool
+	// same-WiFi phone discovery
+	lan    LanInfo
+	lanUDP *LanDiscoverer
 }
 
 type peerMeta struct {
@@ -68,7 +71,7 @@ func NewHub(addr string, quiet bool, staticDir string) *Hub {
 			}
 		}
 		w.Header().Set("Content-Type", "text/plain")
-		_, _ = w.Write([]byte("GrokYtalkY hub — rooms + program bus\n  gy · ws://HOST/?nick=…&room=global\n  GET /api/rooms · /api/peers?room= · /api/social?q=@user\n"))
+		_, _ = w.Write([]byte("GrokYtalkY hub — rooms + program bus\n  gy · ws://HOST/?nick=…&room=global\n  GET /api/rooms · /api/peers · /api/lan · /api/social\n  phone cast: /phone.html (same Wi‑Fi)\n"))
 	})
 	mux.HandleFunc("/api/peers", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -135,6 +138,20 @@ func NewHub(addr string, quiet bool, staticDir string) *Hub {
 			},
 		})
 	})
+	// Same-WiFi phone → terminal: join URLs + discovery metadata
+	mux.HandleFunc("/api/lan", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		info := BuildLanInfo(ParseHubPort(h.addr), NormalizeMeshRoom(os.Getenv("GY_ROOM")))
+		h.mu.Lock()
+		h.lan = info
+		h.mu.Unlock()
+		_ = json.NewEncoder(w).Encode(info)
+	})
+	// lightweight phone cast landing (redirect if static missing)
+	mux.HandleFunc("/phone", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/phone.html", http.StatusFound)
+	})
 	h.server = &http.Server{Addr: addr, Handler: mux}
 	return h
 }
@@ -144,16 +161,46 @@ func (h *Hub) ListenAndServe() error {
 	if err != nil {
 		return err
 	}
+	port := ParseHubPort(ln.Addr().String())
+	info := BuildLanInfo(port, NormalizeMeshRoom(os.Getenv("GY_ROOM")))
+	h.mu.Lock()
+	h.lan = info
+	h.mu.Unlock()
+	// UDP LAN discovery for native phone apps (GYWHO1 → GYHUB1)
+	if d, err := StartLanDiscoverer(info); err == nil {
+		h.lanUDP = d
+	} else if !h.quiet {
+		log.Printf("hub · LAN UDP discover off: %v", err)
+	}
 	if !h.quiet {
 		log.Printf("GrokYtalkY hub on %s (rooms · program-per-room · max/room=%d)", ln.Addr(), RoomMaxPeers())
+		for _, line := range strings.Split(strings.TrimRight(FormatLanBanner(info), "\n"), "\n") {
+			log.Print(line)
+		}
 	}
 	return h.server.Serve(ln)
 }
 
 func (h *Hub) Close() error {
+	if h.lanUDP != nil {
+		_ = h.lanUDP.Close()
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	return h.server.Shutdown(ctx)
+}
+
+// LanInfo returns the last advertised LAN join info (for TUI /lan).
+func (h *Hub) LanInfo() LanInfo {
+	if h == nil {
+		return BuildLanInfo(9876, "")
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.lan.Port == 0 {
+		return BuildLanInfo(ParseHubPort(h.addr), "")
+	}
+	return h.lan
 }
 
 // peerList returns peers in room (empty room = all peers).

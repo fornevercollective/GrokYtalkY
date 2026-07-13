@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#0a0a0c" />
+  <title>GrokYtalkY · phone → terminal</title>
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    :root {
+      --ph-bg: #0a0a0c;
+      --ph-card: #14141a;
+      --ph-accent: #6ee7b7;
+      --ph-warn: #f87171;
+      --ph-muted: #8b8b9a;
+    }
+    body.phone-body {
+      margin: 0;
+      min-height: 100dvh;
+      background: var(--ph-bg);
+      color: #eee;
+      font-family: "Instrument Sans", system-ui, sans-serif;
+      display: flex;
+      flex-direction: column;
+      padding: max(12px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+      box-sizing: border-box;
+    }
+    .ph-header { display: flex; align-items: baseline; gap: 0.5rem; margin-bottom: 0.75rem; }
+    .ph-header h1 { font-size: 1.15rem; margin: 0; font-weight: 600; letter-spacing: -0.02em; }
+    .ph-header span { color: var(--ph-muted); font-size: 0.8rem; }
+    .ph-status {
+      font-family: "IBM Plex Mono", ui-monospace, monospace;
+      font-size: 0.72rem;
+      color: var(--ph-muted);
+      margin-bottom: 0.75rem;
+      word-break: break-all;
+    }
+    .ph-status.is-live { color: var(--ph-accent); }
+    .ph-status.is-err { color: var(--ph-warn); }
+    .ph-stage {
+      position: relative;
+      flex: 1;
+      min-height: 42vh;
+      background: #000;
+      border-radius: 16px;
+      overflow: hidden;
+      border: 1px solid #222;
+    }
+    .ph-stage video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1); /* selfie mirror preview */
+    }
+    .ph-stage canvas.ph-sample { display: none; }
+    .ph-glyph {
+      position: absolute;
+      right: 10px; bottom: 10px;
+      width: 72px; height: 72px;
+      image-rendering: pixelated;
+      border-radius: 8px;
+      border: 1px solid #333;
+      background: #111;
+      opacity: 0.9;
+    }
+    .ph-controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5rem;
+      margin-top: 0.85rem;
+    }
+    .ph-controls button, .ph-row button {
+      appearance: none;
+      border: 1px solid #333;
+      background: var(--ph-card);
+      color: #eee;
+      border-radius: 12px;
+      padding: 0.85rem 0.75rem;
+      font-size: 0.95rem;
+      font-weight: 600;
+      touch-action: manipulation;
+    }
+    .ph-controls button.primary {
+      background: var(--ph-accent);
+      color: #042;
+      border-color: transparent;
+      grid-column: 1 / -1;
+    }
+    .ph-controls button.is-on {
+      outline: 2px solid var(--ph-accent);
+    }
+    .ph-controls button.danger.is-on {
+      background: var(--ph-warn);
+      color: #200;
+      outline: none;
+    }
+    .ph-row {
+      display: flex;
+      gap: 0.4rem;
+      margin-top: 0.55rem;
+    }
+    .ph-row input {
+      flex: 1;
+      background: var(--ph-card);
+      border: 1px solid #333;
+      border-radius: 10px;
+      color: #eee;
+      padding: 0.65rem 0.75rem;
+      font-size: 0.9rem;
+    }
+    .ph-hint {
+      margin-top: 0.75rem;
+      font-size: 0.75rem;
+      color: var(--ph-muted);
+      line-height: 1.45;
+    }
+    .ph-hint code {
+      font-family: "IBM Plex Mono", ui-monospace, monospace;
+      font-size: 0.7rem;
+      color: #bbb;
+    }
+  </style>
+</head>
+<body class="phone-body">
+  <header class="ph-header">
+    <h1>Phone → terminal</h1>
+    <span>same Wi‑Fi</span>
+  </header>
+  <div class="ph-status" id="ph-status">open this page from the hub URL shown on your laptop</div>
+
+  <div class="ph-stage">
+    <video id="ph-video" playsinline muted autoplay></video>
+    <canvas id="ph-sample" class="ph-sample" width="25" height="25"></canvas>
+    <canvas id="ph-glyph" class="ph-glyph" width="25" height="25" aria-label="glyph preview"></canvas>
+  </div>
+
+  <div class="ph-controls">
+    <button type="button" class="primary" id="ph-cast" aria-pressed="false">Hold to cast · or tap lock</button>
+    <button type="button" id="ph-cam">Camera</button>
+    <button type="button" id="ph-hub">Connect hub</button>
+  </div>
+  <div class="ph-row">
+    <input type="text" id="ph-nick" maxlength="16" placeholder="nick" autocomplete="nickname" />
+    <input type="text" id="ph-hub-url" placeholder="ws://192.168.x.x:9876/" autocomplete="off" spellcheck="false" />
+  </div>
+  <p class="ph-hint">
+    On the laptop: <code>gy serve</code> (bind <code>0.0.0.0</code>) then open the printed
+    <strong>phone cast</strong> URL here. Streams <code>vburst-frame</code> + <code>gyst</code> hexlum
+    to the mesh — terminal peers see dual Glyph / hex styles.
+    Discover: <code>GET /api/lan</code> · UDP <code>GYWHO1</code>.
+  </p>
+
+  <script src="phone.js"></script>
+</body>
+</html>

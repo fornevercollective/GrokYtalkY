@@ -81,17 +81,48 @@ mGM.setAppMatrixFrame(glyphIntArray)  // or setMatrixFrame inside a Glyph Toy
 Use `setAppMatrixFrame` when driving the matrix from a normal Activity;
 use `setMatrixFrame` inside the Glyph Toy service (higher priority while selected).
 
+## Same Wi‑Fi · phone → terminal
+
+Laptop (binds all interfaces by default):
+
+```bash
+gy serve                    # or plain `gy` companion with local hub
+# banner prints:
+#   phone cast  http://192.168.x.x:9876/phone.html
+#   mesh WS     ws://192.168.x.x:9876/?role=phone&nick=phone
+#   discover    UDP 239.255.76.67:9877  (probe GYWHO1)
+```
+
+| Path | How |
+|------|-----|
+| **Any phone browser** | Open the printed `phone.html` URL → Camera → hold **Cast** |
+| **Nothing Glyph Toy** | Intro → **Discover on Wi‑Fi** → Glyph Toys → hold button |
+| **Terminal peer** | `gy` or `gy join 192.168.x.x:9876` — receives `vburst-frame` + `gyst` hexlum |
+
+Discovery APIs:
+
+- `GET http://LAPTOP:9876/api/lan` → `{ws, phone, ips, …}`
+- UDP `GYWHO1` → `GYHUB1`+JSON (port **hub+1**, default 9877)
+
+Wire (phone TX):
+
+```json
+{"type":"vburst-frame","from":"phone","glyph":[…],"glyphN":25,"fmt":"jpeg","b64":"…"}
+{"type":"gyst","kind":"hexlum","data":[…],"glyphN":25,"from":"phone"}
+```
+
 ## Terminal + web peers
 
 ```bash
 # laptop
-./bin/grokytalky burst
+gy serve
+gy burst   # dual Glyph receive
 
-# browser
-open site/burst.html  # Connect → hold orb
+# browser (same machine or phone)
+open http://LAPTOP_IP:9876/phone.html
 
-# phone
-# select GrokYtalkY Burst toy → hold Glyph Button
+# phone (Nothing)
+# Discover → GrokYtalkY Burst toy → hold Glyph Button
 ```
 
-All three share the same hub.
+All peers share the same hub on the LAN.
