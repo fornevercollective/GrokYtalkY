@@ -26,7 +26,9 @@ git clone https://github.com/fornevercollective/grokytalky.git && cd grokytalky 
 | `vpipe.go` | ffmpeg RGB pipe for mp4/mkv/mov |
 | `grok.go` | xAI / local backend chat |
 | `sfu/` | DOJO WebRTC SFU sidecar (Tokio signaling; optional webrtc-rs) |
+| `chat/` | Space-style chat: CF Worker+DO + protocol; DOJO uses hub/SFU |
 | `docs/streams-capacity.md` | Hybrid CF + SFU + hub concurrency |
+| `docs/chat.md` | Creator Studio / Spaces chat mapping |
 
 ## Env
 

@@ -18,8 +18,11 @@ Publish only what consumers need:
 |------|-----|
 | `glyph` | 13×13 / 25×25 LED grid (DataChannel or tiny track) |
 | `hex` | Low-res hex / packet stream |
+| `chat` | Space/DOJO text (same JSON as `gy` hub) |
 | `mid` | Compact web tile (~320p) |
 | `full` | Optional HD — web/CF only, never force into terminal |
+
+Public 1k+ **Space chat** lives on Cloudflare (Workers + DO) — see [`chat/`](../chat/README.md).
 
 ## Run (signaling scaffold)
 
@@ -57,6 +60,7 @@ Client → SFU:
 {"type":"answer","sdp":"..."}
 {"type":"ice","candidate":{...}}
 {"type":"glyph","n":25,"data":[0,12,40]}
+{"type":"chat","text":"hello dojo"}
 {"type":"leave"}
 ```
 

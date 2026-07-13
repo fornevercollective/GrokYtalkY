@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fornevercollective.github.io/GrokYtalkY/chat/protocol.json",
+  "title": "GrokYtalkY chat message",
+  "description": "Shared Space/DOJO chat envelope — hub, SFU, and CF Durable Objects",
+  "type": "object",
+  "required": ["type", "text"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": ["chat", "reaction", "chat_pin", "chat_mod"]
+    },
+    "text": { "type": "string", "maxLength": 2000 },
+    "from": { "type": "string", "maxLength": 64 },
+    "id": { "type": "string", "description": "peer or session id" },
+    "t": { "type": "integer", "description": "unix ms" },
+    "room": { "type": "string", "description": "dojo | space:{id}" },
+    "role": {
+      "type": "string",
+      "enum": ["host", "speaker", "listener", "system"]
+    },
+    "meta": {
+      "type": "object",
+      "properties": {
+        "reply_to": { "type": ["string", "null"] },
+        "pin": { "type": "boolean" },
+        "reaction": { "type": "string", "maxLength": 16 }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

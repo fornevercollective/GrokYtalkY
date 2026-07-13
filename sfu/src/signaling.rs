@@ -65,6 +65,16 @@ pub enum ClientMsg {
         #[serde(default)]
         payload: String,
     },
+    /// Space/DOJO text chat — same envelope as gy hub `{type:chat}`.
+    Chat {
+        text: String,
+        #[serde(default)]
+        from: Option<String>,
+        #[serde(default)]
+        role: Option<String>,
+        #[serde(default)]
+        meta: Option<serde_json::Value>,
+    },
     Leave,
     #[serde(other)]
     Unknown,
@@ -108,6 +118,14 @@ pub enum ServerMsg {
     Hex {
         from: Uuid,
         payload: String,
+    },
+    Chat {
+        from: Uuid,
+        nick: String,
+        text: String,
+        t: i64,
+        role: Option<String>,
+        meta: Option<serde_json::Value>,
     },
     Error {
         message: String,
@@ -327,6 +345,37 @@ async fn peer_session(socket: WebSocket, state: AppState, q: WsQuery) {
                     &room,
                     Some(from),
                     ServerMsg::Hex { from, payload },
+                );
+            }
+            ClientMsg::Chat {
+                text,
+                from: from_nick,
+                role,
+                meta,
+            } => {
+                let Some(from) = peer_id else { continue };
+                let text = text.trim();
+                if text.is_empty() || text.len() > 2000 {
+                    continue;
+                }
+                let nick = from_nick
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| nick.clone());
+                let t = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as i64)
+                    .unwrap_or(0);
+                rooms.broadcast(
+                    &room,
+                    Some(from),
+                    ServerMsg::Chat {
+                        from,
+                        nick,
+                        text: text.to_string(),
+                        t,
+                        role,
+                        meta,
+                    },
                 );
             }
             ClientMsg::Leave => break,

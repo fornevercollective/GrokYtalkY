@@ -3,14 +3,15 @@
 /// Well-known lane identifiers for hybrid DOJO + Cloudflare delivery.
 pub const GLYPH: &str = "glyph";
 pub const HEX: &str = "hex";
+pub const CHAT: &str = "chat";
 pub const MID: &str = "mid";
 pub const FULL: &str = "full";
 
-pub const ALL: &[&str] = &[GLYPH, HEX, MID, FULL];
+pub const ALL: &[&str] = &[GLYPH, HEX, CHAT, MID, FULL];
 
 /// Default lanes for terminal / Glyph peers (tight aesthetic).
 pub fn default_dojo_lanes() -> Vec<String> {
-    vec![GLYPH.to_string(), HEX.to_string()]
+    vec![GLYPH.to_string(), HEX.to_string(), CHAT.to_string()]
 }
 
 /// True if lane is safe for half-block / Glyph Matrix consumers.

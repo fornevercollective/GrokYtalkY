@@ -44,13 +44,33 @@ GrokYtalkY uses **ffmpeg** (capture / decode / scale) and **ffplay** (audio, opt
 |------|---------|-----------|
 | `glyph` | 13² / 25² brightness or RGB LED grid | Nothing Matrix, terminal dual ◎ |
 | `hex` | Low-res mosaic / .gyhex packets | Terminal hex style, hexcast |
+| `chat` | Space-style text (not media) | terminal · web · CF DO |
 | `mid` | ~160–320 wide H.264/VP8 | Compact web tiles |
 | `full` | Optional 720p+ for web only | Cloudflare / web player |
+
+### Chat flows (Space / Creator Studio)
+
+Chat is a **separate plane** from media — same hybrid split, tiny payloads.
+
+| Flow | Where | Scale | Notes |
+|------|--------|-------|-------|
+| **Public Space chat** | CF Workers + **Durable Objects** | **1k+** | Edge WS fanout, roster, host pin, persistence |
+| **DOJO jam chat** | `gy serve` hub WS and/or `gy-sfu` | **16–32** | Native terminal; same `{type:chat}` JSON |
+| **Glyph ticker** | `glyph` / `hex` lane (optional) | jam | LED captions; not full chat history |
+| **Bridge** | worker or sidecar | one-way or moderated | DOJO → CF captions; CF → stage Qs only |
+
+```
+  Space viewers (1k+) ──WS──► CF Worker ──► Durable Object room
+  DOJO peers (16–32)  ──WS──► gy hub / gy-sfu  (chat · glyph · hex)
+  Media               ──► CF Calls / SFU mid|full   (never carries chat)
+```
+
+Detail: [`docs/chat.md`](chat.md) · scaffold: [`chat/`](../chat/README.md)
 
 **Jam target:** 16–32 interactive peers on hub/SFU.  
 **Broadcast target:** 1k+ via CF, terminals on `glyph`/`hex` downsampled lanes.
 
-Scaffold: [`sfu/`](../sfu/README.md) · site note: [docs.html#streams-scale](https://fornevercollective.github.io/GrokYtalkY/docs.html#streams-scale)
+Scaffold: [`sfu/`](../sfu/README.md) · [`chat/`](../chat/README.md) · site: [docs.html#streams-scale](https://fornevercollective.github.io/GrokYtalkY/docs.html#streams-scale)
 
 ---
 

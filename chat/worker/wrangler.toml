@@ -1,0 +1,17 @@
+name = "gy-chat"
+main = "src/index.ts"
+compatibility_date = "2025-03-01"
+
+# Public Space chat — one Durable Object instance per room id.
+[[durable_objects.bindings]]
+name = "CHAT_ROOM"
+class_name = "ChatRoom"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["ChatRoom"]
+
+[vars]
+SERVICE = "gy-chat"
+# Optional: DOJO hub to mirror (bridge is manual/opt-in)
+# HUB_WS = "ws://127.0.0.1:9876"

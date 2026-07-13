@@ -1,0 +1,16 @@
+{
+  "name": "gy-chat-worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cloudflare Workers + Durable Objects Space-style chat for GrokYtalkY",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "types": "wrangler types"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250317.0",
+    "typescript": "^5.8.2",
+    "wrangler": "^4.0.0"
+  }
+}

@@ -204,6 +204,21 @@ ffplay -vn SRC   # audio parallel</code></pre>
 ./sfu/target/release/gy-sfu --bind 127.0.0.1:9880
 curl -s http://127.0.0.1:9880/health
 # WS: ws://127.0.0.1:9880/ws?room=dojo&amp;nick=qbit</code></pre>
+        <h3 id="chat-space">Space / Creator Studio chat</h3>
+        <p>
+          Text is a separate plane from media (X Spaces–style). Public 1k+ chat →
+          Cloudflare Workers + Durable Objects. DOJO 16–32 → existing
+          <code>gy serve</code> <code>type:chat</code> or SFU <code>chat</code> messages.
+        </p>
+        <table class="docs-table">
+          <thead><tr><th>Flow</th><th>Where</th><th>Scale</th></tr></thead>
+          <tbody>
+            <tr><td>Public Space chat</td><td>CF Worker + DO (<code>chat/worker</code>)</td><td>1k+</td></tr>
+            <tr><td>DOJO jam chat</td><td>hub / gy-sfu</td><td>16–32</td></tr>
+            <tr><td>Media of the Space</td><td>CF Calls / SFU mid|full</td><td>viewers</td></tr>
+          </tbody>
+        </table>
+        <p>Docs: <code>docs/chat.md</code> · scaffold: <code>chat/</code> · schema: <code>chat/protocol.json</code></p>
       </section>
 
       <section id="patterns" class="docs-section">
