@@ -205,6 +205,9 @@
       analyser.fftSize = 64;
       micSource = audioCtx.createMediaStreamSource(stream);
       micSource.connect(analyser);
+      if (window.__gySpaces && window.__gySpaces.setAnalyser) {
+        window.__gySpaces.setAnalyser(analyser);
+      }
       setMeta('cam ready · hold orb to burst');
       el.btnCam && (el.btnCam.textContent = 'Cam on');
     } catch (e) {
@@ -227,6 +230,15 @@
     if (!ws || ws.readyState !== 1) return;
     ws.send(JSON.stringify(obj));
   }
+
+  // expose for burst-spaces.js (waveforms · roster · RTMP panel)
+  window.__gyBurst = {
+    get nick() { return nick; },
+    get tx() { return tx; },
+    sendJSON: sendJSON,
+    getAnalyser: function () { return analyser; },
+    getWS: function () { return ws; },
+  };
 
   function sendBurstFrame() {
     const dataUrl = jpegFromFace();
@@ -346,6 +358,10 @@
       if (typ === 'audio' && msg.b64) {
         // optional: decode pcm not implemented in browser path
         level = 0.6;
+      }
+      // X Spaces stage (roster / levels / chat / captions)
+      if (window.__gySpaces && typeof window.__gySpaces.onMesh === 'function') {
+        window.__gySpaces.onMesh(msg);
       }
     };
   }

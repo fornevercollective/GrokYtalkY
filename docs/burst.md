@@ -103,3 +103,51 @@ Full video calls are heavy and socially loud. Bursts are:
 3. **Face-readable at 25×25** — enough for expression, not surveillance stream  
 
 Same mesh as walkie chat; optional whisper translate still hooks PTT release on the audio path.
+
+## X Spaces stage (burst page)
+
+[`site/burst.html`](../site/burst.html) embeds a producer stage next to the orb:
+
+| Slot | Count | Waveform |
+|------|-------|----------|
+| Host | 1 | live mic / mesh `space-level` |
+| Co-hosts | **2** | per-seat canvas |
+| Speakers | **10** | per-seat canvas |
+| Listeners | N | count badge |
+
+Also on the page:
+
+- **Space URL** — default [1AJEmmANrPeJL](https://x.com/i/spaces/1AJEmmANrPeJL?s=20)
+- **Chat details** — stage Q / pins / system placeholders
+- **Captions** — lower-third bar + mesh `space-caption`
+- **RTMP / RTMPS** Media Studio ingest (Canada):
+  - `rtmps://ca.pscp.tv:443/x`
+  - `rtmp://ca.pscp.tv:80/x`
+  - **Stream key** field: *available when ready* (paste from studio.x.com → Sources → RTMP)
+
+### Mesh types
+
+| type | role |
+|------|------|
+| `space-roster` | host / cohosts[] / speakers[] / listeners / caption |
+| `space-level` | per-seat audio level for waveforms |
+| `space-chat` | Space chat line |
+| `space-caption` | lower-third |
+
+### CLI
+
+```bash
+gy space                          # status + RTMP readiness
+gy space id https://x.com/i/spaces/1AJEmmANrPeJL
+gy space key "$STREAM_KEY"        # when Media Studio is ready
+gy space rtmps                    # or: gy space rtmp
+gy space seat host qbit
+gy space seat cohost:0 alice
+gy space seat speaker:3 bob
+gy space caption "GrokYtalkY live"
+gy space-rtmp --key "$KEY" --in clip.mp4
+gy space-rtmp --rtmp --key "$KEY" --in "avfoundation:0:0"   # mac cam+mic
+# env: GY_X_STREAM_KEY · GY_X_RTMP_URL
+```
+
+TUI: `/space` · `/space key …` · `/space push <input>` · `/space seat …`

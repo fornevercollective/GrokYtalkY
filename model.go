@@ -1514,6 +1514,8 @@ func (m *Model) slash(line string) (tea.Model, tea.Cmd) {
 		}
 	case "plugin", "plugins":
 		return m.handlePluginCmd(arg)
+	case "space", "spaces", "xspace":
+		return m.handleSpaceCmd(arg)
 	case "translate", "xl8":
 		m.xl8On = !(arg == "off" || arg == "0")
 		if m.xl8On {
@@ -3782,6 +3784,10 @@ func (m *Model) handleWS(raw []byte) (tea.Model, tea.Cmd) {
 	if msg == nil {
 		return m, nil
 	}
+	// X Spaces roster / levels / chat / captions (burst stage + RTMP producer)
+	if t, _ := msg["type"].(string); strings.HasPrefix(t, "space-") {
+		ApplySpaceMeshInbound(msg)
+	}
 	switch msg["type"] {
 	case "hello":
 		// quiet — status already shows nick when connected
@@ -4083,6 +4089,127 @@ func (m *Model) handleWS(raw []byte) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// handleSpaceCmd: /space [status|id|key|caption|rtmp|rtmps|seat|listeners|push]
+func (m *Model) handleSpaceCmd(arg string) (tea.Model, tea.Cmd) {
+	fields := strings.Fields(arg)
+	sub := "status"
+	if len(fields) > 0 {
+		sub = strings.ToLower(fields[0])
+	}
+	rest := ""
+	if len(fields) > 1 {
+		rest = strings.Join(fields[1:], " ")
+	}
+	s := Spaces()
+	switch sub {
+	case "", "status", "show", "doctor":
+		for _, ln := range strings.Split(strings.TrimRight(FormatSpaceDoctor(s), "\n"), "\n") {
+			m.pushSys(ln)
+		}
+		m.status = "space"
+		return m, nil
+	case "id", "url", "open":
+		if rest != "" {
+			s.SetID(rest)
+		}
+		snap := s.Snapshot()
+		m.pushSys("space → " + snap.URL)
+		m.status = "space " + snap.ID
+		return m, nil
+	case "key", "stream-key":
+		if rest == "" {
+			m.pushSys("stream key: " + rtmpKeyStatus(s.Snapshot().RTMP) + " · /space key <key>")
+			return m, nil
+		}
+		s.SetStreamKey(rest)
+		m.pushSys("stream key set · " + rtmpKeyStatus(s.Snapshot().RTMP))
+		m.status = "rtmp key"
+		return m, nil
+	case "rtmp":
+		s.SetSecure(false)
+		m.pushSys("ingest → " + XRTMPURL)
+		return m, nil
+	case "rtmps":
+		s.SetSecure(true)
+		m.pushSys("ingest → " + XRTMPSURL)
+		return m, nil
+	case "caption", "cap":
+		s.SetCaption(rest)
+		m.pushSys("space caption → " + emptyDash(rest))
+		if m.client != nil && rest != "" {
+			_ = m.client.SendJSON(map[string]any{
+				"type": "space-caption", "from": m.nick, "text": rest, "caption": rest,
+				"space": s.Snapshot().ID, "t": time.Now().UnixMilli(),
+			})
+		}
+		m.status = "caption"
+		return m, nil
+	case "listeners", "n":
+		n, _ := strconv.Atoi(strings.TrimSpace(rest))
+		s.SetListeners(n)
+		m.pushSys(fmt.Sprintf("listeners → %d", n))
+		return m, nil
+	case "seat":
+		parts := strings.Fields(rest)
+		if len(parts) < 2 {
+			m.pushSys("usage: /space seat host|cohost:N|speaker:N <nick>")
+			return m, nil
+		}
+		role, idx, err := parseSeatSpec(parts[0])
+		if err != nil {
+			m.pushSys(err.Error())
+			return m, nil
+		}
+		nick := strings.Join(parts[1:], " ")
+		if err := s.Seat(role, idx, nick); err != nil {
+			m.pushSys(err.Error())
+			return m, nil
+		}
+		m.pushSys(fmt.Sprintf("seated %s[%d] → %s", role, idx, nick))
+		if m.client != nil {
+			_ = m.client.SendJSON(s.MeshRosterJSON(m.nick))
+		}
+		return m, nil
+	case "roster", "sync":
+		if m.client != nil {
+			_ = m.client.SendJSON(s.MeshRosterJSON(m.nick))
+			m.pushSys("space roster → mesh")
+		} else {
+			m.pushSys("not connected")
+		}
+		return m, nil
+	case "push", "rtmp-push":
+		// /space push [input] — needs key + input
+		key := s.Snapshot().RTMP.StreamKey
+		if key == "" {
+			m.pushSys("stream key available when ready · /space key <key> or GY_X_STREAM_KEY")
+			return m, nil
+		}
+		in := strings.TrimSpace(rest)
+		if in == "" {
+			m.pushSys("usage: /space push <ffmpeg-input>  (file|url|avfoundation:0:0)")
+			return m, nil
+		}
+		cfg := s.Snapshot().RTMP
+		id, err := StartSpaceRTMPPush(in, cfg)
+		if err != nil {
+			m.pushSys("rtmp push: " + err.Error())
+			return m, nil
+		}
+		s.mu.Lock()
+		s.PushID = id
+		s.mu.Unlock()
+		m.pushSys("space-rtmp push id=" + id + " → " + cfg.BaseRTMPURL() + "/…")
+		m.status = "rtmp live"
+		return m, nil
+	default:
+		// bare id/url
+		s.SetID(sub)
+		m.pushSys("space → " + s.Snapshot().URL)
+		return m, nil
+	}
 }
 
 // handlePluginCmd: /plugin [list|on|off|reload|style] [name]

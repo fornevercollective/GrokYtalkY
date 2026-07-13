@@ -3,18 +3,37 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Burst · GrokYtalkY</title>
-  <meta name="description" content="Dual Glyph Matrix video walkie — hold to send face+voice. Nothing-spec circular LEDs; terminal auto-fits 13×13 on 80×24, 25×25 on larger windows." />
+  <title>Burst · X Spaces · GrokYtalkY</title>
+  <meta name="description" content="Dual Glyph Matrix video walkie + X Spaces stage: host, 2 co-hosts, 10 speakers, listeners, live waveforms, chat, captions, RTMP/RTMPS to ca.pscp.tv." />
   <meta name="theme-color" content="#0c0c0f" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
   <style>
-    .burst-page { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2rem 1rem 4rem; }
-    .burst-page h1 { font-size: 1.35rem; letter-spacing: -0.03em; margin: 0 0 0.35rem; text-align: center; }
-    .burst-lede { color: var(--muted); font-size: 0.9rem; text-align: center; max-width: 28rem; margin-bottom: 1.5rem; }
+    .burst-page {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 1.5rem 1rem 4rem;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+    .burst-page > .eyebrow { align-self: flex-start; }
+    .burst-page h1 { font-size: 1.35rem; letter-spacing: -0.03em; margin: 0 0 0.35rem; align-self: flex-start; }
+    .burst-lede { color: var(--muted); font-size: 0.9rem; max-width: 40rem; margin-bottom: 1.25rem; align-self: flex-start; }
+    .burst-grid {
+      display: grid;
+      grid-template-columns: minmax(240px, 300px) 1fr;
+      gap: 1.5rem 2rem;
+      width: 100%;
+      align-items: start;
+    }
+    @media (max-width: 820px) {
+      .burst-grid { grid-template-columns: 1fr; }
+    }
+    .burst-left { display: flex; flex-direction: column; align-items: center; }
     .burst-stage { position: relative; width: min(280px, 72vw); height: min(280px, 72vw); }
-    /* Siri-sized orb */
     .burst-orb {
       position: absolute; inset: 0;
       border-radius: 50%;
@@ -72,13 +91,15 @@
     }
     .burst-meta em { color: var(--accent); font-style: normal; }
     .burst-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; margin-top: 1rem; }
-    .burst-hint { margin-top: 1.5rem; font-size: 0.8rem; color: var(--faint); text-align: center; max-width: 22rem; line-height: 1.45; }
+    .burst-hint { margin-top: 1.25rem; font-size: 0.78rem; color: var(--faint); text-align: center; max-width: 22rem; line-height: 1.45; }
     .glyph-preview {
-      margin-top: 1.75rem;
+      margin-top: 1.25rem;
       padding: 0.75rem;
       border: 1px solid var(--border);
       border-radius: 10px;
       background: #08080c;
+      width: 100%;
+      max-width: 280px;
     }
     .glyph-preview p {
       font-family: var(--mono);
@@ -93,6 +114,106 @@
       image-rendering: pixelated;
       border-radius: 4px;
     }
+
+    /* ── X Spaces stage ── */
+    #spaces-stage {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--bg-elev);
+      padding: 1rem 1.1rem 1.25rem;
+      width: 100%;
+    }
+    .sp-head { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: baseline; margin-bottom: 0.75rem; }
+    .sp-head h2 { font-size: 1.05rem; letter-spacing: -0.02em; margin: 0; }
+    .sp-head .badge {
+      font-family: var(--mono); font-size: 0.62rem; padding: 0.15rem 0.45rem;
+      border-radius: 999px; border: 1px solid rgba(192,132,252,.4); color: var(--grok);
+      background: rgba(192,132,252,.08);
+    }
+    #space-meta { font-family: var(--mono); font-size: 0.68rem; color: var(--faint); width: 100%; }
+    #space-meta em { color: var(--accent); font-style: normal; }
+    .sp-config {
+      display: grid; gap: 0.45rem; margin: 0.75rem 0;
+      padding: 0.65rem; border: 1px solid var(--border); border-radius: 10px; background: #0e0e14;
+    }
+    .sp-config label {
+      display: grid; grid-template-columns: 4.5rem 1fr; gap: 0.45rem; align-items: center;
+      font-family: var(--mono); font-size: 0.65rem; color: var(--faint);
+    }
+    .sp-config input, .sp-config select, .sp-inline input, .sp-inline select {
+      font-family: var(--mono); font-size: 0.72rem; padding: 0.35rem 0.5rem;
+      border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text);
+    }
+    .sp-row { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.65rem; align-items: center; }
+    .sp-section-label {
+      font-family: var(--mono); font-size: 0.62rem; color: var(--faint);
+      text-transform: uppercase; letter-spacing: 0.06em; margin: 0.65rem 0 0.35rem;
+    }
+    .sp-slots { display: grid; gap: 0.4rem; }
+    .sp-slots.cohosts { grid-template-columns: 1fr 1fr; }
+    .sp-slots.speakers { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+    .sp-slot {
+      border: 1px solid var(--border); border-radius: 10px; padding: 0.4rem 0.5rem 0.35rem;
+      background: #0a0a10; min-height: 3.2rem;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .sp-slot.empty { opacity: 0.72; }
+    .sp-slot.seated { border-color: rgba(125,211,252,.28); }
+    .sp-slot.talking {
+      border-color: rgba(74,222,128,.55);
+      box-shadow: 0 0 16px rgba(74,222,128,.12);
+    }
+    .sp-slot-label { display: flex; justify-content: space-between; gap: 0.35rem; margin-bottom: 0.2rem; }
+    .sp-role { font-family: var(--mono); font-size: 0.55rem; color: var(--faint); letter-spacing: 0.04em; }
+    .sp-nick { font-family: var(--mono); font-size: 0.68rem; color: var(--muted); max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sp-slot.seated .sp-nick { color: var(--text); }
+    .sp-slot.talking .sp-nick { color: var(--live); }
+    canvas.sp-wave { display: block; width: 100%; height: 28px; border-radius: 4px; }
+    .listeners-bar {
+      display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem;
+      font-family: var(--mono); font-size: 0.72rem; color: var(--muted);
+    }
+    .listeners-bar strong { color: var(--accent); font-weight: 600; font-size: 1rem; }
+
+    .space-caption-bar {
+      margin-top: 0.75rem; padding: 0.55rem 0.7rem;
+      border-radius: 10px; border: 1px dashed rgba(192,132,252,.35);
+      background: rgba(192,132,252,.06);
+      font-size: 0.85rem; color: var(--grok); min-height: 2.2rem;
+    }
+    .space-caption-bar.placeholder { color: var(--faint); font-style: italic; font-size: 0.78rem; }
+
+    .space-chat-log {
+      height: 140px; overflow-y: auto; margin-top: 0.5rem;
+      border: 1px solid var(--border); border-radius: 10px; background: #08080c;
+      padding: 0.55rem 0.65rem; font-family: var(--mono); font-size: 0.72rem; line-height: 1.4;
+    }
+    .space-chat-line { margin-bottom: 0.35rem; word-break: break-word; color: var(--muted); }
+    .space-chat-line .who { color: var(--accent); }
+    .space-chat-line .who.host { color: var(--live); }
+    .space-chat-line .who.cohost { color: #86efac; }
+    .space-chat-line .who.speaker { color: #93c5fd; }
+    .space-chat-line .who.listener { color: var(--faint); }
+    .space-chat-line.pin { border-left: 2px solid var(--grok); padding-left: 0.4rem; color: var(--text); }
+    .space-chat-compose { display: flex; gap: 0.4rem; margin-top: 0.4rem; }
+    .space-chat-compose input { flex: 1; }
+
+    .rtmp-panel {
+      margin-top: 0.85rem; padding: 0.7rem; border: 1px solid var(--border);
+      border-radius: 10px; background: #0c0c12;
+    }
+    .rtmp-panel h3 { font-size: 0.78rem; margin: 0 0 0.45rem; font-family: var(--mono); color: var(--warn); letter-spacing: 0.02em; }
+    .rtmp-status { font-family: var(--mono); font-size: 0.68rem; margin: 0.4rem 0; }
+    .rtmp-status.wait { color: var(--warn); }
+    .rtmp-status.ready { color: var(--live); }
+    #rtmp-base { font-family: var(--mono); font-size: 0.72rem; color: var(--accent); word-break: break-all; }
+    #rtmp-cmd {
+      display: block; margin-top: 0.45rem; padding: 0.5rem; border-radius: 8px;
+      background: #050508; border: 1px solid var(--border);
+      font-family: var(--mono); font-size: 0.62rem; color: var(--faint); white-space: pre-wrap; line-height: 1.4;
+    }
+    .sp-inline { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+    .sp-inline label { font-family: var(--mono); font-size: 0.65rem; color: var(--faint); display: flex; gap: 0.3rem; align-items: center; }
   </style>
 </head>
 <body>
@@ -114,45 +235,134 @@
   </header>
 
   <main class="burst-page">
-    <p class="eyebrow">walkie · dual glyph · nothing matrix</p>
-    <h1>Hold to burst video</h1>
+    <p class="eyebrow">walkie · dual glyph · X Spaces stage</p>
+    <h1>Burst + Spaces</h1>
     <p class="burst-lede">
-      Short face+voice walkie — same idea as PTT audio.
-      Terminal shows dual circular Glyph Matrices (you | peer); mesh ships device-N brightness for
-      <a href="https://github.com/Nothing-Developer-Programme/GlyphMatrix-Developer-Kit">Nothing Glyph Matrix</a>
-      (13 / 25). On 80×24 the CLI auto-fits full 13×13 disks.
+      Hold to burst face+voice on the Glyph orb. Right: live <strong>X Spaces</strong> stage for
+      <a href="https://x.com/i/spaces/1AJEmmANrPeJL?s=20" target="_blank" rel="noopener">1AJEmmANrPeJL</a>
+      — host, <em>2 co-hosts</em>, <em>10 speakers</em>, listeners, waveforms, chat, captions,
+      and Media Studio <strong>RTMP / RTMPS</strong> ingest when your stream key is ready.
     </p>
 
-    <div class="burst-stage">
-      <div class="burst-orb" id="burst-orb" role="button" aria-label="Hold to send video burst" tabindex="0">
-        <canvas class="ring" id="ring-canvas" width="280" height="280"></canvas>
-        <canvas class="face" id="face-canvas" width="25" height="25"></canvas>
-        <span class="orb-label" id="orb-label">hold</span>
+    <div class="burst-grid">
+      <div class="burst-left">
+        <div class="burst-stage">
+          <div class="burst-orb" id="burst-orb" role="button" aria-label="Hold to send video burst" tabindex="0">
+            <canvas class="ring" id="ring-canvas" width="280" height="280"></canvas>
+            <canvas class="face" id="face-canvas" width="25" height="25"></canvas>
+            <span class="orb-label" id="orb-label">hold</span>
+          </div>
+        </div>
+
+        <p class="burst-meta" id="burst-meta">idle · mesh optional</p>
+        <div class="burst-actions">
+          <button type="button" class="btn primary" id="btn-hold">Hold burst</button>
+          <button type="button" class="btn ghost" id="btn-cam">Enable cam</button>
+          <label class="btn ghost">
+            Hub
+            <input type="text" id="hub-url" value="" placeholder="ws://127.0.0.1:9876" style="display:none" />
+          </label>
+          <button type="button" class="btn ghost" id="btn-connect">Connect</button>
+        </div>
+
+        <div class="glyph-preview">
+          <p>Glyph Matrix preview (25×25 luminance)</p>
+          <canvas id="glyph-canvas" width="125" height="125"></canvas>
+        </div>
+
+        <p class="burst-hint">
+          Terminal: <code>gy burst</code> · <code>gy space</code> · <code>gy space-rtmp</code><br />
+          Space key: <code>GY_X_STREAM_KEY</code> when Media Studio is ready.
+        </p>
       </div>
-    </div>
 
-    <p class="burst-meta" id="burst-meta">idle · mesh optional</p>
-    <div class="burst-actions">
-      <button type="button" class="btn primary" id="btn-hold">Hold burst</button>
-      <button type="button" class="btn ghost" id="btn-cam">Enable cam</button>
-      <label class="btn ghost">
-        Hub
-        <input type="text" id="hub-url" value="" placeholder="ws://127.0.0.1:9876" style="display:none" />
-      </label>
-      <button type="button" class="btn ghost" id="btn-connect">Connect</button>
-    </div>
+      <!-- X Spaces stage -->
+      <section id="spaces-stage" aria-label="X Spaces stage">
+        <div class="sp-head">
+          <h2 id="space-title">GrokYtalkY Space</h2>
+          <span class="badge">X Spaces</span>
+          <p id="space-meta"><em>1AJEmmANrPeJL</em> · host + 2 co-hosts · 10 speakers · listeners</p>
+        </div>
 
-    <div class="glyph-preview">
-      <p>Glyph Matrix preview (25×25 luminance)</p>
-      <canvas id="glyph-canvas" width="125" height="125"></canvas>
-    </div>
+        <div class="sp-config">
+          <label>Space <input id="space-url" type="url" spellcheck="false"
+            value="https://x.com/i/spaces/1AJEmmANrPeJL?s=20"
+            placeholder="https://x.com/i/spaces/…" /></label>
+          <div class="sp-row">
+            <button type="button" class="btn ghost" id="btn-space-apply">Bind</button>
+            <button type="button" class="btn ghost" id="btn-space-open">Open on X</button>
+          </div>
+          <div class="sp-inline">
+            <label>My role
+              <select id="my-role">
+                <option value="host">Host</option>
+                <option value="cohost">Co-host</option>
+                <option value="speaker">Speaker</option>
+                <option value="listener">Listener</option>
+              </select>
+            </label>
+            <label>Slot <select id="my-slot"><option value="0">—</option></select></label>
+            <button type="button" class="btn primary" id="btn-seat-me">Seat me</button>
+          </div>
+        </div>
 
-    <p class="burst-hint">
-      Terminal: <code>grokytalky burst</code> · space = same hold gesture.<br />
-      Android: see <code>glyph/</code> Glyph Toy service.
-    </p>
+        <p class="sp-section-label">Host</p>
+        <div class="sp-slots" id="slot-host"></div>
+
+        <p class="sp-section-label">Co-hosts · 2</p>
+        <div class="sp-slots cohosts" id="slots-cohosts"></div>
+
+        <p class="sp-section-label">Speakers · 10</p>
+        <div class="sp-slots speakers" id="slots-speakers"></div>
+
+        <div class="listeners-bar">
+          Listeners <strong id="listeners-count">0</strong>
+          <span style="color:var(--faint);font-size:0.65rem">· waveform on stage seats · mesh levels live</span>
+        </div>
+
+        <p class="sp-section-label">Caption / lower-third</p>
+        <div class="space-caption-bar placeholder" id="space-caption">Caption placeholder — pin a line or set lower-third</div>
+        <div class="sp-inline" style="margin-top:0.4rem">
+          <input id="space-caption-input" type="text" placeholder="Caption placeholder…" style="flex:1;min-width:10rem" />
+          <button type="button" class="btn ghost" id="space-caption-set">Set caption</button>
+        </div>
+
+        <p class="sp-section-label">Space chat · details</p>
+        <div class="space-chat-log" id="space-chat-log" aria-live="polite"></div>
+        <div class="space-chat-compose">
+          <input id="space-chat-input" type="text" maxlength="280" placeholder="Chat placeholder — stage Q, pins, reactions…" />
+          <button type="button" class="btn primary" id="space-chat-send">Send</button>
+        </div>
+
+        <div class="rtmp-panel">
+          <h3>RTMP · Media Studio Producer</h3>
+          <div class="sp-inline">
+            <label>Protocol
+              <select id="rtmp-proto">
+                <option value="rtmps" selected>RTMPS</option>
+                <option value="rtmp">RTMP</option>
+              </select>
+            </label>
+          </div>
+          <p style="margin:0.4rem 0 0.2rem;font-family:var(--mono);font-size:0.62rem;color:var(--faint)">Ingest base</p>
+          <div id="rtmp-base">rtmps://ca.pscp.tv:443/x</div>
+          <label style="display:grid;grid-template-columns:5.5rem 1fr;gap:0.4rem;align-items:center;margin-top:0.45rem;font-family:var(--mono);font-size:0.65rem;color:var(--faint)">
+            Stream key
+            <input id="rtmp-key" type="password" autocomplete="off" spellcheck="false"
+              placeholder="available when ready" />
+          </label>
+          <p class="rtmp-status wait" id="rtmp-status">stream key available when ready · paste from X Media Studio → Sources → RTMP</p>
+          <code id="rtmp-cmd"></code>
+          <p style="margin-top:0.45rem;font-size:0.72rem;color:var(--faint);line-height:1.4">
+            Defaults: <code>rtmps://ca.pscp.tv:443/x</code> · <code>rtmp://ca.pscp.tv:80/x</code><br />
+            CLI: <code>gy space-rtmp --key $KEY --in clip.mp4</code> · env <code>GY_X_STREAM_KEY</code>
+          </p>
+        </div>
+      </section>
+    </div>
   </main>
 
   <script src="burst-orb.js"></script>
+  <script src="burst-spaces.js"></script>
 </body>
 </html>

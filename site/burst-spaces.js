@@ -1,0 +1,567 @@
+/**
+ * X Spaces stage for burst page — host + 2 co-hosts + 10 speakers + listeners,
+ * live audio waveforms, Space chat / captions, RTMP(S) Media Studio producer.
+ * Default Space: https://x.com/i/spaces/1AJEmmANrPeJL
+ */
+(function () {
+  'use strict';
+
+  const COHOSTS = 2;
+  const SPEAKERS = 10;
+  const DEFAULT_SPACE = '1AJEmmANrPeJL';
+  const RTMPS = 'rtmps://ca.pscp.tv:443/x';
+  const RTMP = 'rtmp://ca.pscp.tv:80/x';
+
+  const el = {
+    root: document.getElementById('spaces-stage'),
+    spaceUrl: document.getElementById('space-url'),
+    spaceTitle: document.getElementById('space-title'),
+    spaceMeta: document.getElementById('space-meta'),
+    hostSlot: document.getElementById('slot-host'),
+    cohosts: document.getElementById('slots-cohosts'),
+    speakers: document.getElementById('slots-speakers'),
+    listeners: document.getElementById('listeners-count'),
+    chatLog: document.getElementById('space-chat-log'),
+    chatInput: document.getElementById('space-chat-input'),
+    chatSend: document.getElementById('space-chat-send'),
+    caption: document.getElementById('space-caption'),
+    captionInput: document.getElementById('space-caption-input'),
+    captionSet: document.getElementById('space-caption-set'),
+    rtmpProto: document.getElementById('rtmp-proto'),
+    rtmpBase: document.getElementById('rtmp-base'),
+    rtmpKey: document.getElementById('rtmp-key'),
+    rtmpStatus: document.getElementById('rtmp-status'),
+    rtmpCmd: document.getElementById('rtmp-cmd'),
+    btnApplySpace: document.getElementById('btn-space-apply'),
+    btnOpenSpace: document.getElementById('btn-space-open'),
+    btnSeatMe: document.getElementById('btn-seat-me'),
+    roleSelect: document.getElementById('my-role'),
+    slotSelect: document.getElementById('my-slot'),
+  };
+  if (!el.root) return;
+
+  /** @type {{host: Slot, cohosts: Slot[], speakers: Slot[], listeners: number, caption: string, id: string}} */
+  let state = emptyState(DEFAULT_SPACE);
+  let myRole = 'host';
+  let mySlot = 0;
+  let analyser = null;
+  let micBands = new Array(24).fill(0);
+  let level = 0;
+  let raf = 0;
+  /** shared with burst-orb via window.__gyBurst */
+  const burst = () => window.__gyBurst || {};
+
+  function emptyState(id) {
+    return {
+      id: id || DEFAULT_SPACE,
+      title: 'GrokYtalkY Space',
+      host: { nick: '', level: 0, talking: false, ph: 'Host — you' },
+      cohosts: Array.from({ length: COHOSTS }, (_, i) => ({
+        nick: '', level: 0, talking: false, ph: 'Co-host ' + (i + 1),
+      })),
+      speakers: Array.from({ length: SPEAKERS }, (_, i) => ({
+        nick: '', level: 0, talking: false, ph: 'Speaker ' + (i + 1),
+      })),
+      listeners: 0,
+      caption: '',
+    };
+  }
+
+  function parseSpaceId(raw) {
+    raw = (raw || '').trim();
+    const m = raw.match(/(?:x|twitter)\.com\/i\/spaces\/([A-Za-z0-9]+)/i);
+    if (m) return m[1];
+    const bare = raw.replace(/[?#].*$/, '').replace(/\/$/, '');
+    if (/^[A-Za-z0-9]{6,}$/.test(bare)) return bare;
+    return DEFAULT_SPACE;
+  }
+
+  function spaceLink(id) {
+    return 'https://x.com/i/spaces/' + id;
+  }
+
+  function loadStored() {
+    try {
+      const k = localStorage.getItem('gy_x_stream_key') || '';
+      if (el.rtmpKey) el.rtmpKey.value = k;
+      const p = localStorage.getItem('gy_x_rtmp_proto') || 'rtmps';
+      if (el.rtmpProto) el.rtmpProto.value = p;
+      const u = localStorage.getItem('gy_space_url') || spaceLink(DEFAULT_SPACE) + '?s=20';
+      if (el.spaceUrl) el.spaceUrl.value = u;
+      state.id = parseSpaceId(u);
+    } catch (_) {}
+  }
+
+  function saveKey() {
+    try {
+      if (el.rtmpKey) localStorage.setItem('gy_x_stream_key', el.rtmpKey.value.trim());
+      if (el.rtmpProto) localStorage.setItem('gy_x_rtmp_proto', el.rtmpProto.value);
+      if (el.spaceUrl) localStorage.setItem('gy_space_url', el.spaceUrl.value.trim());
+    } catch (_) {}
+  }
+
+  function mkSlotEl(kind, index, slot) {
+    const div = document.createElement('div');
+    div.className = 'sp-slot' + (slot.talking ? ' talking' : '') + (slot.nick ? ' seated' : ' empty');
+    div.dataset.role = kind;
+    div.dataset.index = String(index);
+    const label = document.createElement('div');
+    label.className = 'sp-slot-label';
+    const roleTag = kind === 'host' ? 'HOST' : kind === 'cohost' ? 'CO-HOST' : 'SPEAKER';
+    const who = slot.nick || slot.ph;
+    label.innerHTML = '<span class="sp-role">' + roleTag + (kind !== 'host' ? ' ' + (index + 1) : '') +
+      '</span><span class="sp-nick">' + escapeHtml(who) + '</span>';
+    const canvas = document.createElement('canvas');
+    canvas.className = 'sp-wave';
+    canvas.width = 160;
+    canvas.height = 28;
+    canvas.setAttribute('aria-label', 'waveform');
+    div.appendChild(label);
+    div.appendChild(canvas);
+    div._wave = canvas;
+    div._slot = slot;
+    return div;
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function rebuildSlots() {
+    if (el.hostSlot) {
+      el.hostSlot.innerHTML = '';
+      el.hostSlot.appendChild(mkSlotEl('host', 0, state.host));
+    }
+    if (el.cohosts) {
+      el.cohosts.innerHTML = '';
+      state.cohosts.forEach((s, i) => el.cohosts.appendChild(mkSlotEl('cohost', i, s)));
+    }
+    if (el.speakers) {
+      el.speakers.innerHTML = '';
+      state.speakers.forEach((s, i) => el.speakers.appendChild(mkSlotEl('speaker', i, s)));
+    }
+    if (el.listeners) {
+      el.listeners.textContent = String(state.listeners);
+    }
+    if (el.caption) {
+      el.caption.textContent = state.caption || 'Caption placeholder — pin a line or set lower-third';
+      el.caption.classList.toggle('placeholder', !state.caption);
+    }
+    if (el.spaceMeta) {
+      el.spaceMeta.innerHTML =
+        '<em>' + escapeHtml(state.id) + '</em> · host + ' + COHOSTS + ' co-hosts · ' +
+        SPEAKERS + ' speakers · <span id="listeners-inline">' + state.listeners + '</span> listeners';
+    }
+    if (el.spaceTitle) {
+      el.spaceTitle.textContent = state.title || 'GrokYtalkY Space';
+    }
+    updateSlotSelect();
+  }
+
+  function updateSlotSelect() {
+    if (!el.slotSelect || !el.roleSelect) return;
+    const role = el.roleSelect.value;
+    el.slotSelect.innerHTML = '';
+    let n = 1;
+    if (role === 'cohost') n = COHOSTS;
+    if (role === 'speaker') n = SPEAKERS;
+    if (role === 'host' || role === 'listener') n = 1;
+    for (let i = 0; i < n; i++) {
+      const o = document.createElement('option');
+      o.value = String(i);
+      o.textContent = role === 'host' || role === 'listener' ? '—' : String(i + 1);
+      el.slotSelect.appendChild(o);
+    }
+    el.slotSelect.disabled = role === 'host' || role === 'listener';
+  }
+
+  function paintWave(canvas, level, bands, talking) {
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width;
+    const h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = '#08080c';
+    ctx.fillRect(0, 0, w, h);
+    const n = bands && bands.length ? bands.length : 16;
+    const gap = 1;
+    const bw = Math.max(2, (w - gap * n) / n);
+    for (let i = 0; i < n; i++) {
+      let v = bands ? (bands[i] || 0) : level * (0.4 + 0.6 * Math.sin(i + level * 8));
+      v = Math.max(0.04, Math.min(1, v));
+      const bh = v * (h - 4);
+      const x = i * (bw + gap);
+      const y = h - bh - 1;
+      if (talking) {
+        ctx.fillStyle = 'rgba(74,222,128,' + (0.45 + v * 0.55) + ')';
+      } else {
+        ctx.fillStyle = 'rgba(125,211,252,' + (0.12 + v * 0.35) + ')';
+      }
+      ctx.fillRect(x, y, bw, bh);
+    }
+  }
+
+  function slotFor(role, index) {
+    if (role === 'host') return state.host;
+    if (role === 'cohost') return state.cohosts[index];
+    if (role === 'speaker') return state.speakers[index];
+    return null;
+  }
+
+  function paintAllWaves() {
+    const nodes = el.root.querySelectorAll('.sp-slot');
+    nodes.forEach((node) => {
+      const role = node.dataset.role;
+      const index = parseInt(node.dataset.index || '0', 10);
+      const slot = slotFor(role, index);
+      if (!slot || !node._wave) return;
+      // local mic drives our seat
+      let lv = slot.level;
+      let bands = null;
+      let talking = slot.talking;
+      if (isMySeat(role, index) && analyser) {
+        lv = level;
+        bands = micBands;
+        talking = lv > 0.06 || burst().tx;
+        slot.level = lv;
+        slot.talking = talking;
+        node.classList.toggle('talking', talking);
+      } else {
+        // idle shimmer for empty placeholders
+        if (!slot.nick) {
+          lv = 0.05 + 0.03 * Math.sin(performance.now() / 800 + index);
+          bands = null;
+          talking = false;
+        } else {
+          bands = null;
+        }
+      }
+      paintWave(node._wave, lv, bands, talking);
+    });
+  }
+
+  function isMySeat(role, index) {
+    if (myRole === 'listener') return false;
+    if (myRole !== role) return false;
+    if (role === 'host') return true;
+    return index === mySlot;
+  }
+
+  function readMic() {
+    if (!analyser) {
+      // try attach from burst orb stream
+      const b = burst();
+      if (b.getAnalyser) analyser = b.getAnalyser();
+      if (!analyser) return;
+    }
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteFrequencyData(data);
+    let sum = 0;
+    for (let i = 0; i < micBands.length; i++) {
+      const idx = Math.floor((i / micBands.length) * data.length);
+      const v = (data[idx] || 0) / 255;
+      micBands[i] = Math.max(micBands[i] * 0.45, v);
+      sum += v;
+    }
+    level = sum / micBands.length;
+    // decay remote levels slightly
+    decayRemote();
+  }
+
+  function decayRemote() {
+    const decay = (s) => {
+      if (!s) return;
+      if (!isMySeat('host', 0) && s === state.host) {
+        s.level *= 0.92;
+        s.talking = s.level > 0.08;
+      }
+    };
+    state.host.level *= isMySeat('host', 0) ? 1 : 0.92;
+    state.cohosts.forEach((s, i) => {
+      if (!isMySeat('cohost', i)) {
+        s.level *= 0.92;
+        s.talking = s.level > 0.08;
+      }
+    });
+    state.speakers.forEach((s, i) => {
+      if (!isMySeat('speaker', i)) {
+        s.level *= 0.92;
+        s.talking = s.level > 0.08;
+      }
+    });
+    void decay;
+  }
+
+  function loop() {
+    raf = requestAnimationFrame(loop);
+    readMic();
+    paintAllWaves();
+    // mesh levels while speaking on stage
+    const b = burst();
+    if (b.sendJSON && (level > 0.08 || b.tx) && myRole !== 'listener') {
+      if (!loop._lastLv || performance.now() - loop._lastLv > 120) {
+        loop._lastLv = performance.now();
+        b.sendJSON({
+          type: 'space-level',
+          from: b.nick || 'web',
+          role: myRole,
+          slot: mySlot,
+          level: Math.round(level * 1000) / 1000,
+          space: state.id,
+          t: Date.now(),
+        });
+      }
+    }
+  }
+
+  function pushChat(from, text, role, opts) {
+    if (!el.chatLog || !text) return;
+    const line = document.createElement('div');
+    line.className = 'space-chat-line' + (opts && opts.pin ? ' pin' : '');
+    const who = document.createElement('span');
+    who.className = 'who' + (role ? ' ' + role : '');
+    who.textContent = from || 'anon';
+    line.appendChild(who);
+    line.appendChild(document.createTextNode(' ' + text));
+    el.chatLog.appendChild(line);
+    el.chatLog.scrollTop = el.chatLog.scrollHeight;
+    // cap DOM
+    while (el.chatLog.children.length > 120) {
+      el.chatLog.removeChild(el.chatLog.firstChild);
+    }
+  }
+
+  function seedPlaceholders() {
+    pushChat('system', 'Space ' + state.id + ' — stage seats: host · 2 co-hosts · 10 speakers · listeners', '');
+    pushChat('system', 'Chat placeholder: stage questions, pins, and captions land here', '');
+    pushChat('system', 'RTMP/RTMPS → ca.pscp.tv · stream key available when ready (Media Studio Sources)', '');
+    pushChat('caption', 'Lower-third caption placeholder — set below or /space caption in TUI', 'host');
+  }
+
+  function applySpaceFromInput() {
+    const raw = (el.spaceUrl && el.spaceUrl.value) || '';
+    state.id = parseSpaceId(raw);
+    if (el.spaceUrl) el.spaceUrl.value = spaceLink(state.id) + (raw.includes('?s=') ? '?s=20' : '');
+    saveKey();
+    rebuildSlots();
+    pushChat('system', 'bound Space → ' + spaceLink(state.id), '');
+    broadcastRoster();
+  }
+
+  function seatMe() {
+    myRole = (el.roleSelect && el.roleSelect.value) || 'host';
+    mySlot = parseInt((el.slotSelect && el.slotSelect.value) || '0', 10) || 0;
+    const nick = (burst().nick) || 'web-' + Math.random().toString(36).slice(2, 6);
+    if (myRole === 'listener') {
+      state.listeners = Math.max(state.listeners, 1);
+      pushChat('system', nick + ' joined as listener', '');
+    } else {
+      const slot = slotFor(myRole, mySlot);
+      if (slot) {
+        slot.nick = nick;
+        slot.talking = false;
+      }
+      pushChat('system', nick + ' seated as ' + myRole + (myRole !== 'host' ? ' ' + (mySlot + 1) : ''), myRole);
+    }
+    rebuildSlots();
+    broadcastRoster();
+  }
+
+  function broadcastRoster() {
+    const b = burst();
+    if (!b.sendJSON) return;
+    b.sendJSON({
+      type: 'space-roster',
+      from: b.nick || 'web',
+      space: state.id,
+      url: spaceLink(state.id),
+      title: state.title,
+      caption: state.caption,
+      host: { nick: state.host.nick, level: state.host.level, talking: state.host.talking },
+      cohosts: state.cohosts.map((s, i) => ({ index: i, nick: s.nick, level: s.level, talking: s.talking })),
+      speakers: state.speakers.map((s, i) => ({ index: i, nick: s.nick, level: s.level, talking: s.talking })),
+      listeners: state.listeners,
+      t: Date.now(),
+    });
+  }
+
+  function sendChat() {
+    const text = (el.chatInput && el.chatInput.value || '').trim();
+    if (!text) return;
+    const nick = (burst().nick) || 'web';
+    pushChat(nick, text, myRole === 'listener' ? 'listener' : myRole);
+    el.chatInput.value = '';
+    const b = burst();
+    if (b.sendJSON) {
+      b.sendJSON({
+        type: 'space-chat',
+        from: nick,
+        text: text,
+        role: myRole,
+        space: state.id,
+        t: Date.now(),
+      });
+      // also hub chat for DOJO bridge
+      b.sendJSON({ type: 'chat', text: text, from: nick, room: 'space:' + state.id, t: Date.now() });
+    }
+  }
+
+  function setCaption() {
+    const text = (el.captionInput && el.captionInput.value || '').trim();
+    state.caption = text;
+    rebuildSlots();
+    const b = burst();
+    if (b.sendJSON && text) {
+      b.sendJSON({
+        type: 'space-caption',
+        from: b.nick || 'web',
+        text: text,
+        caption: text,
+        space: state.id,
+        t: Date.now(),
+      });
+    }
+    pushChat('caption', text || '(cleared)', 'host', { pin: true });
+  }
+
+  function updateRtmpUI() {
+    const secure = !el.rtmpProto || el.rtmpProto.value !== 'rtmp';
+    const base = secure ? RTMPS : RTMP;
+    if (el.rtmpBase) el.rtmpBase.textContent = base;
+    const key = (el.rtmpKey && el.rtmpKey.value || '').trim();
+    if (el.rtmpStatus) {
+      if (!key) {
+        el.rtmpStatus.textContent = 'stream key available when ready · paste from X Media Studio → Sources → RTMP';
+        el.rtmpStatus.className = 'rtmp-status wait';
+      } else {
+        el.rtmpStatus.textContent = 'stream key ready · publish armed (do not share key)';
+        el.rtmpStatus.className = 'rtmp-status ready';
+      }
+    }
+    if (el.rtmpCmd) {
+      const target = key ? base + '/' + key : base + '/<STREAM_KEY>';
+      el.rtmpCmd.textContent =
+        'gy space-rtmp --' + (secure ? 'rtmps' : 'rtmp') +
+        ' --key ' + (key ? '***' : '$GY_X_STREAM_KEY') +
+        ' --in video.mp4\n' +
+        '# ffmpeg … -f flv "' + (key ? base + '/…' : target) + '"';
+    }
+    saveKey();
+  }
+
+  /** inbound mesh from burst-orb */
+  function onMesh(msg) {
+    if (!msg || !msg.type) return;
+    const typ = msg.type;
+    const from = msg.from || '';
+    if (typ === 'space-roster') {
+      if (msg.space) state.id = String(msg.space);
+      if (msg.caption) state.caption = String(msg.caption);
+      if (msg.title) state.title = String(msg.title);
+      if (typeof msg.listeners === 'number') state.listeners = msg.listeners;
+      if (msg.host && msg.host.nick) {
+        state.host.nick = msg.host.nick;
+        state.host.level = msg.host.level || 0;
+        state.host.talking = !!msg.host.talking;
+      }
+      if (Array.isArray(msg.cohosts)) {
+        msg.cohosts.forEach((c) => {
+          const i = c.index | 0;
+          if (state.cohosts[i]) {
+            state.cohosts[i].nick = c.nick || '';
+            state.cohosts[i].level = c.level || 0;
+            state.cohosts[i].talking = !!c.talking;
+          }
+        });
+      }
+      if (Array.isArray(msg.speakers)) {
+        msg.speakers.forEach((c) => {
+          const i = c.index | 0;
+          if (state.speakers[i]) {
+            state.speakers[i].nick = c.nick || '';
+            state.speakers[i].level = c.level || 0;
+            state.speakers[i].talking = !!c.talking;
+          }
+        });
+      }
+      rebuildSlots();
+    }
+    if (typ === 'space-level' && from !== (burst().nick || '')) {
+      const role = msg.role;
+      const slot = msg.slot | 0;
+      const lv = Number(msg.level) || 0;
+      const s = slotFor(role, slot);
+      if (s) {
+        s.level = lv;
+        s.talking = lv > 0.08;
+        if (!s.nick) s.nick = from;
+      }
+    }
+    if (typ === 'space-chat') {
+      pushChat(from, msg.text || '', msg.role || '');
+    }
+    if (typ === 'space-caption') {
+      state.caption = msg.text || msg.caption || '';
+      rebuildSlots();
+      pushChat('caption', state.caption, 'host', { pin: true });
+    }
+    if (typ === 'chat' && msg.text) {
+      // show DOJO chat in space log with marker
+      pushChat(from + '↗', msg.text, msg.role || '');
+    }
+    if (typ === 'audio' && msg.from && msg.from !== (burst().nick || '')) {
+      // pulse a speaker slot if nick matches
+      pulseNick(msg.from, 0.55);
+    }
+  }
+
+  function pulseNick(nick, lv) {
+    const trySlot = (s) => {
+      if (s && s.nick === nick) {
+        s.level = Math.max(s.level, lv);
+        s.talking = true;
+      }
+    };
+    trySlot(state.host);
+    state.cohosts.forEach(trySlot);
+    state.speakers.forEach(trySlot);
+  }
+
+  // wire UI
+  loadStored();
+  rebuildSlots();
+  seedPlaceholders();
+  updateRtmpUI();
+
+  el.btnApplySpace && el.btnApplySpace.addEventListener('click', applySpaceFromInput);
+  el.btnOpenSpace && el.btnOpenSpace.addEventListener('click', () => {
+    window.open(spaceLink(state.id) + '?s=20', '_blank', 'noopener');
+  });
+  el.btnSeatMe && el.btnSeatMe.addEventListener('click', seatMe);
+  el.roleSelect && el.roleSelect.addEventListener('change', updateSlotSelect);
+  el.chatSend && el.chatSend.addEventListener('click', sendChat);
+  el.chatInput && el.chatInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      sendChat();
+    }
+  });
+  el.captionSet && el.captionSet.addEventListener('click', setCaption);
+  el.rtmpProto && el.rtmpProto.addEventListener('change', updateRtmpUI);
+  el.rtmpKey && el.rtmpKey.addEventListener('input', updateRtmpUI);
+  el.spaceUrl && el.spaceUrl.addEventListener('change', applySpaceFromInput);
+
+  // export for burst-orb
+  window.__gySpaces = {
+    onMesh: onMesh,
+    setAnalyser: (a) => { analyser = a; },
+    state: () => state,
+    broadcastRoster: broadcastRoster,
+  };
+
+  raf = requestAnimationFrame(loop);
+})();

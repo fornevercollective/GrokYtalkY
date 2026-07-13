@@ -108,7 +108,7 @@ func helpBodyKeys() string {
   ? / F1         this help (multi-page) · esc close
   q / ctrl+c     quit
   F              full ↔ companion dock
-  b              dual Glyph burst orb (you | peer)
+  b              dual Glyph burst orb (you | peer) + Spaces stage
   V              video lab on/off
   L              lab layout side|stack|grid|focus
   m              pixel style half·hex·braille·…
@@ -133,8 +133,10 @@ func helpBodyStream() string {
   R restart tile · K kill pipe (lab/news)
   /orch [hint] · *     Grok take: STYLE/CAPTION/PATTERN/GLYPH
   /plugin list|on|off|reload|style   in-process style + mesh hooks
+  /space [id|key|caption|seat|push]  X Spaces stage + RTMP/RTMPS
+  gy space · gy space-rtmp --key $K  ca.pscp.tv Media Studio producer
   gy doctor reliability · metrics   process health / prom text
-  gy doctor plugins                 registry + GY_PLUGIN_DIR
+  gy doctor plugins · space         registry + Spaces/RTMP status
   /social @user      social handle · lazy lab fill
   /duplex            open-mic full duplex (RX duck)
   /meshmidi          Strudel/walkie → hub type:midi
