@@ -9,20 +9,24 @@
   "use strict";
 
   const CHANNEL = "gy-glyph-cast";
+  const CAM = window.GY_CAMERA;
   const els = {
     stage: document.getElementById("gc-stage"),
     hud: document.getElementById("gc-hud"),
     meta: document.getElementById("gc-meta"),
+    lookLabel: document.getElementById("gc-look-label"),
     res: document.getElementById("gc-res"),
     led: document.getElementById("gc-led"),
     gap: document.getElementById("gc-gap"),
     layout: document.getElementById("gc-layout"),
     style: document.getElementById("gc-style"),
+    lookBtn: document.getElementById("gc-look"),
+    camPanel: document.getElementById("gc-cam-panel"),
     fs: document.getElementById("gc-fs"),
     hide: document.getElementById("gc-hud-hide"),
   };
 
-  /** @type {{id:string,nick:string,mode:string,lum:Uint8Array,glyphN?:number}[]} */
+  /** @type {{id:string,nick:string,mode:string,lum:Uint8Array,glyphN?:number,look?:object}[]} */
   let peers = [];
   let glyphN = 25;
   let renderStyle = "matrix";
@@ -33,6 +37,25 @@
   let raf = 0;
   let forceN = 0; // 0 = follow stream
   let hideHudTimer = 0;
+  /** Active phone/film look (aito-aligned) — grades luminance before paint */
+  let look = CAM ? CAM.clone(CAM.DEFAULTS) : null;
+
+  function setLookLabel() {
+    if (!els.lookLabel) return;
+    if (!look || !CAM) {
+      els.lookLabel.textContent = "look —";
+      return;
+    }
+    els.lookLabel.textContent = "look " + CAM.summary(look);
+  }
+
+  function setLook(l, source) {
+    if (!CAM || !l) return;
+    look = CAM.clone(l);
+    setLookLabel();
+    if (els.lookBtn) els.lookBtn.classList.toggle("is-on", CAM.summary(look) !== "neutral");
+    paint();
+  }
 
   // ── decode helpers ───────────────────────────────────────
   function b64ToU8(b64) {
@@ -59,14 +82,23 @@
       mode: p.mode || (p.self ? "self" : p.casting ? "cast" : "rx"),
       lum: lum,
       glyphN: p.glyphN || 0,
+      look: p.look || null,
     };
   }
 
   function applyMessage(msg) {
     if (!msg || typeof msg !== "object") return;
+    // mesh camera-controls from phone / TUI
+    if (msg.type === "camera-controls" && msg.look) {
+      setLook(msg.look, "mesh");
+      return;
+    }
     if (msg.type && msg.type !== "glyph-cast" && msg.type !== "frame" && msg.type !== "state") {
       // allow bare payload
-      if (!msg.peers && !msg.glyphN) return;
+      if (!msg.peers && !msg.glyphN && !msg.look) return;
+    }
+    if (msg.look && CAM) {
+      setLook(msg.look, "cast");
     }
     if (msg.glyphN && !forceN) {
       glyphN = [13, 25, 37, 49].includes(msg.glyphN) ? msg.glyphN : glyphN;
@@ -86,6 +118,13 @@
     }
     if (Array.isArray(msg.peers)) {
       peers = msg.peers.map(normalizePeer).filter(Boolean);
+      // inherit look from first peer that carries one
+      for (let i = 0; i < peers.length; i++) {
+        if (peers[i].look) {
+          setLook(peers[i].look, "peer");
+          break;
+        }
+      }
     }
     lastMsgAt = performance.now();
     document.body.classList.toggle("is-waiting", peers.length === 0);
@@ -233,10 +272,14 @@
       tile.style.width = geo.size + "px";
       tile.style.height = geo.size + "px";
       const canvas = document.createElement("canvas");
-      paintMatrix(canvas, lum, n, geo.led, geo.gap, renderStyle, p.mode);
+      paintMatrix(canvas, lum, n, geo.led, geo.gap, renderStyle, p.mode, p.look || null);
       const lab = document.createElement("div");
       lab.className = "gc-tile-label";
-      lab.textContent = p.nick + " · " + n + "² · " + geo.led + "px";
+      const lookTag =
+        CAM && (p.look || look) && CAM.summary(p.look || look) !== "neutral"
+          ? " · " + CAM.summary(p.look || look)
+          : "";
+      lab.textContent = p.nick + " · " + n + "² · " + geo.led + "px" + lookTag;
       tile.appendChild(canvas);
       tile.appendChild(lab);
       els.stage.appendChild(tile);
@@ -348,6 +391,10 @@
         } catch (_) {
           return;
         }
+        if (msg.type === "camera-controls" && msg.look) {
+          setLook(msg.look, "hub");
+          return;
+        }
         if (msg.type === "vburst-frame" || msg.type === "news-frame") {
           const label = msg.label || msg.feed || msg.from || msg.src || "live";
           let lum = null;
@@ -366,7 +413,9 @@
             mode: "cast",
             lum: lum,
             glyphN: n,
+            look: msg.look || null,
           };
+          if (msg.look) setLook(msg.look, "vburst");
           if (existing) {
             Object.assign(existing, peer);
           } else {
@@ -443,12 +492,32 @@
     });
   }
 
+  function toggleLookPanel() {
+    if (!els.camPanel || !CAM) return;
+    const open = els.camPanel.hidden;
+    els.camPanel.hidden = !open;
+    if (els.lookBtn) els.lookBtn.classList.toggle("is-on", open);
+    if (open) {
+      if (els.hud) els.hud.classList.remove("is-hidden");
+      CAM.mountPanel(els.camPanel, look || CAM.DEFAULTS, function (l) {
+        setLook(l, "ui");
+      });
+      scheduleHudHide();
+      // keep panel usable — longer hide
+      clearTimeout(hideHudTimer);
+    }
+  }
+  if (els.lookBtn) els.lookBtn.addEventListener("click", toggleLookPanel);
+
   document.addEventListener("mousemove", scheduleHudHide);
   document.addEventListener("touchstart", scheduleHudHide, { passive: true });
   document.addEventListener("keydown", (e) => {
     if (e.key === "f" || e.key === "F") goFullscreen();
     if (e.key === "h" || e.key === "H") {
       if (els.hud) els.hud.classList.toggle("is-hidden");
+    }
+    if (e.key === "l" || e.key === "L") {
+      toggleLookPanel();
     }
     if (e.key === "g" || e.key === "G") {
       layoutMode = layoutMode === "grid" ? "focus" : layoutMode === "focus" ? "dual" : "grid";

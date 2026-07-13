@@ -21,7 +21,7 @@ import (
 // Defaults are used for plain `go build` / `go run`.
 var (
 	// Default when not set by ldflags. make install uses git describe.
-	Version = "1.78.0"
+	Version = "1.78.1"
 	Commit  = "dev"
 	Date    = "unknown"
 )

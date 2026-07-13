@@ -63,7 +63,18 @@ LOOK film
 |------|-----|
 | `phone.html` | **Look** button → full panel; grades glyph + JPEG cast |
 | `camera-controls.js` | Shared module (presets, grade, hardware, mesh) |
-| `glyph-cast.html` | Receives look via BC / parent; future grade on paint |
+| `glyph-cast.html` | **Look** panel · grades LED paint · mesh `camera-controls` · `?look=film` |
+
+### glyph-cast
+
+```text
+https://fornevercollective.github.io/GrokYtalkY/glyph-cast.html?look=film&cast=1
+https://…/glyph-cast.html?hub=ws://127.0.0.1:9876&room=news&look=night
+```
+
+- **Look** / key `l` — aito-aligned sliders + presets  
+- Inbound `type:camera-controls` or `vburst-frame.look` from phone  
+- Per-peer look when present; else global look grades all tiles
 
 ## Phone / film map
 

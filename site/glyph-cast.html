@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>GrokGlyph · Screen cast</title>
   <meta name="theme-color" content="#000000" />
-  <meta name="description" content="Full-resolution Glyph Matrix screen cast — 13/25/37/49 LED scale for external displays." />
+  <meta name="description" content="Full-resolution Glyph Matrix screen cast — LED scale + phone/film lighting (aito-aligned)." />
+  <link rel="canonical" href="https://fornevercollective.github.io/GrokYtalkY/glyph-cast.html" />
   <link rel="stylesheet" href="glyph-cast.css" />
 </head>
 <body class="gc-body">
@@ -15,6 +16,7 @@
     <div class="gc-hud-row">
       <span class="gc-brand">◈ GrokGlyph · screen</span>
       <span class="gc-meta" id="gc-meta">waiting for feed…</span>
+      <span class="gc-look-label" id="gc-look-label" title="Active camera look">look neutral</span>
     </div>
     <div class="gc-hud-row gc-tools">
       <label>N
@@ -60,17 +62,20 @@
           <option value="neon">neon</option>
         </select>
       </label>
+      <button type="button" id="gc-look" class="gc-btn" title="Phone/film lighting (aito-aligned)">Look</button>
       <button type="button" id="gc-fs" class="gc-btn">Fullscreen</button>
       <button type="button" id="gc-hud-hide" class="gc-btn ghost">Hide UI</button>
     </div>
+    <div id="gc-cam-panel" class="gc-cam-panel" hidden></div>
     <p class="gc-hint">
-      Integer LED scale · full display · multi-feed matrix streams.
-      Open from <strong>Live News · Cast screen</strong> · GrokGlyph <strong>screen</strong> · or
-      <code>?hub=ws://host:9876&amp;room=news</code> for direct hub ingest.
-      Keys: <kbd>f</kbd> fullscreen · <kbd>h</kbd> HUD · <kbd>1–4</kbd> res · <kbd>g</kbd> grid
+      Integer LED scale · full display · multi-feed matrix · <strong>Look</strong> for exposure/WB/fill/night.
+      Open from <strong>Live News · Cast screen</strong> · GrokGlyph · phone cast
+      · <code>?hub=ws://host:9876&amp;room=news&amp;look=film</code>.
+      Keys: <kbd>f</kbd> fullscreen · <kbd>h</kbd> HUD · <kbd>l</kbd> Look · <kbd>1–4</kbd> res · <kbd>g</kbd> grid
     </p>
   </div>
 
+  <script src="camera-controls.js"></script>
   <script src="glyph-cast.js"></script>
 </body>
 </html>
