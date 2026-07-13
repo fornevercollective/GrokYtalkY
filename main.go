@@ -143,6 +143,9 @@ func run(args []string) error {
 	case "chat-bridge", "caption-bridge", "bridge-chat":
 		// thin DOJO hub → public Space chat captions (CF Worker / wrangler)
 		return runChatBridgeCmd(args)
+	case "sfu-bridge", "glyph-bridge", "bridge-sfu":
+		// hub vburst glyph → gy-sfu room lane
+		return runSfuBridgeCmd(args)
 	case "burst", "glyph", "orb":
 		// Siri-sized popup: hold space = short video+audio walkie burst
 		h := *host
@@ -256,6 +259,7 @@ func printHelp() {
   %s decode file     inspect .gyst|.gyhex|.pcap
   %s serve           headless hub
   %s chat-bridge     DOJO hub → public Space captions
+  %s sfu-bridge      hub vburst glyph → gy-sfu room
   %s version         version + build info
   %s update          check & install latest
   %s update --check  check only (exit 2 if outdated)
@@ -278,7 +282,7 @@ func printHelp() {
   flags: --burst --glyph 13|25|37|49 --glyph-scale 0..8 --midi --cam
   keys:  [ ] scale · g res · space PTT  (matches GlyphMatrix-Developer-Kit layout)
   env:   XAI_API_KEY · GROK_MODEL · GROK_CLI_URL
-`, Version, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd)
+`, Version, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd)
 }
 
 func runHubOnly(bind string, port int) error {

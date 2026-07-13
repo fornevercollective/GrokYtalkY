@@ -240,9 +240,14 @@
     const base = $("sfu-url").value.trim();
     const room = $("room").value.trim() || "dojo";
     const nick = $("nick").value.trim() || "anon";
+    const token = ($("token") && $("token").value.trim()) || localStorage.getItem("gy-sfu-token") || "";
     const u = new URL(base.replace(/^http/, "ws"));
     u.searchParams.set("room", room);
     u.searchParams.set("nick", nick);
+    if (token) {
+      u.searchParams.set("token", token);
+      localStorage.setItem("gy-sfu-token", token);
+    }
     setStatus("connecting " + u);
     const ws = new WebSocket(u.toString());
     state.ws = ws;

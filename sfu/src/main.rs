@@ -34,9 +34,13 @@ struct Args {
     #[arg(long, default_value_t = 64)]
     max_peers_per_room: usize,
 
-    /// Optional GrokYtalkY hub URL to bridge later (glyph/hex from mesh)
+    /// Optional GrokYtalkY hub URL (informational; use `gy sfu-bridge` for live glyph bridge)
     #[arg(long, default_value = "")]
     hub: String,
+
+    /// Shared room join token (empty = open DOJO). Env: GY_SFU_TOKEN
+    #[arg(long, default_value = "", env = "GY_SFU_TOKEN")]
+    token: String,
 }
 
 #[derive(Clone)]
@@ -44,6 +48,8 @@ pub struct AppState {
     pub rooms: Arc<RoomRegistry>,
     pub max_peers_per_room: usize,
     pub hub: String,
+    /// Empty string = no auth required
+    pub token: String,
     pub media_enabled: bool,
     #[cfg(feature = "media")]
     pub media: Option<Arc<media::MediaHub>>,
@@ -72,10 +78,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
+    if !args.token.is_empty() {
+        tracing::info!("auth token required (query ?token= or join.token)");
+    }
+
     let state = AppState {
         rooms: Arc::new(RoomRegistry::new()),
         max_peers_per_room: args.max_peers_per_room,
         hub: args.hub,
+        token: args.token,
         media_enabled: media_enabled && {
             #[cfg(feature = "media")]
             {
@@ -126,6 +137,7 @@ async fn health(State(st): State<AppState>) -> Json<serde_json::Value> {
         "hub": if st.hub.is_empty() { serde_json::Value::Null } else { st.hub.clone().into() },
         "lanes": lanes::ALL,
         "turn": std::env::var("GY_SFU_TURN_URLS").ok().map(|_| true).unwrap_or(false),
+        "auth": !st.token.is_empty(),
     }))
 }
 

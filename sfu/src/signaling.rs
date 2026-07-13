@@ -1,4 +1,4 @@
-//! WebSocket signaling — SDP/ICE relay + glyph/hex lane fan-out.
+//! WebSocket signaling — SDP/ICE relay + glyph/hex/chat + optional token auth.
 
 use std::sync::Arc;
 
@@ -19,6 +19,9 @@ pub struct WsQuery {
     pub room: String,
     #[serde(default = "default_nick")]
     pub nick: String,
+    /// Shared room token when SFU started with --token / GY_SFU_TOKEN
+    #[serde(default)]
+    pub token: String,
 }
 
 fn default_room() -> String {
@@ -39,6 +42,8 @@ pub enum ClientMsg {
         nick: Option<String>,
         #[serde(default)]
         lanes: Option<Vec<String>>,
+        #[serde(default)]
+        token: Option<String>,
     },
     Offer {
         sdp: String,
@@ -55,17 +60,14 @@ pub enum ClientMsg {
         #[serde(default)]
         to: Option<Uuid>,
     },
-    /// Glyph matrix lane (brightness or future RGB triples as JSON array).
     Glyph {
         n: u32,
         data: Vec<u8>,
     },
-    /// Opaque hex / packet lane payload (base64 or raw string).
     Hex {
         #[serde(default)]
         payload: String,
     },
-    /// Space/DOJO text chat — same envelope as gy hub `{type:chat}`.
     Chat {
         text: String,
         #[serde(default)]
@@ -144,7 +146,6 @@ async fn peer_session(socket: WebSocket, state: AppState, q: WsQuery) {
     let (mut sink, mut stream) = socket.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<ServerMsg>();
 
-    // outbound task
     let out = tokio::spawn(async move {
         while let Some(msg) = rx.recv().await {
             match serde_json::to_string(&msg) {
@@ -166,45 +167,24 @@ async fn peer_session(socket: WebSocket, state: AppState, q: WsQuery) {
     let mut peer_lanes = lanes::default_dojo_lanes();
     let mut peer_id: Option<Uuid> = None;
     let rooms = Arc::clone(&state.rooms);
+    let mut authed = check_token(&state.token, &q.token);
 
-    // Auto-join from query string so `ws://host/ws?room=dojo&nick=qbit` works immediately.
-    match rooms.join(
-        &room,
-        nick.clone(),
-        peer_lanes.clone(),
-        tx.clone(),
-        state.max_peers_per_room,
-    ) {
-        Ok((id, others)) => {
-            peer_id = Some(id);
-            media_ensure(&state, id, &room, &nick, tx.clone()).await;
-            let _ = tx.send(ServerMsg::Welcome {
-                peer_id: id,
-                room: room.clone(),
-                media: state.media_enabled,
-                lanes: peer_lanes.clone(),
-            });
-            for o in &others {
-                let _ = tx.send(ServerMsg::PeerJoined {
-                    peer_id: o.id,
-                    nick: o.nick.clone(),
-                    lanes: o.lanes.clone(),
-                });
-            }
-            rooms.broadcast(
-                &room,
-                Some(id),
-                ServerMsg::PeerJoined {
-                    peer_id: id,
-                    nick: nick.clone(),
-                    lanes: peer_lanes.clone(),
-                },
-            );
-            tracing::info!(%id, %room, %nick, "peer joined (query)");
-        }
-        Err(message) => {
-            let _ = tx.send(ServerMsg::Error { message });
-        }
+    if !state.token.is_empty() && !authed {
+        let _ = tx.send(ServerMsg::Error {
+            message: "auth required: ?token= or join.token (GY_SFU_TOKEN)".into(),
+        });
+    } else if let Err(message) = try_join(
+        &rooms,
+        &state,
+        &mut room,
+        &mut nick,
+        &peer_lanes,
+        &tx,
+        &mut peer_id,
+    )
+    .await
+    {
+        let _ = tx.send(ServerMsg::Error { message });
     }
 
     while let Some(Ok(msg)) = stream.next().await {
@@ -225,189 +205,71 @@ async fn peer_session(socket: WebSocket, state: AppState, q: WsQuery) {
             }
         };
 
-        match cmsg {
-            ClientMsg::Join {
-                room: r,
-                nick: n,
-                lanes: l,
-            } => {
-                if let Some(r) = r {
-                    if !r.is_empty() {
-                        room = r;
-                    }
-                }
-                if let Some(n) = n {
-                    if !n.is_empty() {
-                        nick = n;
-                    }
-                }
-                if let Some(l) = l {
-                    peer_lanes = lanes::normalize(&l);
-                }
-
-                // re-join: leave previous
-                if let Some(id) = peer_id.take() {
-                    media_remove(&state, id).await;
-                    rooms.leave(&room, id);
-                    rooms.broadcast(
-                        &room,
-                        None,
-                        ServerMsg::PeerLeft { peer_id: id },
-                    );
-                }
-
-                match rooms.join(
-                    &room,
-                    nick.clone(),
-                    peer_lanes.clone(),
-                    tx.clone(),
-                    state.max_peers_per_room,
-                ) {
-                    Ok((id, others)) => {
-                        peer_id = Some(id);
-                        media_ensure(&state, id, &room, &nick, tx.clone()).await;
-                        let _ = tx.send(ServerMsg::Welcome {
-                            peer_id: id,
-                            room: room.clone(),
-                            media: state.media_enabled,
-                            lanes: peer_lanes.clone(),
-                        });
-                        for o in &others {
-                            let _ = tx.send(ServerMsg::PeerJoined {
-                                peer_id: o.id,
-                                nick: o.nick.clone(),
-                                lanes: o.lanes.clone(),
-                            });
-                        }
-                        rooms.broadcast(
-                            &room,
-                            Some(id),
-                            ServerMsg::PeerJoined {
-                                peer_id: id,
-                                nick: nick.clone(),
-                                lanes: peer_lanes.clone(),
-                            },
-                        );
-                        tracing::info!(%id, %room, %nick, "peer joined");
-                    }
-                    Err(message) => {
-                        let _ = tx.send(ServerMsg::Error { message });
-                    }
+        if let ClientMsg::Join {
+            room: r,
+            nick: n,
+            lanes: l,
+            token: join_tok,
+        } = &cmsg
+        {
+            if let Some(t) = join_tok {
+                if check_token(&state.token, t) {
+                    authed = true;
                 }
             }
-            ClientMsg::Offer { sdp, to } => {
-                let Some(from) = peer_id else {
-                    let _ = tx.send(ServerMsg::Error {
-                        message: "join first".into(),
-                    });
-                    continue;
-                };
-                // Media mode + no target → SFU is the answerer (track fan-out)
-                if to.is_none() && state.media_enabled {
-                    if let Err(e) = media_handle_offer(&state, from, sdp).await {
-                        let _ = tx.send(ServerMsg::Error { message: e });
-                    }
-                    continue;
-                }
-                let msg = ServerMsg::Offer { from, sdp };
-                if let Some(to) = to {
-                    rooms.send_to(&room, to, msg);
-                } else {
-                    rooms.broadcast(&room, Some(from), msg);
-                }
-            }
-            ClientMsg::Answer { sdp, to } => {
-                let Some(from) = peer_id else { continue };
-                // Media renegotiation answer (SFU offered new track) when to is None
-                if to.is_none() && state.media_enabled {
-                    if let Err(e) = media_handle_answer(&state, from, sdp).await {
-                        let _ = tx.send(ServerMsg::Error { message: e });
-                    }
-                    continue;
-                }
-                let msg = ServerMsg::Answer { from, sdp };
-                if let Some(to) = to {
-                    rooms.send_to(&room, to, msg);
-                } else {
-                    rooms.broadcast(&room, Some(from), msg);
-                }
-            }
-            ClientMsg::Ice { candidate, to } => {
-                let Some(from) = peer_id else { continue };
-                if to.is_none() && state.media_enabled {
-                    if let Err(e) = media_handle_ice(&state, from, candidate).await {
-                        let _ = tx.send(ServerMsg::Error { message: e });
-                    }
-                    continue;
-                }
-                let msg = ServerMsg::Ice { from, candidate };
-                if let Some(to) = to {
-                    rooms.send_to(&room, to, msg);
-                } else {
-                    rooms.broadcast(&room, Some(from), msg);
-                }
-            }
-            ClientMsg::Glyph { n, data } => {
-                let Some(from) = peer_id else { continue };
-                // Soft sanity: device N or display ladder
-                if !(n == 13 || n == 25 || n == 37 || n == 49 || n <= 96) {
-                    let _ = tx.send(ServerMsg::Error {
-                        message: format!("glyph n={n} unsupported"),
-                    });
-                    continue;
-                }
-                rooms.broadcast(
-                    &room,
-                    Some(from),
-                    ServerMsg::Glyph { from, n, data },
-                );
-            }
-            ClientMsg::Hex { payload } => {
-                let Some(from) = peer_id else { continue };
-                rooms.broadcast(
-                    &room,
-                    Some(from),
-                    ServerMsg::Hex { from, payload },
-                );
-            }
-            ClientMsg::Chat {
-                text,
-                from: from_nick,
-                role,
-                meta,
-            } => {
-                let Some(from) = peer_id else { continue };
-                let text = text.trim();
-                if text.is_empty() || text.len() > 2000 {
-                    continue;
-                }
-                let nick = from_nick
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or_else(|| nick.clone());
-                let t = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis() as i64)
-                    .unwrap_or(0);
-                rooms.broadcast(
-                    &room,
-                    Some(from),
-                    ServerMsg::Chat {
-                        from,
-                        nick,
-                        text: text.to_string(),
-                        t,
-                        role,
-                        meta,
-                    },
-                );
-            }
-            ClientMsg::Leave => break,
-            ClientMsg::Unknown => {
+            // query token already checked; allow re-auth via Join
+            if !state.token.is_empty() && !authed {
                 let _ = tx.send(ServerMsg::Error {
-                    message: "unknown message type".into(),
+                    message: "auth failed".into(),
                 });
+                continue;
             }
+            if let Some(r) = r {
+                if !r.is_empty() {
+                    room = r.clone();
+                }
+            }
+            if let Some(n) = n {
+                if !n.is_empty() {
+                    nick = n.clone();
+                }
+            }
+            if let Some(l) = l {
+                peer_lanes = lanes::normalize(l);
+            }
+            if let Some(id) = peer_id.take() {
+                media_remove(&state, id).await;
+                rooms.leave(&room, id);
+                rooms.broadcast(&room, None, ServerMsg::PeerLeft { peer_id: id });
+            }
+            if let Err(message) = try_join(
+                &rooms,
+                &state,
+                &mut room,
+                &mut nick,
+                &peer_lanes,
+                &tx,
+                &mut peer_id,
+            )
+            .await
+            {
+                let _ = tx.send(ServerMsg::Error { message });
+            }
+            continue;
         }
+
+        if !state.token.is_empty() && !authed {
+            let _ = tx.send(ServerMsg::Error {
+                message: "auth required before media/signaling".into(),
+            });
+            continue;
+        }
+
+        if matches!(cmsg, ClientMsg::Leave) {
+            break;
+        }
+
+        handle_authed(&state, &rooms, &room, &nick, &mut peer_id, &tx, cmsg).await;
     }
 
     if let Some(id) = peer_id.take() {
@@ -419,7 +281,183 @@ async fn peer_session(socket: WebSocket, state: AppState, q: WsQuery) {
     out.abort();
 }
 
-// --- media hooks (no-ops without --features media) ---
+fn check_token(required: &str, provided: &str) -> bool {
+    if required.is_empty() {
+        return true;
+    }
+    let a = required.as_bytes();
+    let b = provided.as_bytes();
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+async fn try_join(
+    rooms: &Arc<crate::room::RoomRegistry>,
+    state: &AppState,
+    room: &mut String,
+    nick: &mut String,
+    peer_lanes: &[String],
+    tx: &mpsc::UnboundedSender<ServerMsg>,
+    peer_id: &mut Option<Uuid>,
+) -> Result<(), String> {
+    match rooms.join(
+        room,
+        nick.clone(),
+        peer_lanes.to_vec(),
+        tx.clone(),
+        state.max_peers_per_room,
+    ) {
+        Ok((id, others)) => {
+            *peer_id = Some(id);
+            media_ensure(state, id, room, nick, tx.clone()).await;
+            let _ = tx.send(ServerMsg::Welcome {
+                peer_id: id,
+                room: room.clone(),
+                media: state.media_enabled,
+                lanes: peer_lanes.to_vec(),
+            });
+            for o in &others {
+                let _ = tx.send(ServerMsg::PeerJoined {
+                    peer_id: o.id,
+                    nick: o.nick.clone(),
+                    lanes: o.lanes.clone(),
+                });
+            }
+            rooms.broadcast(
+                room,
+                Some(id),
+                ServerMsg::PeerJoined {
+                    peer_id: id,
+                    nick: nick.clone(),
+                    lanes: peer_lanes.to_vec(),
+                },
+            );
+            tracing::info!(%id, %room, %nick, "peer joined");
+            Ok(())
+        }
+        Err(message) => Err(message),
+    }
+}
+
+async fn handle_authed(
+    state: &AppState,
+    rooms: &Arc<crate::room::RoomRegistry>,
+    room: &str,
+    nick: &str,
+    peer_id: &mut Option<Uuid>,
+    tx: &mpsc::UnboundedSender<ServerMsg>,
+    cmsg: ClientMsg,
+) {
+    match cmsg {
+        ClientMsg::Join { .. } | ClientMsg::Leave => {}
+        ClientMsg::Offer { sdp, to } => {
+            let Some(from) = *peer_id else {
+                let _ = tx.send(ServerMsg::Error {
+                    message: "join first".into(),
+                });
+                return;
+            };
+            if to.is_none() && state.media_enabled {
+                if let Err(e) = media_handle_offer(state, from, sdp).await {
+                    let _ = tx.send(ServerMsg::Error { message: e });
+                }
+                return;
+            }
+            let msg = ServerMsg::Offer { from, sdp };
+            if let Some(to) = to {
+                rooms.send_to(room, to, msg);
+            } else {
+                rooms.broadcast(room, Some(from), msg);
+            }
+        }
+        ClientMsg::Answer { sdp, to } => {
+            let Some(from) = *peer_id else { return };
+            if to.is_none() && state.media_enabled {
+                if let Err(e) = media_handle_answer(state, from, sdp).await {
+                    let _ = tx.send(ServerMsg::Error { message: e });
+                }
+                return;
+            }
+            let msg = ServerMsg::Answer { from, sdp };
+            if let Some(to) = to {
+                rooms.send_to(room, to, msg);
+            } else {
+                rooms.broadcast(room, Some(from), msg);
+            }
+        }
+        ClientMsg::Ice { candidate, to } => {
+            let Some(from) = *peer_id else { return };
+            if to.is_none() && state.media_enabled {
+                if let Err(e) = media_handle_ice(state, from, candidate).await {
+                    let _ = tx.send(ServerMsg::Error { message: e });
+                }
+                return;
+            }
+            let msg = ServerMsg::Ice { from, candidate };
+            if let Some(to) = to {
+                rooms.send_to(room, to, msg);
+            } else {
+                rooms.broadcast(room, Some(from), msg);
+            }
+        }
+        ClientMsg::Glyph { n, data } => {
+            let Some(from) = *peer_id else { return };
+            if !(n == 13 || n == 25 || n == 37 || n == 49 || n <= 96) {
+                let _ = tx.send(ServerMsg::Error {
+                    message: format!("glyph n={n} unsupported"),
+                });
+                return;
+            }
+            rooms.broadcast(room, Some(from), ServerMsg::Glyph { from, n, data });
+        }
+        ClientMsg::Hex { payload } => {
+            let Some(from) = *peer_id else { return };
+            rooms.broadcast(room, Some(from), ServerMsg::Hex { from, payload });
+        }
+        ClientMsg::Chat {
+            text,
+            from: from_nick,
+            role,
+            meta,
+        } => {
+            let Some(from) = *peer_id else { return };
+            let text = text.trim();
+            if text.is_empty() || text.len() > 2000 {
+                return;
+            }
+            let nick = from_nick
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| nick.to_string());
+            let t = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0);
+            rooms.broadcast(
+                room,
+                Some(from),
+                ServerMsg::Chat {
+                    from,
+                    nick,
+                    text: text.to_string(),
+                    t,
+                    role,
+                    meta,
+                },
+            );
+        }
+        ClientMsg::Unknown => {
+            let _ = tx.send(ServerMsg::Error {
+                message: "unknown message type".into(),
+            });
+        }
+    }
+}
 
 async fn media_ensure(
     state: &AppState,
@@ -453,7 +491,10 @@ async fn media_remove(state: &AppState, id: Uuid) {
 async fn media_handle_offer(state: &AppState, id: Uuid, sdp: String) -> Result<(), String> {
     #[cfg(feature = "media")]
     {
-        let hub = state.media.as_ref().ok_or_else(|| "media hub down".to_string())?;
+        let hub = state
+            .media
+            .as_ref()
+            .ok_or_else(|| "media hub down".to_string())?;
         hub.handle_offer(id, sdp).await
     }
     #[cfg(not(feature = "media"))]
@@ -466,7 +507,10 @@ async fn media_handle_offer(state: &AppState, id: Uuid, sdp: String) -> Result<(
 async fn media_handle_answer(state: &AppState, id: Uuid, sdp: String) -> Result<(), String> {
     #[cfg(feature = "media")]
     {
-        let hub = state.media.as_ref().ok_or_else(|| "media hub down".to_string())?;
+        let hub = state
+            .media
+            .as_ref()
+            .ok_or_else(|| "media hub down".to_string())?;
         hub.handle_answer(id, sdp).await
     }
     #[cfg(not(feature = "media"))]
@@ -483,7 +527,10 @@ async fn media_handle_ice(
 ) -> Result<(), String> {
     #[cfg(feature = "media")]
     {
-        let hub = state.media.as_ref().ok_or_else(|| "media hub down".to_string())?;
+        let hub = state
+            .media
+            .as_ref()
+            .ok_or_else(|| "media hub down".to_string())?;
         hub.handle_ice(id, candidate).await
     }
     #[cfg(not(feature = "media"))]

@@ -144,7 +144,9 @@ open site/dojo.html   # Join · allow cam · Send glyph pulse · chat
 - [x] **Outbound SFU DataChannels** (`glyph` · `hex` · `chat`) + client DCs  
 - [x] STUN + optional TURN env  
 - [x] E2E demo: [`site/dojo.html`](../site/dojo.html)  
-- [ ] Auth tokens · hub glyph bridge · metrics
+- [x] Auth token (`--token` / `GY_SFU_TOKEN` / `?token=`)  
+- [x] Hub glyph bridge: `gy sfu-bridge` (vburst-frame.glyph → room)  
+- [ ] Metrics
 
 ## License
 
