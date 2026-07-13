@@ -514,6 +514,8 @@ func FormatVisionBackboneDoctor(v *VisionBus) string {
 	b.WriteString("  hooks     plugin VisionHook · Subscribe() · mesh type:vision-take\n")
 	b.WriteString("  aito      GY_VISION_AITO_URL · AITO_MOCK=1 · /segment /pose /gsplat /depth\n")
 	b.WriteString("  sides     aito-sam · aito-pose · aito-gsplat · aito-depth · depth-proxy\n")
+	b.WriteString("  plugin    theme-vision · VisionHook + StylePainter on THEME\n")
+	b.WriteString(FormatThemeVisionDoctor())
 	b.WriteString(FormatVisionMediaDoctor())
 	return b.String()
 }

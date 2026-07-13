@@ -13,7 +13,7 @@ func TestBuiltinPluginsRegistered(t *testing.T) {
 	if len(list) < 4 {
 		t.Fatalf("expected builtins, got %d", len(list))
 	}
-	for _, name := range []string{"invert", "mirror", "threshold", "heatmap", "mesh-tag", "quiet-roster"} {
+	for _, name := range []string{"invert", "mirror", "threshold", "heatmap", "mesh-tag", "quiet-roster", "theme-vision"} {
 		if r.Get(name) == nil {
 			t.Fatalf("missing %s", name)
 		}

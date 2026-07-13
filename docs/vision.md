@@ -100,6 +100,21 @@ Vision().Registry().Subscribe(func(ev VisionEvent) { ... })
 
 Mesh: `type:vision-take` · `theme` · `caption` · `style` · `mute_hint` · `depth`
 
+### Builtin `theme-vision` VisionPlugin
+
+| Piece | Role |
+|-------|------|
+| `VisionHook` | on `vision-take` stores THEME / feed / caption |
+| `StylePainter` | `theme-vision` grades RGB by theme (scan/green/neon…) |
+| Auto style | sets lab `PluginStyle=theme-vision` (`GY_VISION_THEME_STYLE`) |
+| Auto pixel | maps theme → PixelMode when take has no STYLE (`GY_VISION_THEME_PIXEL`) |
+
+```bash
+/plugin list          # ✓ theme-vision  style vision
+/plugin style theme-vision
+/plugin off theme-vision
+```
+
 ## Env
 
 | Variable | Default | Role |

@@ -136,7 +136,7 @@ func helpBodyStream() string {
   /vision [on|off|status|media]  vision + FFmpeg + Aito + retarget
   MEDIA retarget crop=x,y,w,h · SAM closed-loop focus crop
   GY_VISION=1 · RETARGET=1 · AITO_URL · MEDIA=1  vision budgets
-  /plugin list|on|off|reload|style   in-process style + mesh hooks
+  /plugin list|on|off|style theme-vision  style + mesh + vision hooks
   /space mute|listeners|key --pull   X Spaces host controls + key pull
   /space offer · guest <nick>        gy as X.com stream asset
   gy stream-x init|start|offer       reusable Media Studio publisher

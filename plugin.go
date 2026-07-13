@@ -222,10 +222,17 @@ func (r *PluginRegistry) FormatPluginList() string {
 		if p.Mesh() != nil {
 			kind += "mesh "
 		}
-		fmt.Fprintf(&b, "  %s %-12s  %s— %s\n", mark, p.Name(), kind, p.Description())
+		if vh, ok := p.(interface{ VisionHook() VisionHook }); ok && vh.VisionHook() != nil {
+			kind += "vision "
+		}
+		fmt.Fprintf(&b, "  %s %-14s  %s— %s\n", mark, p.Name(), kind, p.Description())
 	}
 	b.WriteString("  dir: " + defaultPluginDir() + "\n")
-	b.WriteString("  /plugin on|off <name> · /plugin list · GY_PLUGIN_DIR\n")
+	b.WriteString("  /plugin on|off <name> · /plugin style theme-vision · GY_PLUGIN_DIR\n")
+	// theme-vision doctor blurb when registered
+	if r.Get(themeVisionPluginName) != nil {
+		b.WriteString(FormatThemeVisionDoctor())
+	}
 	return b.String()
 }
 
@@ -544,4 +551,6 @@ func registerBuiltinPlugins(r *PluginRegistry) {
 		name: "quiet-roster", desc: "mesh · drop roster floods (inbound)", on: false,
 		mesh: &typeFilterMesh{name: "quiet-roster", drop: map[string]bool{"roster": true}},
 	})
+	// vision-take → theme-reactive style painter (VisionPlugin)
+	r.Register(ThemeVision())
 }

@@ -4794,6 +4794,9 @@ func (m *Model) applyGrokTake(take GrokTake) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// theme-vision plugin applied after STYLE so explicit STYLE wins for pixel mode
+	// (PluginStyle grade still layers when auto-style is on — see end of theme block)
+
 	if take.Theme != "" {
 		feed := ""
 		if af := m.lab; af != nil && af.On {
@@ -4852,6 +4855,13 @@ func (m *Model) applyGrokTake(take GrokTake) (tea.Model, tea.Cmd) {
 				}
 			}
 			applied = append(applied, "style="+st.String())
+		}
+	}
+
+	// theme-reactive VisionPlugin: PluginStyle + optional pixel map from THEME
+	if take.Theme != "" {
+		if tv := ApplyThemeVisionPlugin(m, take); len(tv) > 0 {
+			applied = append(applied, tv...)
 		}
 	}
 

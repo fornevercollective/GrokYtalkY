@@ -1,7 +1,8 @@
 # GrokYtalkY plugins (JSON manifests)
 
 In-process hooks — no Go `.so` plugins. Built-ins ship in the binary
-(`invert`, `mirror`, `threshold`, `heatmap`, `mesh-tag`, `quiet-roster`).
+(`invert`, `mirror`, `threshold`, `heatmap`, `mesh-tag`, `quiet-roster`,
+**`theme-vision`** — VisionPlugin: theme-reactive painter on `vision-take`).
 
 ## Install a manifest
 
@@ -32,3 +33,29 @@ gy doctor plugins
 
 Style plugins participate in lab `m` / `/mode` cycle after built-in pixel modes.
 Mesh hooks run on hub JSON (inbound `handleWS`, outbound `SendJSON`).
+
+## theme-vision (builtin VisionPlugin)
+
+Reacts to mesh/in-process `vision-take` **THEME** lines:
+
+| Theme | Grade | Pixel hint |
+|-------|-------|------------|
+| breaking | red scan | scan |
+| markets | green matrix | hex |
+| conflict | hot red edge | neon |
+| weather | cool cyan | dither |
+| earthcam | scenic green | neon |
+| … | … | … |
+
+```bash
+# auto on with vision takes:
+export GY_VISION=1
+export GY_VISION_THEME_STYLE=1   # set lab PluginStyle=theme-vision
+export GY_VISION_THEME_PIXEL=1   # map theme → PixelMode when no STYLE line
+# TUI:
+/plugin list
+/plugin style theme-vision
+/plugin off theme-vision
+gy doctor plugins
+gy doctor vision
+```
