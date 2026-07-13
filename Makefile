@@ -1,4 +1,4 @@
-.PHONY: build install install-system uninstall brew-local test help version launch
+.PHONY: build install install-system uninstall brew-local test help version launch sfu sfu-media
 
 PREFIX ?= $(HOME)/.local
 BIN_DIR := $(PREFIX)/bin
@@ -39,6 +39,16 @@ brew-local:
 test:
 	go test ./...
 
+# DOJO SFU sidecar (Rust + Tokio signaling; optional webrtc-rs via sfu-media)
+sfu:
+	cd sfu && cargo build --release
+	@echo "→ sfu/target/release/gy-sfu  (signaling)"
+	@echo "  run: ./sfu/target/release/gy-sfu --bind 127.0.0.1:9880"
+
+sfu-media:
+	cd sfu && cargo build --release --features media
+	@echo "→ sfu/target/release/gy-sfu  (+webrtc-rs media)"
+
 version:
 	@echo "VERSION=$(VERSION)"
 	@echo "COMMIT=$(COMMIT)"
@@ -46,7 +56,9 @@ version:
 	@go run -ldflags "$(LDFLAGS)" . version 2>/dev/null || true
 
 help:
-	@echo "make build | install | install-system | launch | uninstall | test"
+	@echo "make build | install | install-system | launch | uninstall | test | sfu"
 	@echo "  install-system → /usr/local/bin/gy + yt-dlp/ffmpeg check"
 	@echo "  launch         → new Terminal window running gy"
+	@echo "  sfu            → Rust DOJO SFU sidecar (signaling)"
+	@echo "  sfu-media      → SFU + webrtc-rs (heavier)"
 	@echo "  gy watch <url> → auto yt-dlp resolve"

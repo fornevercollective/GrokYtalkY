@@ -25,6 +25,8 @@ git clone https://github.com/fornevercollective/grokytalky.git && cd grokytalky 
 | `strudel/` | Mini-notation engine + local audio |
 | `vpipe.go` | ffmpeg RGB pipe for mp4/mkv/mov |
 | `grok.go` | xAI / local backend chat |
+| `sfu/` | DOJO WebRTC SFU sidecar (Tokio signaling; optional webrtc-rs) |
+| `docs/streams-capacity.md` | Hybrid CF + SFU + hub concurrency |
 
 ## Env
 

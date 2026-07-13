@@ -2,6 +2,58 @@
 
 GrokYtalkY uses **ffmpeg** (capture / decode / scale) and **ffplay** (audio, optional preview). Capacity depends on **codec**, **resolution**, **FPS**, and **number of feeds** — not a single hard limit.
 
+## Hybrid delivery (recommended)
+
+**Cloudflare** for global web viewers + DDoS/TLS simplicity.  
+**Custom webrtc-rs + Tokio SFU** (`sfu/`) for DOJO ownership, private rooms, and custom low-res **glyph/hex** lanes.  
+**JAX / FFmpeg** stay **off the hot path** (process → publish ladder).  
+**Terminals** stay on the tight **25² / half-block** aesthetic — that *is* the product.
+
+```
+                    cameras · gy · browser · Glyph Toy
+                                   │
+                    ┌──────────────┴──────────────┐
+                    │   ingest + process (async)  │
+                    │   FFmpeg ladder · JAX depth │
+                    └──────────────┬──────────────┘
+                                   │
+              ┌────────────────────┼────────────────────┐
+              │                    │                    │
+              ▼                    ▼                    ▼
+     ┌─────────────────┐  ┌─────────────────┐  ┌──────────────────┐
+     │ GrokYtalkY hub  │  │ DOJO SFU sidecar│  │ Cloudflare Calls │
+     │ (hexcast WS)    │  │ webrtc-rs+Tokio │  │ / media SFU      │
+     │ burst·glyph·PCM │  │ private rooms   │  │ global viewers   │
+     └────────┬────────┘  └────────┬────────┘  └────────┬─────────┘
+              │                    │                    │
+              ▼                    ▼                    ▼
+        gy · Glyph · hex     DOJO peers (WebRTC)   1k+ web watchers
+        16–32 interactive     + glyph/hex DataCh    (downsampled lane)
+```
+
+| Layer | Role | Concurrency sweet spot |
+|-------|------|------------------------|
+| **GrokYtalkY hub** (`gy serve`) | Walkie bursts, lab tiles, Glyph ints, hex/binary | **8–32** hot peers / room |
+| **DOJO SFU** (`sfu/`) | Private rooms, WebRTC + custom lanes | **~50–200** peers / node |
+| **Cloudflare** | Public broadcast, TLS, edge fan-out | **1k+** viewers / room |
+| **FFmpeg / JAX** | Transcode, ZipDepth, style — offline/worker | Not per-packet fan-out |
+
+### Lanes (do not push 1080p into ▀)
+
+| Lane | Content | Consumers |
+|------|---------|-----------|
+| `glyph` | 13² / 25² brightness or RGB LED grid | Nothing Matrix, terminal dual ◎ |
+| `hex` | Low-res mosaic / .gyhex packets | Terminal hex style, hexcast |
+| `mid` | ~160–320 wide H.264/VP8 | Compact web tiles |
+| `full` | Optional 720p+ for web only | Cloudflare / web player |
+
+**Jam target:** 16–32 interactive peers on hub/SFU.  
+**Broadcast target:** 1k+ via CF, terminals on `glyph`/`hex` downsampled lanes.
+
+Scaffold: [`sfu/`](../sfu/README.md) · site note: [docs.html#streams-scale](https://fornevercollective.github.io/GrokYtalkY/docs.html#streams-scale)
+
+---
+
 ## Paths in this app
 
 | Path | Format | Typical use |
@@ -9,8 +61,10 @@ GrokYtalkY uses **ffmpeg** (capture / decode / scale) and **ffplay** (audio, opt
 | Terminal lab tiles | **RGB24** resampled → half-blocks | Local display only |
 | Cam snap | JPEG stills @ lab FPS | Cam → tile |
 | `/watch` + vpipe | ffmpeg **raw RGB24** pipe + **ffplay** audio | File / URL / yt-dlp |
-| Mesh burst | JPEG ~120² + PCM16 16 kHz | Short video walkie |
+| Mesh burst | JPEG ~120² + PCM16 16 kHz + `glyph[]` | Short video walkie |
 | ZipDepth sidecar | RGB stills POST | Depth map |
+| DOJO SFU (sidecar) | WebRTC + DataChannel lanes | Private multi-peer rooms |
+| CF (optional) | WebRTC / HLS edge | Public simulcast |
 
 ## Order-of-magnitude budgets
 
@@ -45,7 +99,7 @@ ffmpeg -i SRC -vf scale=W:H,format=rgb24 -f rawvideo pipe:1
 
 ### C) Compressed live (network / disk)
 
-With **libx264** / **h264_videotoolbox** / **libx265** / **libvpx-vp9** / **libsvtav1** (present on this machine):
+With **libx264** / **h264_videotoolbox** / **libx265** / **libvpx-vp9** / **libsvtav1**:
 
 | Target | Rough bitrate |
 |--------|----------------|
@@ -65,6 +119,15 @@ With **libx264** / **h264_videotoolbox** / **libx265** / **libvpx-vp9** / **libs
 | PCM16 mono 16 kHz | **0.256 Mbps** fixed |
 | 6 peers bursting | ~4–6 Mbps + audio |
 
+### E) SFU / CF fan-out
+
+| Path | Rough cost |
+|------|------------|
+| SFU 1 publisher → N viewers | ~`N × lane_bitrate` egress (server) |
+| Glyph lane 25² @ 8 fps | tiny (≪ 0.1 Mbps / peer) |
+| Mid 320p H.264 @ 15 | ~0.3–0.8 Mbps / viewer |
+| CF edge | billed / free tier; hides TURN pain |
+
 ## ffplay / ffmpeg roles
 
 | Tool | Role | Limit notes |
@@ -81,6 +144,8 @@ With **libx264** / **h264_videotoolbox** / **libx265** / **libvpx-vp9** / **libs
 | Max lab | 6 | ≤64 | ≤12 | Raise scale only if CPU idle |
 | Single watch | 1 | full term | 12–24 | Auto-scales to terminal |
 | Burst mesh | 1 TX | 120² | 4–8 | Keep bursts short |
+| DOJO jam (interactive) | 16–32 peers | glyph/hex | 4–12 | Hub + optional SFU |
+| Public showcase | 1k+ viewers | mid via CF | 15–30 | Terminals stay glyph/hex |
 
 ## Quick fill placeholders
 
@@ -98,5 +163,6 @@ r       clear slot back to placeholder
 1. Prefer **yuv420 / H.264** on the wire; RGB only after scale for TUI.  
 2. Cap **FPS** before **scale** if CPU spikes.  
 3. Don’t open 6× 1080p ffplay previews — tiles only.  
-4. Mesh: JPEG thumbs, not raw RGB.  
-5. `gy doctor` + lab **budget** line for live estimate.
+4. Mesh: JPEG thumbs + glyph ints, not raw RGB.  
+5. SFU: publish **lanes**; never one 1080p into every terminal.  
+6. `gy doctor` + lab **budget** line for live estimate.

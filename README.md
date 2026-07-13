@@ -38,6 +38,13 @@ gy watch clip.mp4
 **Burst / Glyph:** dual circular LEDs (Nothing GDK layout). `[` `]` scale · `g` res · `space` PTT.
 Site: [burst.html](https://fornevercollective.github.io/GrokYtalkY/burst.html) · [docs](https://fornevercollective.github.io/GrokYtalkY/docs.html#burst).
 
+**Hybrid streams:** Cloudflare for 1k+ web viewers · DOJO SFU sidecar for private rooms + glyph/hex lanes · terminals stay 25²/half-block. See [`docs/streams-capacity.md`](docs/streams-capacity.md) · scaffold [`sfu/`](sfu/README.md).
+
+```bash
+make sfu && ./sfu/target/release/gy-sfu --bind 127.0.0.1:9880
+# gy serve  → :9876 mesh   |  gy-sfu → :9880 signaling
+```
+
 ### Install (pick one)
 
 | Method | Command | Binary on PATH |

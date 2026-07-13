@@ -195,6 +195,15 @@ ffplay -vn SRC   # audio parallel</code></pre>
           JAX/FFmpeg fit <em>processing</em> (depth, style, resample) off the hot path; delivery should stay
           WebRTC SFU or Cloudflare media. Terminal/HexCast clients keep the low-res vibe — don’t push 1080p into ▀ cells.
         </p>
+        <p>
+          In-repo scaffold: <code>sfu/</code> (<code>make sfu</code> → <code>gy-sfu</code> on <code>:9880</code>) —
+          room registry, WS signaling, glyph/hex lane fan-out. Full write-up:
+          <code>docs/streams-capacity.md</code>.
+        </p>
+        <pre class="code-block"><code>make sfu
+./sfu/target/release/gy-sfu --bind 127.0.0.1:9880
+curl -s http://127.0.0.1:9880/health
+# WS: ws://127.0.0.1:9880/ws?room=dojo&amp;nick=qbit</code></pre>
       </section>
 
       <section id="patterns" class="docs-section">
