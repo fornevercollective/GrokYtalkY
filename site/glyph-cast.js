@@ -177,7 +177,21 @@
     return { led, gap, size };
   }
 
-  function paintMatrix(canvas, lum, n, led, gap, style, mode) {
+  /** Grade lum with active look (or peer look) before LED paint. */
+  function gradeLum(lum, peerLook) {
+    if (!CAM || !CAM.applyLookToLum) return lum;
+    const L = peerLook || look;
+    if (!L) return lum;
+    const f = new Float32Array(lum.length);
+    for (let i = 0; i < lum.length; i++) f[i] = (lum[i] | 0) / 255;
+    const out = CAM.applyLookToLum(f, L);
+    const u8 = new Uint8Array(out.length);
+    for (let i = 0; i < out.length; i++) u8[i] = Math.max(0, Math.min(255, Math.round(out[i] * 255)));
+    return u8;
+  }
+
+  function paintMatrix(canvas, lum, n, led, gap, style, mode, peerLook) {
+    lum = gradeLum(lum, peerLook);
     const pitch = led + gap;
     const css = n * led + (n - 1) * gap;
     const dpr = Math.min(window.devicePixelRatio || 1, 3);
@@ -196,6 +210,8 @@
     const ledS = Math.max(1, Math.floor(led * scale));
     const gapS = Math.max(0, Math.floor(gap * scale));
     const pitchS = ledS + gapS;
+    const temp = (peerLook || look || {}).temperature || 0;
+    const tint = (peerLook || look || {}).tint || 0;
 
     for (let y = 0; y < n; y++) {
       for (let x = 0; x < n; x++) {
@@ -222,10 +238,12 @@
         } else {
           r = g = b = L;
         }
-        if (style === "blocks" && gapS === 0) {
-          // fake gutter
+        if (temp || tint) {
+          r = Math.max(0, Math.min(255, r + temp * 28 + tint * 12));
+          g = Math.max(0, Math.min(255, g - tint * 22));
+          b = Math.max(0, Math.min(255, b - temp * 28 + tint * 12));
         }
-        ctx.fillStyle = "rgb(" + r + "," + g + "," + b + ")";
+        ctx.fillStyle = "rgb(" + (r | 0) + "," + (g | 0) + "," + (b | 0) + ")";
         const px = x * pitchS;
         const py = y * pitchS;
         if (style === "blocks") {
@@ -367,6 +385,11 @@
     ledPxPref = params.get("led");
     if (els.led) els.led.value = ledPxPref;
   }
+  // ?look=film|night|daylight  or  ?preset=…
+  if (CAM && (params.get("look") || params.get("preset"))) {
+    setLook(CAM.applyPreset(CAM.DEFAULTS, params.get("look") || params.get("preset")), "url");
+  }
+  setLookLabel();
 
   // optional direct hub ingest (works even without parent BroadcastChannel)
   let hubWs = null;
