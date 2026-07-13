@@ -148,6 +148,14 @@ func (c *MeshClient) session(ctx context.Context) error {
 }
 
 func (c *MeshClient) SendJSON(v any) error {
+	// mesh plugin egress (map payloads only; structs pass through)
+	if m, ok := v.(map[string]any); ok {
+		m2 := Plugins().ApplyMeshOutbound(m)
+		if m2 == nil {
+			return nil // dropped by plugin
+		}
+		v = m2
+	}
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err

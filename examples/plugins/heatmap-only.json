@@ -1,0 +1,6 @@
+{
+  "name": "heat",
+  "description": "example style-only heatmap alias",
+  "enabled": true,
+  "style": "heatmap"
+}

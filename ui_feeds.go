@@ -226,7 +226,13 @@ func (m *Model) renderFeedMosaic(w, h int, l *LabState) string {
 			if f.Kind == "news" && f.TileStyle >= 0 && f.TileStyle < PixelCount {
 				st = f.TileStyle
 			}
-			body = fitHalfBlock(RenderFrameH(f.Frame, st, tileW, half), tileW, half)
+			name := st.String()
+			if f.PluginStyle != "" {
+				name = f.PluginStyle
+			} else if l.PluginStyle != "" {
+				name = l.PluginStyle
+			}
+			body = fitHalfBlock(RenderFrameNamed(f.Frame, name, st, tileW, half), tileW, half)
 		} else {
 			// empty placeholder — drop target for cam / video
 			ph := make([]string, half)

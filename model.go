@@ -1155,7 +1155,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			if m.lab != nil && m.lab.On {
 				st := m.lab.CycleStyle()
 				m.pixelMode = st
-				m.status = "style " + st.String()
+				if m.lab.PluginStyle != "" {
+					m.status = "style plugin:" + m.lab.PluginStyle
+				} else {
+					m.status = "style " + st.String()
+				}
 				return m, nil
 			}
 			m.pixelMode = (m.pixelMode + 1) % PixelCount
@@ -1496,8 +1500,20 @@ func (m *Model) slash(line string) (tea.Model, tea.Cmd) {
 			m.pushSys("no clip yet — PTT first")
 		}
 	case "mode":
-		m.pixelMode = (m.pixelMode + 1) % PixelCount
-		m.pushSys("pixel: " + m.pixelMode.String())
+		if m.lab != nil && m.lab.On {
+			st := m.lab.CycleStyle()
+			m.pixelMode = st
+			if m.lab.PluginStyle != "" {
+				m.pushSys("pixel plugin: " + m.lab.PluginStyle)
+			} else {
+				m.pushSys("pixel: " + st.String())
+			}
+		} else {
+			m.pixelMode = (m.pixelMode + 1) % PixelCount
+			m.pushSys("pixel: " + m.pixelMode.String())
+		}
+	case "plugin", "plugins":
+		return m.handlePluginCmd(arg)
 	case "translate", "xl8":
 		m.xl8On = !(arg == "off" || arg == "0")
 		if m.xl8On {
@@ -3761,6 +3777,11 @@ func (m *Model) handleWS(raw []byte) (tea.Model, tea.Cmd) {
 	if err := json.Unmarshal(raw, &msg); err != nil {
 		return m, nil
 	}
+	// plugin mesh inbound (may drop or mutate)
+	msg = Plugins().ApplyMeshInbound(msg)
+	if msg == nil {
+		return m, nil
+	}
 	switch msg["type"] {
 	case "hello":
 		// quiet — status already shows nick when connected
@@ -4062,6 +4083,102 @@ func (m *Model) handleWS(raw []byte) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// handlePluginCmd: /plugin [list|on|off|reload|style] [name]
+func (m *Model) handlePluginCmd(arg string) (tea.Model, tea.Cmd) {
+	fields := strings.Fields(arg)
+	sub := "list"
+	if len(fields) > 0 {
+		sub = strings.ToLower(fields[0])
+	}
+	name := ""
+	if len(fields) > 1 {
+		name = fields[1]
+	}
+	switch sub {
+	case "", "list", "ls", "status":
+		for _, ln := range strings.Split(strings.TrimRight(Plugins().FormatPluginList(), "\n"), "\n") {
+			m.pushSys(ln)
+		}
+		m.status = "plugins"
+		return m, nil
+	case "on", "enable":
+		if name == "" {
+			m.pushSys("usage: /plugin on <name>")
+			return m, nil
+		}
+		if err := Plugins().SetEnabled(name, true); err != nil {
+			m.pushSys(err.Error())
+			return m, nil
+		}
+		m.pushSys("plugin " + name + " ON")
+		m.status = "plugin on"
+		return m, nil
+	case "off", "disable":
+		if name == "" {
+			m.pushSys("usage: /plugin off <name>")
+			return m, nil
+		}
+		if err := Plugins().SetEnabled(name, false); err != nil {
+			m.pushSys(err.Error())
+			return m, nil
+		}
+		// clear lab plugin style if it was this painter
+		if m.lab != nil && strings.EqualFold(m.lab.PluginStyle, name) {
+			m.lab.PluginStyle = ""
+		}
+		m.pushSys("plugin " + name + " OFF")
+		m.status = "plugin off"
+		return m, nil
+	case "reload", "load":
+		n, err := Plugins().Reload()
+		if err != nil {
+			m.pushSys("plugin reload: " + err.Error())
+			return m, nil
+		}
+		m.pushSys(fmt.Sprintf("plugin reload · %d manifest(s) from %s", n, defaultPluginDir()))
+		m.status = "plugins reloaded"
+		return m, nil
+	case "style", "paint":
+		// /plugin style <name|off|clear> — set lab PluginStyle
+		if m.lab == nil {
+			m.lab = newLabState()
+		}
+		m.lab.On = true
+		if name == "" || name == "off" || name == "clear" || name == "none" {
+			m.lab.PluginStyle = ""
+			m.pushSys("plugin style cleared · built-in " + m.lab.Style.String())
+			m.status = "style " + m.lab.Style.String()
+			return m, nil
+		}
+		if Plugins().FindStyle(name) == nil {
+			// still allow setting if plugin exists but disabled
+			if p := Plugins().Get(name); p == nil || p.Style() == nil {
+				m.pushSys("no style plugin " + name + " · " + strings.Join(Plugins().StyleNames(), " "))
+				return m, nil
+			}
+			_ = Plugins().SetEnabled(name, true)
+		}
+		m.lab.PluginStyle = strings.ToLower(name)
+		// also stamp active feed
+		if af := m.lab.ActiveFeed(); af != nil {
+			af.PluginStyle = m.lab.PluginStyle
+		}
+		m.pushSys("plugin style → " + m.lab.PluginStyle)
+		m.status = "style plugin:" + m.lab.PluginStyle
+		return m, nil
+	default:
+		// bare name → toggle
+		if p := Plugins().Get(sub); p != nil {
+			on := !p.Enabled()
+			p.SetEnabled(on)
+			m.pushSys(fmt.Sprintf("plugin %s %s", sub, map[bool]string{true: "ON", false: "OFF"}[on]))
+			return m, nil
+		}
+		m.pushSys("usage: /plugin list|on|off|reload|style <name>")
+		return m, nil
+	}
 }
 
 // handleOverlayCmd: /overlay [auto|off|caption|fx|prompt] [hint…]

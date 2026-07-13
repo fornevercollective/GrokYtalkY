@@ -216,16 +216,20 @@ TUI launches auto-update by default (check GitHub → install → re-exec).
 				fmt.Print(FormatMetricsProm(s))
 			}
 			return nil
+		case "plugins", "plugin":
+			fmt.Print(Plugins().FormatPluginList())
+			return nil
 		}
 		fmt.Print(StreamDoctor())
 		fmt.Print(FormatPackageManagersDoctor())
 		fmt.Print(FormatReliabilityDoctor(SampleReliability()))
+		fmt.Print(Plugins().FormatPluginList())
 		fmt.Println(DepthDoctorLine())
 		fmt.Println(DepthModesList())
 		fmt.Printf("gy binary: %s\n", versionLine())
 		cap := DetectCapProfile(80, 24)
 		fmt.Println(cap.SummaryLine())
-		fmt.Println("doctor st2110 · sync · cameras · nmos · packages · reliability")
+		fmt.Println("doctor st2110 · sync · cameras · nmos · packages · reliability · plugins")
 		fmt.Println("deps: gy install deps -y · gy install deps --list")
 		if p, err := os.Executable(); err == nil {
 			fmt.Printf("path: %s\n", p)

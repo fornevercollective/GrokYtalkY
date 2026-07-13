@@ -336,10 +336,40 @@ func RenderFrame(f *FramePixels, mode PixelMode, widthCols int) string {
 
 // RenderFrameH paints with vertical budget. All styles honor widthCols × maxHalfRows.
 func RenderFrameH(f *FramePixels, mode PixelMode, widthCols, maxHalfRows int) string {
+	return RenderFrameNamed(f, mode.String(), mode, widthCols, maxHalfRows)
+}
+
+// RenderFrameNamed paints by plugin style name or built-in PixelMode.
+// styleName, if a registered plugin style (invert/mirror/heatmap/…), wins over mode.
+func RenderFrameNamed(f *FramePixels, styleName string, mode PixelMode, widthCols, maxHalfRows int) string {
 	if f == nil || f.W == 0 || f.H == 0 {
 		return dimStyle.Render("  no video — waiting for frames / c cam / a sim  ")
 	}
 	geom := StyleGeomFromBudget(widthCols, maxHalfRows, f.W, f.H)
+
+	// plugin style path
+	if sp := Plugins().FindStyle(styleName); sp != nil {
+		cost := sp.Cost()
+		// approximate heavy via temporary mode cost for downsample
+		tmpMode := mode
+		if cost >= 3 {
+			tmpMode = PixelHalftone
+		} else if cost >= 2 {
+			tmpMode = PixelBraille
+		} else {
+			tmpMode = PixelHalf
+		}
+		work := styleWorkFrame(f, tmpMode, geom)
+		if work == nil {
+			return dimStyle.Render("  no video  ")
+		}
+		sp.Preprocess(work, geom)
+		body := sp.Paint(work, geom)
+		if body == "" {
+			body = renderHalf(work, geom.Cols)
+		}
+		return fitHalfBlock(body, geom.Cols, geom.Rows)
+	}
 
 	// work frame: downsample for heavy styles under stream
 	work := styleWorkFrame(f, mode, geom)

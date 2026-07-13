@@ -55,6 +55,8 @@ type FeedSlot struct {
 	WatchSrc string
 	// Per-tile pixel style (news wall GrokGlyph variety); 0 = use lab.Style
 	TileStyle PixelMode
+	// PluginStyle optional plugin painter name (invert|mirror|heatmap|…)
+	PluginStyle string
 	// Pcap loop (multi-pcap orchestration)
 	PcapPkts []StreamPacket
 	PcapIdx  int
@@ -75,8 +77,10 @@ type LabState struct {
 	FPS      int
 	Scale    int // target tile cols
 	Style    PixelMode
-	Layout   FeedLayout
-	ShowList bool // list control options in chrome
+	// PluginStyle when set, paint uses plugin registry instead of Style alone
+	PluginStyle string
+	Layout      FeedLayout
+	ShowList    bool // list control options in chrome
 	// cam capture interval derived from FPS
 	lastCap time.Time
 	uid     int
@@ -401,8 +405,31 @@ func (l *LabState) CycleLayout() FeedLayout {
 	return l.Layout
 }
 
+// CycleStyle advances built-in PixelMode, then enabled plugin painters, then wraps.
 func (l *LabState) CycleStyle() PixelMode {
-	l.Style = (l.Style + 1) % PixelCount
+	names := Plugins().StyleNames()
+	// already on a plugin painter → advance / exit plugin ladder
+	if l.PluginStyle != "" {
+		for i, n := range names {
+			if strings.EqualFold(n, l.PluginStyle) {
+				if i+1 < len(names) {
+					l.PluginStyle = names[i+1]
+					return l.Style
+				}
+				break
+			}
+		}
+		l.PluginStyle = ""
+		l.Style = PixelHalf
+		return l.Style
+	}
+	next := (l.Style + 1) % PixelCount
+	// finished built-ins → first plugin style if any
+	if next == 0 && len(names) > 0 {
+		l.PluginStyle = names[0]
+		return l.Style
+	}
+	l.Style = next
 	return l.Style
 }
 

@@ -1,0 +1,7 @@
+{
+  "name": "chat-tag",
+  "description": "prefix inbound mesh chat with [room] ",
+  "enabled": false,
+  "mesh": "chat-prefix",
+  "prefix": "[room] "
+}
