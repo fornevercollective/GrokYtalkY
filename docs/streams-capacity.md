@@ -35,8 +35,8 @@ GrokYtalkY uses **ffmpeg** (capture / decode / scale) and **ffplay** (audio, opt
 |-------|------|------------------------|
 | **GrokYtalkY hub** (`gy serve`) | Walkie bursts, lab tiles, Glyph ints, hex/binary · **server-side rooms** | **8–32** hot peers / room (`GY_ROOM_MAX`, default 48 soft) |
 | **DOJO SFU** (`sfu/`) | Private rooms, WebRTC + custom lanes | **~50–200** peers / node |
-| **Edge mid-lane** (`gy mid-lane`) | Program + hexlum → HTTP edge (CF worker) | **1k+** viewers via edge ladder |
-| **Cloudflare** | Public broadcast, TLS, edge fan-out | **1k+** viewers / room |
+| **Edge mid-lane** (`gy mid-lane` + `edge/mid-lane`) | Program + hexlum → CF DO fan-out | **1k+** mid-lane viewers |
+| **Cloudflare** | Public chat / Calls / TLS | **1k+** (chat worker · optional media) |
 | **FFmpeg / JAX** | Transcode, ZipDepth, style — offline/worker | Not per-packet fan-out |
 
 ### Lanes (do not push 1080p into ▀)

@@ -244,7 +244,8 @@ func helpBodyDocs() string {
                GrokGlyph cast dual-pubs gyst + vburst
   GrokGlyph    roster search / filters · / key · focus peer
   hub rooms    ?room= · program-per-room · /api/rooms · GY_ROOM_MAX
-  mid-lane     gy mid-lane → edge HTTP (program + hexlum)
+  mid-lane     gy mid-lane → edge/mid-lane worker (public audience)
+               site/mid-lane.html · wrangler dev --port 8788
 
 
   powerhouse stack (overview · blank · grok-cli · Qbpm)

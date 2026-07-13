@@ -32,3 +32,6 @@ hexwalkie-sfx/
 grokytalky-sfx/
 *.wav
 !examples/**/*.wav
+
+# node
+node_modules/

@@ -1,0 +1,17 @@
+name = "gy-mid-lane"
+main = "src/index.ts"
+compatibility_date = "2025-03-01"
+
+# One Durable Object per mesh room — last program/hex + WS fan-out to viewers.
+[[durable_objects.bindings]]
+name = "MID_ROOM"
+class_name = "MidLaneRoom"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["MidLaneRoom"]
+
+[vars]
+SERVICE = "gy-mid-lane"
+# Optional shared secret for POST /mid (override with wrangler secret put EDGE_TOKEN)
+# EDGE_TOKEN = "dev-secret"

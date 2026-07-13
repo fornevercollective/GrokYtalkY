@@ -58,8 +58,10 @@ See `integrations/powerhouse-protocol.json` (mesh types + env + ports).
 gy serve
 GY_ROOM=dojo gy                    # companion / forge in room
 gy venue --sink st2110 --anc-rtp rtp://239.100.1.10:5008
-# edge mid-lane (public ladder hook — not HD on hub):
-gy mid-lane --room dojo --edge https://worker.example/mid --token "$GY_EDGE_TOKEN"
+# edge mid-lane (public ladder — reference worker in edge/mid-lane)
+cd edge/mid-lane && npm i && npx wrangler dev --port 8788
+gy mid-lane --room dojo --edge http://127.0.0.1:8788/mid
+# open site/mid-lane.html → Connect
 ```
 
 ### blank + StageForge (+ optional gy)

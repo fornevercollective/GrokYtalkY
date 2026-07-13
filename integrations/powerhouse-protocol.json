@@ -23,7 +23,9 @@
       "owner": "gy mid-lane bridge",
       "note": "edge ingest envelope — program/hex only, never full HD",
       "fields": ["room", "lane", "program", "gyst", "caption", "mark", "seq"],
-      "edge_env": ["GY_EDGE_URL", "GY_EDGE_TOKEN"]
+      "edge_env": ["GY_EDGE_URL", "GY_EDGE_TOKEN"],
+      "reference_worker": "edge/mid-lane (CF DO fan-out)",
+      "viewer": "site/mid-lane.html · WS /ws?room="
     },
     "program-caption": {
       "owner": "chat-bridge --program-caption (opt-in)",

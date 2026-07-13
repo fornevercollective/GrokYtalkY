@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mid-lane viewer · GrokYtalkY</title>
+  <meta name="description" content="Public mid-lane edge viewer — program + hexlum from gy mid-lane worker." />
+  <meta name="theme-color" content="#0c0c0f" />
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    .mid-page { max-width: 720px; margin: 0 auto; padding: 1.25rem 1rem 3rem; position: relative; z-index: 1; }
+    .mid-page h1 { font-size: 1.35rem; margin: 0.25rem 0 0.5rem; }
+    .mid-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.75rem 0; align-items: center; }
+    .mid-row input { flex: 1; min-width: 12rem; padding: 0.4rem 0.55rem; border-radius: 8px;
+      border: 1px solid var(--border); background: var(--bg-card); color: var(--text);
+      font-family: var(--mono); font-size: 0.8rem; }
+    .mid-status { font-family: var(--mono); font-size: 0.75rem; color: var(--muted); }
+    .mid-status.live { color: var(--live); }
+    .mid-card { border: 1px solid var(--border); border-radius: 12px; padding: 0.85rem 1rem;
+      background: var(--bg-elev); margin-top: 1rem; }
+    .mid-card h2 { font-size: 0.85rem; margin: 0 0 0.5rem; color: var(--muted); font-weight: 600; }
+    .mid-cap { font-size: 1.1rem; font-weight: 600; letter-spacing: -0.02em; min-height: 1.4em; }
+    .mid-meta { font-family: var(--mono); font-size: 0.7rem; color: var(--faint); margin-top: 0.35rem; }
+    #hex-canvas { display: block; image-rendering: pixelated; border-radius: 6px; background: #050508;
+      border: 1px solid var(--border); margin-top: 0.5rem; }
+    .mid-log { font-family: var(--mono); font-size: 0.68rem; color: var(--faint); max-height: 10rem;
+      overflow: auto; margin-top: 0.75rem; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <div class="noise" aria-hidden="true"></div>
+  <header class="nav">
+    <a class="brand" href="./"><span class="brand-mark">◈</span><span class="brand-name">GrokYtalkY</span></a>
+    <nav>
+      <a href="grokglyph.html">GrokGlyph</a>
+      <a href="chat.html">Chat</a>
+      <a href="docs.html">Docs</a>
+      <a href="mid-lane.html" class="nav-active">Mid-lane</a>
+    </nav>
+  </header>
+
+  <main class="mid-page">
+    <p class="eyebrow">public audience · edge mid-lane</p>
+    <h1>Mid-lane viewer</h1>
+    <p class="lede" style="color:var(--muted);font-size:0.92rem;max-width:36rem">
+      Receive-only program + hexlum from the reference CF worker.
+      DOJO jam stays on <code>gy serve</code>; this is the Colossus-shaped viewer plane.
+    </p>
+
+    <div class="mid-row">
+      <input id="origin" type="text" placeholder="http://127.0.0.1:8788" value="http://127.0.0.1:8788" />
+      <input id="room" type="text" placeholder="room" value="dojo" style="max-width:8rem" />
+      <input id="nick" type="text" placeholder="nick" value="viewer" style="max-width:7rem" />
+      <button type="button" class="btn primary" id="btn-connect">Connect</button>
+      <button type="button" class="btn ghost" id="btn-state">Fetch state</button>
+    </div>
+    <p class="mid-status" id="status">idle</p>
+
+    <div class="mid-card">
+      <h2>On-air</h2>
+      <div class="mid-cap" id="caption">—</div>
+      <div class="mid-meta" id="meta">mode · mark · seq</div>
+      <canvas id="hex-canvas" width="200" height="200" aria-label="Hexlum preview"></canvas>
+    </div>
+    <div class="mid-log" id="log"></div>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let ws = null;
+    const canvas = $("hex-canvas");
+    const ctx = canvas.getContext("2d");
+    ctx.imageSmoothingEnabled = false;
+
+    function log(line) {
+      const el = $("log");
+      el.textContent = (new Date().toISOString().slice(11, 19) + " " + line + "\n") + el.textContent.slice(0, 4000);
+    }
+    function setStatus(t, live) {
+      $("status").textContent = t;
+      $("status").className = "mid-status" + (live ? " live" : "");
+    }
+
+    function paintHex(data, n) {
+      n = n || Math.round(Math.sqrt(data.length)) || 25;
+      if (data.length < n * n) return;
+      canvas.width = n;
+      canvas.height = n;
+      const img = ctx.createImageData(n, n);
+      for (let i = 0; i < n * n; i++) {
+        const L = Number(data[i]) & 255;
+        const o = i * 4;
+        img.data[o] = (L * 0.4) | 0;
+        img.data[o + 1] = (L * 0.85) | 0;
+        img.data[o + 2] = Math.min(255, (L * 1.05) | 0);
+        img.data[o + 3] = 255;
+      }
+      ctx.putImageData(img, 0, 0);
+    }
+
+    function applyEnvelope(msg) {
+      if (!msg || msg.type === "welcome" || msg.type === "system") {
+        if (msg && msg.text) log(msg.type + ": " + msg.text);
+        return;
+      }
+      if (msg.type !== "mid-lane" && msg.lane == null) return;
+      const lane = msg.lane || "";
+      if (lane === "program" || msg.program) {
+        const bus = (msg.program && msg.program.bus) || msg.program || {};
+        const cap = msg.caption || bus.caption || (bus.caption_meta && bus.caption_meta.text) || "—";
+        $("caption").textContent = cap;
+        $("meta").textContent =
+          (msg.mode || bus.mode || "—") +
+          " · " +
+          (msg.mark || (bus.program && bus.program.mark) || "—") +
+          " · seq " +
+          (msg.seq != null ? msg.seq : bus.seq != null ? bus.seq : "—") +
+          " · " +
+          (msg.room || "—");
+        log("program seq=" + (msg.seq || "") + " cap=" + String(cap).slice(0, 40));
+      }
+      if (lane === "hex" || lane === "hexlum" || msg.gyst) {
+        const g = msg.gyst || msg;
+        let data = g.data || g.glyph;
+        const n = g.glyphN || g.w || g.n || 25;
+        if (Array.isArray(data)) {
+          paintHex(data, Number(n) || 25);
+          log("hexlum n=" + n + " len=" + data.length);
+        }
+      }
+    }
+
+    function connect() {
+      if (ws) try { ws.close(); } catch (_) {}
+      const origin = $("origin").value.replace(/\/$/, "");
+      const room = $("room").value.trim() || "global";
+      const nick = $("nick").value.trim() || "viewer";
+      const u = origin.replace(/^http/, "ws") + "/ws?room=" + encodeURIComponent(room) + "&nick=" + encodeURIComponent(nick);
+      setStatus("connecting…");
+      try {
+        ws = new WebSocket(u);
+      } catch (e) {
+        setStatus("ws error");
+        return;
+      }
+      ws.onopen = () => setStatus("live · " + room, true);
+      ws.onclose = () => setStatus("closed");
+      ws.onerror = () => setStatus("error");
+      ws.onmessage = (ev) => {
+        try {
+          applyEnvelope(JSON.parse(ev.data));
+        } catch (_) {}
+      };
+    }
+
+    async function fetchState() {
+      const origin = $("origin").value.replace(/\/$/, "");
+      const room = $("room").value.trim() || "global";
+      try {
+        const res = await fetch(origin + "/state?room=" + encodeURIComponent(room));
+        const j = await res.json();
+        if (j.program) applyEnvelope(j.program);
+        if (j.hexlum) applyEnvelope(j.hexlum);
+        log("state viewers=" + (j.viewers || 0));
+        setStatus("state ok · viewers " + (j.viewers || 0), true);
+      } catch (e) {
+        setStatus("state failed");
+        log(String(e));
+      }
+    }
+
+    $("btn-connect").onclick = connect;
+    $("btn-state").onclick = fetchState;
+  </script>
+</body>
+</html>
