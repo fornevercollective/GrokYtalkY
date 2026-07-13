@@ -100,14 +100,16 @@ gy --nick viewer
 Continuous live replay of a capture (default **loop on** for stream files):
 
 ```bash
-# build a capture once
+# sample capture in repo (24× rgb24 80×48)
+#   examples/dojo.pcap
+# or build your own:
 gy encode clip.mp4 /tmp/dojo.pcap
-# or /rec + /export out.pcap from TUI
+# or TUI: /rec → /export out.pcap
 
 # Colossus loop → hub (timestamp pacing when present)
-gy colossus /tmp/dojo.pcap --hub 127.0.0.1:9876
+gy colossus examples/dojo.pcap
 # same as:
-gy stream-pub /tmp/dojo.pcap --loop --pace auto --kind auto --nick colossus
+gy stream-pub examples/dojo.pcap --loop --pace auto --kind auto --nick colossus
 
 # peers
 gy --nick viewer

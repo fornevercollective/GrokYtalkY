@@ -82,7 +82,7 @@ gy watch out.gyst          # play packets; j/k scrub
 # live headless (DOJO/Colossus) → hub → peers (no file)
 gy serve
 gy stream-pub sim --kind hexlum --hex 25 --nick colossus
-gy colossus capture.pcap              # pcap loop (ts pace, default loop)
+gy colossus examples/dojo.pcap        # pcap loop (ts pace, default loop)
 # other terminal: gy  (renders type:gyst frames)
 ```
 
