@@ -29,6 +29,8 @@ type peerMeta struct {
 	Nick    string
 	Role    string
 	Talking bool
+	Cap     CapProfile // capability handshake (lanes, glyph N, bp)
+	HasCap  bool
 }
 
 func NewHub(addr string, quiet bool, staticDir string) *Hub {
@@ -87,9 +89,13 @@ func (h *Hub) peerList() []map[string]any {
 	defer h.mu.Unlock()
 	out := make([]map[string]any, 0, len(h.peers))
 	for _, m := range h.peers {
-		out = append(out, map[string]any{
+		row := map[string]any{
 			"id": m.ID, "nick": m.Nick, "role": m.Role, "talking": m.Talking,
-		})
+		}
+		if m.HasCap {
+			row["cap"] = m.Cap.MeshMap()
+		}
+		out = append(out, row)
 	}
 	return out
 }
@@ -169,8 +175,39 @@ func (h *Hub) route(from *websocket.Conn, meta *peerMeta, data []byte) {
 		if n, ok := msg["nick"].(string); ok && n != "" {
 			meta.Nick = n
 		}
+		if r, ok := msg["role"].(string); ok && r != "" {
+			meta.Role = r
+		}
+		if cap, ok := ParseCapFromMesh(msg); ok {
+			meta.Cap = cap
+			meta.HasCap = true
+			if meta.Role == "" || meta.Role == "peer" {
+				meta.Role = cap.Role
+			}
+		}
+		// announce peer join with cap so others can adapt glyph N / lanes
+		joinOut := map[string]any{
+			"type": "join", "id": meta.ID, "nick": meta.Nick, "role": meta.Role,
+		}
+		if meta.HasCap {
+			joinOut["cap"] = meta.Cap.MeshMap()
+		}
+		h.broadcast(from, mustJSON(joinOut))
 		h.broadcast(from, mustJSON(map[string]any{"type": "roster", "peers": h.peerList()}))
 		_ = writeJSON(context.Background(), from, map[string]any{"type": "roster", "peers": h.peerList()})
+	case "cap":
+		// capability update (resize / late advertise)
+		if cap, ok := ParseCapFromMesh(msg); ok {
+			meta.Cap = cap
+			meta.HasCap = true
+		}
+		out := map[string]any{
+			"type": "cap", "from": coalesce(msg["from"], meta.Nick), "id": meta.ID,
+		}
+		if meta.HasCap {
+			out["cap"] = meta.Cap.MeshMap()
+		}
+		h.broadcast(from, mustJSON(out))
 	case "chat":
 		out := map[string]any{
 			"type": "chat",

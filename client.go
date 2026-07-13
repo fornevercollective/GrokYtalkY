@@ -16,6 +16,8 @@ import (
 type MeshClient struct {
 	URL  string
 	Nick string
+	Role string
+	Cap  CapProfile // advertised on join; lattice lanes respect Cap.Lanes
 
 	mu   sync.Mutex
 	conn *websocket.Conn
@@ -29,16 +31,31 @@ func NewMeshClient(host, nick string) *MeshClient {
 	if host == "" {
 		host = "127.0.0.1:9876"
 	}
+	cap := DetectCapProfile(80, 24)
+	role := cap.Role
+	if role == "" {
+		role = "term"
+	}
 	u := url.URL{
 		Scheme:   "ws",
 		Host:     host,
 		Path:     "/",
-		RawQuery: "role=peer&nick=" + url.QueryEscape(nick),
+		RawQuery: "role=" + url.QueryEscape(role) + "&nick=" + url.QueryEscape(nick),
+	}
+	// send buffer sized to backpressure hint
+	bp := cap.Backpressure
+	if bp < 8 {
+		bp = 8
+	}
+	if bp > 256 {
+		bp = 256
 	}
 	return &MeshClient{
 		URL:  u.String(),
 		Nick: nick,
-		send: make(chan []byte, 64),
+		Role: role,
+		Cap:  cap,
+		send: make(chan []byte, bp),
 	}
 }
 
@@ -72,7 +89,12 @@ func (c *MeshClient) session(ctx context.Context) error {
 	if c.OnStatus != nil {
 		c.OnStatus("connected")
 	}
-	_ = c.SendJSON(map[string]any{"type": "join", "nick": c.Nick, "role": "term"})
+	role := c.Role
+	if role == "" {
+		role = "term"
+	}
+	// capability handshake — same join for term, agent, bridge
+	_ = c.SendJSON(c.Cap.JoinFields(c.Nick, role))
 
 	errCh := make(chan error, 2)
 	go func() {

@@ -97,10 +97,14 @@ type Model struct {
 	forgeRXFrom string     // peer nick that owns forgeRX
 	forgeLocal  *ForgeMark // local multi-pcap mark for dual left chrome
 	// Dual-local multi-slot rotate: cycle lab pcap tiles into burstLocalFrame
-	forgeRotateOn  bool // true when multi-pcap forge active (2+ slots or forced)
-	forgeHoldLeft  bool // pause rotate; stick current left slot
-	forgeLocalIdx  int  // index into marked pcap slots (0-based)
-	forgeRotateEvery int // ticks between slot hops (0 → ForgeDualRotateTicks)
+	forgeRotateOn    bool // true when multi-pcap forge active (2+ slots or forced)
+	forgeHoldLeft    bool // pause rotate; stick current left slot
+	forgeLocalIdx    int  // index into marked pcap slots (0-based)
+	forgeRotateEvery int  // ticks between slot hops (0 → ForgeDualRotateTicks)
+
+	// Capability profile — term/IoT handshake (lanes, glyph N, backpressure)
+	cap       CapProfile
+	peerCaps  map[string]CapProfile // nick → cap
 
 	// Live depth + gsplat (ZipDepth sidecar / zip-lite / overview-style stack)
 	depth *depthSession
@@ -178,6 +182,14 @@ type Options struct {
 }
 
 func NewModel(opts Options) *Model {
+	cap := DetectCapProfile(80, 24)
+	glyphN := NormalizeGlyphN(opts.GlyphN)
+	if opts.GlyphN == 0 || opts.GlyphN == GlyphPhone3 {
+		// honor capability lean/mono default when user left default
+		if cap.GlyphN > 0 && cap.Class != CapClassTermFull {
+			glyphN = cap.GlyphN
+		}
+	}
 	m := &Model{
 		nick:      opts.Nick,
 		host:      opts.Host,
@@ -190,8 +202,10 @@ func NewModel(opts Options) *Model {
 		camOn:      opts.Cam || opts.Burst,
 		compact:    !opts.Full,
 		burstMode:  opts.Burst,
-		glyphN:     NormalizeGlyphN(opts.GlyphN),
+		glyphN:     glyphN,
 		glyphScale: opts.GlyphScale,
+		cap:        cap,
+		peerCaps:   make(map[string]CapProfile),
 		depth:      newDepthSession(),
 		lab:        newLabState(),
 		recorder:   NewRecordSession(),
@@ -214,6 +228,7 @@ func NewModel(opts Options) *Model {
 		grokCfg: loadGrokConfig(),
 		chat: []chatLine{
 			{Sys: true, Text: fmt.Sprintf("gy %s · companion", Version)},
+			{Sys: true, Text: cap.SummaryLine()},
 		},
 	}
 	m.glyphN = NormalizeGlyphN(m.glyphN)
@@ -332,6 +347,11 @@ func (m Model) connectCmd() tea.Cmd {
 func (m *Model) AttachClient(ctx context.Context, prog *tea.Program) {
 	m.prog = prog
 	c := NewMeshClient(m.host, m.nick)
+	// advertise live terminal capability (handshake)
+	if m.cap.Class != "" {
+		c.Cap = m.cap
+		c.Role = m.cap.Role
+	}
 	c.OnStatus = func(s string) {
 		prog.Send(wsStatusMsg(s))
 	}
@@ -358,6 +378,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.width, m.height = nw, nh
 		m.layoutW, m.layoutH = nw, nh
+		// capability handshake: refresh profile + announce to hub
+		m.refreshCapFromGeom(nw, nh)
 		// always drop frame on resize so cam/watch resample to new scale
 		if m.frame != nil {
 			m.frame = nil
@@ -1733,6 +1755,45 @@ func (m *Model) stopStreamPub() {
 // ForgeDualRotateTicks — dwell per left slot at 20Hz tick (~1s).
 const ForgeDualRotateTicks = 20
 
+// refreshCapFromGeom updates local CapProfile after resize and announces type:cap.
+func (m *Model) refreshCapFromGeom(cols, rows int) {
+	prev := m.cap.Class
+	prevN := m.cap.GlyphN
+	// preserve user GY_CAP override via Detect
+	m.cap = DetectCapProfile(cols, rows)
+	// keep forge flag
+	m.cap.Forge = true
+	if m.client != nil {
+		m.client.Cap = m.cap
+		_ = m.client.SendJSON(m.cap.CapAnnounce(m.nick))
+	}
+	// only sys when class or glyph N changes meaningfully
+	if prev != m.cap.Class || prevN != m.cap.GlyphN {
+		m.pushSys(m.cap.SummaryLine())
+	}
+}
+
+// applyRoomGlyphN sets local glyph preference from room min (publish-side courtesy).
+// Does not re-stamp lattice; only guides local dual / hexlum encode size.
+func (m *Model) applyRoomGlyphN() {
+	if m.cap.Class == CapClassGlyphIoT {
+		return
+	}
+	var peers []CapProfile
+	for _, c := range m.peerCaps {
+		peers = append(peers, c)
+	}
+	want := RoomGlyphN(m.cap.GlyphN, peers)
+	// never upscale past what this terminal can dual-fit
+	want = PreferGlyphNForGeom(want, m.width, m.height, m.cap.Dual || m.burstMode)
+	if want > 0 && want != m.glyphN && (m.cap.Class == CapClassTermLean || len(peers) > 0) {
+		// only soft-adjust lean rooms / when peers present
+		if m.cap.Class != CapClassTermFull || want < m.glyphN {
+			m.glyphN = want
+		}
+	}
+}
+
 // startMultiPcapForge loads each path into a lab slot with Cursor-Grok Forge watermarks
 // and publishes watermarked hexlum + forge-mark meta to the hub when connected.
 func (m *Model) startMultiPcapForge(paths []string) (tea.Model, tea.Cmd) {
@@ -2468,22 +2529,51 @@ func (m *Model) handleWS(raw []byte) (tea.Model, tea.Cmd) {
 		// quiet — status already shows nick when connected
 	case "roster":
 		m.peers = nil
+		if m.peerCaps == nil {
+			m.peerCaps = make(map[string]CapProfile)
+		}
 		if arr, ok := msg["peers"].([]any); ok {
 			for _, p := range arr {
 				if pm, ok := p.(map[string]any); ok {
 					nick, _ := pm["nick"].(string)
 					talk, _ := pm["talking"].(bool)
 					m.peers = append(m.peers, peerInfo{Nick: nick, Talking: talk})
+					if cap, ok := ParseCapFromMesh(pm); ok && nick != "" {
+						m.peerCaps[nick] = cap
+					}
 				}
 			}
 		}
+		m.applyRoomGlyphN()
 	case "join":
 		if n, _ := msg["nick"].(string); n != "" {
 			m.status = n + " +"
+			if cap, ok := ParseCapFromMesh(msg); ok {
+				if m.peerCaps == nil {
+					m.peerCaps = make(map[string]CapProfile)
+				}
+				m.peerCaps[n] = cap
+				m.applyRoomGlyphN()
+			}
+		}
+	case "cap":
+		from, _ := msg["from"].(string)
+		if from == "" {
+			from, _ = msg["nick"].(string)
+		}
+		if cap, ok := ParseCapFromMesh(msg); ok && from != "" && from != m.nick {
+			if m.peerCaps == nil {
+				m.peerCaps = make(map[string]CapProfile)
+			}
+			m.peerCaps[from] = cap
+			m.applyRoomGlyphN()
 		}
 	case "leave":
 		if n, _ := msg["nick"].(string); n != "" {
 			m.status = n + " −"
+			if m.peerCaps != nil {
+				delete(m.peerCaps, n)
+			}
 		}
 	case "chat":
 		from, _ := msg["from"].(string)

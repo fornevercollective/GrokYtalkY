@@ -70,6 +70,25 @@ Detail: [`docs/chat.md`](chat.md) · scaffold: [`chat/`](../chat/README.md)
 **Jam target:** 16–32 interactive peers on hub/SFU.  
 **Broadcast target:** 1k+ via CF, terminals on `glyph`/`hex` downsampled lanes.
 
+### Capability handshake (v1.24+)
+
+One binary, same mesh semantics — profile chooses lanes / glyph N / backpressure, **never re-stamps lattice**.
+
+| Class | Who | Lanes |
+|-------|-----|--------|
+| `term-full` | large truecolor dual Glyph | glyph hex chat gyst mid |
+| `term-lean` | 80×24 / small dual → ◎13 | glyph hex chat gyst |
+| `term-mono` | dumb / no truecolor | hex chat gyst |
+| `glyph-iot` | `gy agent` thin edge | glyph hex chat |
+| `bridge` | sfu/chat bridges | glyph hex chat gyst |
+
+```bash
+gy doctor                    # prints cap line
+GY_CAP=glyph-iot gy agent    # thin IoT JSON lines (lattice pass-through)
+# join carries {type:join, cap:{class,glyph_n,lanes,bp,forge}}
+# resize → {type:cap, cap:…}
+```
+
 Scaffold: [`sfu/`](../sfu/README.md) (`make sfu-media` for webrtc-rs track + DataChannel fan-out) · [`chat/`](../chat/README.md) · site: [docs.html#streams-scale](https://fornevercollective.github.io/GrokYtalkY/docs.html#streams-scale)
 
 ---

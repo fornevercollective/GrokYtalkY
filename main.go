@@ -83,6 +83,8 @@ func run(args []string) error {
 		return runChatBridgeCmd(args)
 	case "sfu-bridge", "glyph-bridge", "bridge-sfu":
 		return runSfuBridgeCmd(args)
+	case "agent", "glyph-agent", "iot":
+		return runGlyphAgentCmd(args)
 	case "update", "upgrade":
 		checkOnly := false
 		for _, a := range args {
@@ -134,6 +136,9 @@ func run(args []string) error {
 		fmt.Println(DepthDoctorLine())
 		fmt.Println(DepthModesList())
 		fmt.Printf("gy binary: %s\n", versionLine())
+		// capability profile (term/IoT handshake)
+		cap := DetectCapProfile(80, 24)
+		fmt.Println(cap.SummaryLine())
 		if p, err := os.Executable(); err == nil {
 			fmt.Printf("path: %s\n", p)
 		}
@@ -262,6 +267,7 @@ func printHelp() {
   %s serve           headless hub
   %s chat-bridge     DOJO hub → public Space captions
   %s sfu-bridge      hub vburst|gyst hexlum → SFU glyph/hex
+  %s agent           thin Glyph/IoT client (cap handshake, no TUI)
   %s version         version + build info
   %s update          check & install latest
   %s update --check  check only (exit 2 if outdated)
@@ -283,8 +289,8 @@ func printHelp() {
   burst = short video+audio walkie → Nothing Glyph Matrix dual circles
   flags: --burst --glyph 13|25|37|49 --glyph-scale 0..8 --midi --cam
   keys:  [ ] scale · g res · space PTT  (matches GlyphMatrix-Developer-Kit layout)
-  env:   XAI_API_KEY · GROK_MODEL · GROK_CLI_URL
-`, Version, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd)
+  env:   XAI_API_KEY · GROK_MODEL · GROK_CLI_URL · GY_CAP · GY_ROLE
+`, Version, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd)
 }
 
 func runHubOnly(bind string, port int) error {
