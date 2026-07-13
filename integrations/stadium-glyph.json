@@ -7,7 +7,19 @@
     "phone_cast": "site/phone.html",
     "full_res_player": "site/glyph-cast.html",
     "wire": "site/glyph-cast-wire.js",
-    "surfaces": ["grokglyph.html", "livenews.html", "qr.html"]
+    "surfaces": ["grokglyph.html", "livenews.html", "qr.html"],
+    "sphere_seating": "site/sphere-seating.js",
+    "sphere_source": "https://mueee.qbitos.ai/qpu-pointcloud.html"
+  },
+  "sphere_vegas_bloch3": {
+    "map": "sphere-vegas-bloch3",
+    "seats_target": 18600,
+    "res": 16000,
+    "pixels": 256000000,
+    "seat_id": "SECTION-R{row}-C{col}",
+    "phone_query": "?seat=200-R5-C12",
+    "mesh_field": "pos on vburst-frame | gyst",
+    "channels_prototype": ["sphere-vegas", "hexcast-stream", "iron-line"]
   },
   "molecule": {
     "metaphor": ["vegas-sphere-touch", "stadium-boards", "drone-cloud-projection", "nothing-to-watch-voronoi"],

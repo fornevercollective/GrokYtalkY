@@ -22,6 +22,7 @@
     camPanel: document.getElementById("ph-cam-panel"),
     nick: document.getElementById("ph-nick"),
     hubUrl: document.getElementById("ph-hub-url"),
+    seat: document.getElementById("ph-seat"),
     quick: document.getElementById("ph-quick"),
     qrWrap: document.getElementById("ph-qr-wrap"),
     qr: document.getElementById("ph-qr"),
@@ -32,6 +33,9 @@
 
   let phonePageURL = "";
   let lanInfo = null;
+  /** Sphere Vegas Bloch³ seat mesh pos (from ?seat= or input). */
+  let seatPos = null;
+  const SPHERE = window.GY_SPHERE;
 
   const CAM = window.GY_CAMERA;
   let look = CAM ? CAM.clone(CAM.DEFAULTS) : {};
@@ -84,6 +88,7 @@
       const st = JSON.parse(raw);
       if (st.nick && els.nick) els.nick.value = st.nick;
       if (st.hubUrl && els.hubUrl) els.hubUrl.value = st.hubUrl;
+      if (st.seat && els.seat && !els.seat.value) els.seat.value = st.seat;
     } catch {
       /* ignore */
     }
@@ -96,11 +101,45 @@
         JSON.stringify({
           nick: myNick(),
           hubUrl: els.hubUrl ? els.hubUrl.value.trim() : "",
+          seat: els.seat ? els.seat.value.trim() : "",
         })
       );
     } catch {
       /* ignore */
     }
+  }
+
+  function resolveSeat(raw) {
+    seatPos = null;
+    if (!SPHERE || !raw) return null;
+    const seat = SPHERE.findSeat(raw);
+    if (!seat) return null;
+    seatPos = SPHERE.seatToMeshPos(seat);
+    return seatPos;
+  }
+
+  function applySeatFromUI() {
+    const raw = (els.seat && els.seat.value.trim()) || "";
+    const pos = resolveSeat(raw);
+    if (pos && els.seat) {
+      els.seat.value = pos.id || raw;
+      setStatus(
+        "seat " +
+          pos.id +
+          " · Bloch θ=" +
+          ((pos.theta * 180) / Math.PI).toFixed(1) +
+          "° · px(" +
+          pos.px +
+          "," +
+          pos.py +
+          ")/16K",
+        "is-live"
+      );
+    } else if (raw) {
+      setStatus("seat not found · try 200-R5-C12 or idx", "is-err");
+    }
+    saveState();
+    return pos;
   }
 
   function hubWS() {
@@ -497,10 +536,11 @@
       burst.fmt = "hexlum";
     }
     if (CAM) burst.look = CAM.clone(look);
+    if (seatPos) burst.pos = seatPos;
     sendJSON(burst);
 
     // formal gyst hexlum for stream-pub / SFU / terminal hex style
-    sendJSON({
+    const gyst = {
       type: "gyst",
       from: nick,
       kind: "hexlum",
@@ -512,7 +552,9 @@
       glyphN: GLYPH_N,
       lane: "hex",
       via: "phone-cast",
-    });
+    };
+    if (seatPos) gyst.pos = seatPos;
+    sendJSON(gyst);
 
     if (seq % 10 === 0) {
       setStatus("casting · seq " + seq + " · " + GLYPH_N + "² hexlum", "is-live");
@@ -598,6 +640,15 @@
       els.nick.value = "phone";
     }
     phonePageURL = location.protocol === "file:" ? "" : location.href.split("#")[0];
+    // Sphere Vegas Bloch³ seat from ?seat=200-R5-C12 or ?seat=1234
+    const params = new URLSearchParams(location.search);
+    const seatQ = params.get("seat") || params.get("sphere") || "";
+    if (seatQ && els.seat) els.seat.value = seatQ;
+    if (els.seat) {
+      els.seat.addEventListener("change", () => applySeatFromUI());
+      els.seat.addEventListener("blur", () => applySeatFromUI());
+    }
+    if ((els.seat && els.seat.value) || seatQ) applySeatFromUI();
     fetchLanHint();
     if (els.quick) els.quick.addEventListener("click", () => quickConnect());
     if (els.showQr) {

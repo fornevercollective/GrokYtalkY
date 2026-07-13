@@ -49,6 +49,7 @@ GrokYtalkY is the **terminal + mesh authority**: vision takes drive style, theme
 | **1.79** | **Phone quick connect** — QR scan page + one-tap hub+camera on `phone.html` |
 | **1.79.1** | **QR platform bar** — drop Go QR dep; client MIT encoder + optional system `qrencode` |
 | **concept** | **Stadium Glyph** — phone atom → infinite canvas LOD (Sphere / 112k / drones) · [`stadium-glyph.md`](stadium-glyph.md) |
+| **1.79.2** | **Sphere Vegas Bloch³ seating** — `site/sphere-seating.js` + phone `?seat=` → cast `pos` |
 
 Three bullets for external recaps:
 

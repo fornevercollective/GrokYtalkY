@@ -81,10 +81,52 @@ Hybrid diagram (today) already splits **hub / DOJO SFU / Cloudflare**. Stadium a
 
 ### Placement sources (priority)
 
-1. **Seat QR / ticket deep link** (`?seat=…` · room section)  
-2. **Beacon / venue mesh** (Bluetooth / private 5G edge)  
-3. **Phone GPS** (coarse; outdoor festivals)  
-4. **Force-directed fallback** (nothing-to-watch style when geo unknown)
+1. **Sphere Vegas · Bloch³ seating map** (canonical for Sphere-class installs)  
+2. **Seat QR / ticket deep link** (`?seat=200-R5-C12` · room section)  
+3. **Beacon / venue mesh** (Bluetooth / private 5G edge)  
+4. **Phone GPS** (coarse; outdoor festivals)  
+5. **Force-directed fallback** (nothing-to-watch style when geo unknown)
+
+---
+
+## Sphere Vegas — Bloch³ mapping
+
+**Authority UI / prototype:** [qpu-pointcloud.html](https://mueee.qbitos.ai/qpu-pointcloud.html)  
+**Module in gy:** [`site/sphere-seating.js`](../site/sphere-seating.js)
+
+| Symbol | Meaning |
+|--------|---------|
+| **SPHERE_VEGAS** | Dome dims (~366′ × 516′), sections 100–500 + floor, 16K×16K LED, speaker arrays |
+| **seat → (x,y,z)m** | Procedural rake + azimuth rings (not official CAD) |
+| **Bloch³** | `θ, φ` + unit vector `(blochX, blochY, blochZ)` from seat vs dome center |
+| **Screen px** | Az/el unwrap → `px, py` on virtual **16 000 × 16 000** interior |
+| **Speaker** | Nearest array + beam az/el + distance_m |
+| **Seat id** | `200-R5-C12` or global `idx` |
+
+```text
+phone ?seat=200-R5-C12
+        │
+        ▼
+  GY_SPHERE.findSeat → seatToMeshPos
+        │
+        ▼
+  vburst-frame.pos / gyst.pos = {
+    map: "sphere-vegas-bloch3",
+    id, section, row, col, idx,
+    x,y,z, x_m,y_m,z_m,
+    theta, phi, bloch:[…],
+    px, py, res:16000,
+    speakerArray, distance_m, haptic
+  }
+        │
+        ▼
+  Stadium canvas / glyph-cast viewport places feed at Bloch or screen UV
+```
+
+**BroadcastChannel (source prototype):** `sphere-vegas` · `hexcast-stream` · `iron-line` / `kbatch-training`  
+Gy may later bridge the same payload on hub WS as `type:stadium-feed`.
+
+**HUD labels (infra points, not seats):** Stage · Entries · Exits · VIP · Bridge · Aisles
 
 ---
 
