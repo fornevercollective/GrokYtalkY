@@ -133,9 +133,9 @@ func helpBodyStream() string {
   /media · H           ffmpeg supervisor health
   R restart tile · K kill pipe (lab/news)
   /orch [hint] · *     Grok take: STYLE/CAPTION/PATTERN/GLYPH
-  /vision [on|off|status|media]  vision-first + FFmpeg control plane
+  /vision [on|off|status|media]  vision + FFmpeg + Aito sides
   MEDIA restart|kill|spawn|retune|encode|recover  (take lines)
-  GY_VISION=1 · GY_VISION_MEDIA=1 · MEDIA_MAX  vision+ffmpeg budgets
+  GY_VISION=1 · MEDIA=1 · AITO_URL · AITO_MOCK  vision budgets
   /plugin list|on|off|reload|style   in-process style + mesh hooks
   /space mute|listeners|key --pull   X Spaces host controls + key pull
   /space offer · guest <nick>        gy as X.com stream asset

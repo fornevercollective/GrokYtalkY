@@ -94,6 +94,12 @@ type VisionBus struct {
 	takes      int64
 	drops      int64
 	errors     int64
+	// last side channels (SAM / pose / depth)
+	lastSegN   int
+	lastPoseN  int
+	lastHands  int
+	lastDepthB string
+	lastDepthM float64
 	// theme ring for news clustering (id → theme)
 	themes map[string]string
 }
@@ -274,6 +280,28 @@ func (v *VisionBus) RecordError(err string) {
 	v.errors++
 }
 
+// RecordSideChannels stores last SAM/pose/depth summary for doctor.
+func (v *VisionBus) RecordSideChannels(segs []VisionSegment, pose *VisionPose, depth *VisionDepthHint) {
+	if v == nil {
+		return
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.lastSegN = len(segs)
+	v.lastPoseN = 0
+	v.lastHands = 0
+	if pose != nil {
+		v.lastPoseN = len(pose.Joints)
+		v.lastHands = pose.Hands
+	}
+	v.lastDepthB = ""
+	v.lastDepthM = 0
+	if depth != nil {
+		v.lastDepthB = depth.Backend
+		v.lastDepthM = depth.Mean
+	}
+}
+
 // ThemeForFeed returns last vision theme for a feed id/label.
 func (v *VisionBus) ThemeForFeed(id string) string {
 	if v == nil {
@@ -315,6 +343,12 @@ type VisionSnapshot struct {
 	Model      string
 	Summary    string
 	Primary    string
+	// side channels
+	LastSegN   int
+	LastPoseN  int
+	LastHands  int
+	LastDepthB string
+	LastDepthM float64
 }
 
 // Snapshot copies bus state.
@@ -332,6 +366,8 @@ func (v *VisionBus) Snapshot() VisionSnapshot {
 		LastProv: v.lastProv, LastLatMs: v.lastLatMs,
 		Interval: v.cfg.Interval, MaxW: v.cfg.MaxW, MaxH: v.cfg.MaxH,
 		Model: v.cfg.Model,
+		LastSegN: v.lastSegN, LastPoseN: v.lastPoseN, LastHands: v.lastHands,
+		LastDepthB: v.lastDepthB, LastDepthM: v.lastDepthM,
 	}
 	s.Summary = v.lastTake.TakeSummary()
 	if v.reg != nil && v.reg.PrimaryTakeProvider() != nil {
@@ -357,14 +393,17 @@ func FormatVisionDoctor(v *VisionBus) string {
 	fmt.Fprintf(&b, "  last_prov %s · %d ms\n", emptyDash(s.LastProv), s.LastLatMs)
 	fmt.Fprintf(&b, "  theme     %s\n", emptyDash(s.LastTheme))
 	fmt.Fprintf(&b, "  mute_hint %s\n", emptyDash(s.LastMute))
+	fmt.Fprintf(&b, "  sides     sam=%d pose_j=%d hands=%d depth=%s (%.2f)\n",
+		s.LastSegN, s.LastPoseN, s.LastHands, emptyDash(s.LastDepthB), s.LastDepthM)
 	if !s.LastAt.IsZero() {
 		fmt.Fprintf(&b, "  last_at   %s · jpeg %d B\n", s.LastAt.Format(time.RFC3339), s.LastBytes)
 	}
 	if s.LastErr != "" {
 		fmt.Fprintf(&b, "  last_err  %s\n", s.LastErr)
 	}
-	b.WriteString("  env       GY_VISION=1 · GY_VISION_PROVIDER=grok|offline · GY_VISION_AITO_URL\n")
+	b.WriteString("  env       GY_VISION=1 · PROVIDER · AITO_URL · AITO_MOCK=1\n")
 	b.WriteString("  ffmpeg    GY_VISION_MEDIA=1 control plane · /vision media\n")
+	b.WriteString("  aito      SAM/pose/gsplat/depth sidecars · POST /segment /pose /gsplat /depth\n")
 	return b.String()
 }
 

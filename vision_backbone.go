@@ -143,10 +143,13 @@ func newVisionRegistry() *VisionRegistry {
 		providers: make(map[string]VisionProvider),
 		primary:   "grok",
 	}
-	// built-in providers
+	// built-in providers — take + Aito side channels (SAM/pose/gsplat/depth)
 	r.RegisterProvider(&GrokVisionProvider{})
 	r.RegisterProvider(&OfflineVisionProvider{})
 	r.RegisterProvider(&AitoDepthProvider{})
+	r.RegisterProvider(&AitoSAMProvider{})
+	r.RegisterProvider(&AitoPoseProvider{})
+	r.RegisterProvider(&AitoGsplatBoothProvider{})
 	r.RegisterProvider(&DepthProxyProvider{})
 	if p := strings.TrimSpace(os.Getenv("GY_VISION_PROVIDER")); p != "" {
 		r.primary = strings.ToLower(p)
@@ -275,15 +278,82 @@ func (ev VisionEvent) MeshJSON(from string) map[string]any {
 		m["error"] = ev.Error
 	}
 	if ev.Depth != nil {
-		m["depth"] = ev.Depth
+		m["depth"] = map[string]any{
+			"backend": ev.Depth.Backend,
+			"mean":    ev.Depth.Mean,
+		}
 	}
 	if len(ev.Segments) > 0 {
-		m["segments"] = len(ev.Segments) // don't flood mesh with masks
+		m["segments"] = len(ev.Segments) // don't flood mesh with full masks
+		// top label for theme cluster / plugins
+		top := ev.Segments[0]
+		for _, s := range ev.Segments[1:] {
+			if s.Score > top.Score {
+				top = s
+			}
+		}
+		if top.Label != "" {
+			m["segment_top"] = top.Label
+		}
 	}
 	if ev.Pose != nil {
 		m["pose"] = true
+		m["pose_hands"] = ev.Pose.Hands
+		m["pose_joints"] = len(ev.Pose.Joints)
+	}
+	if len(ev.Take.Media) > 0 {
+		m["media_ops"] = len(ev.Take.Media)
 	}
 	return m
+}
+
+// enrichTakeFromSideChannels fills MUTE_HINT / DEPTH / CAPTION hints from SAM/pose/depth.
+func enrichTakeFromSideChannels(res *VisionResult) {
+	if res == nil {
+		return
+	}
+	// pose hands / face → talking
+	if res.Pose != nil && res.Take.MuteHint == "" {
+		if res.Pose.Hands > 0 {
+			res.Take.MuteHint = "talking"
+		} else if _, ok := res.Pose.Joints["nose"]; ok {
+			res.Take.MuteHint = "talking"
+		}
+	}
+	// depth backend → DEPTH line if empty
+	if res.Depth != nil && res.Take.Depth == "" {
+		switch {
+		case strings.Contains(res.Depth.Backend, "gsplat"):
+			res.Take.Depth = "gsplat"
+		case strings.Contains(res.Depth.Backend, "zip"):
+			res.Take.Depth = "zip-lite"
+		}
+	}
+	// segment labels → caption spice if empty-ish
+	if len(res.Segments) > 0 && res.Take.Caption == "" {
+		top := res.Segments[0]
+		for _, s := range res.Segments[1:] {
+			if s.Score > top.Score {
+				top = s
+			}
+		}
+		if top.Label != "" {
+			res.Take.Caption = "SAM · " + top.Label
+		}
+	}
+	// person segment + news → theme already set usually
+	if len(res.Segments) > 0 && res.Take.Theme == "" {
+		for _, s := range res.Segments {
+			lab := strings.ToLower(s.Label)
+			if strings.Contains(lab, "person") || strings.Contains(lab, "face") {
+				res.Take.Theme = "breaking"
+				break
+			}
+			if strings.Contains(lab, "car") || strings.Contains(lab, "road") {
+				res.Take.Theme = "earthcam"
+			}
+		}
+	}
 }
 
 // ── pipeline runner ────────────────────────────────────────
@@ -364,19 +434,44 @@ func RunVisionPipeline(m *Model, hint string) (VisionResult, error) {
 	res.Pose = out.Pose
 	res.Depth = out.Depth
 
-	// optional side providers (depth) — best-effort, never fail the take
-	if dp := reg.Provider("aito-depth"); dp != nil && dp.Available() && res.Depth == nil {
-		if side, e2 := dp.Infer(ctx, vf, orch); e2 == nil && side.Depth != nil {
-			res.Depth = side.Depth
+	// side channels — SAM / pose / gsplat / depth (best-effort, never fail the take)
+	runSide := func(name string) {
+		p := reg.Provider(name)
+		if p == nil || !p.Available() {
+			return
 		}
-	} else if dp := reg.Provider("depth-proxy"); dp != nil && dp.Available() && res.Depth == nil {
-		if side, e2 := dp.Infer(ctx, vf, orch); e2 == nil && side.Depth != nil {
+		side, e2 := p.Infer(ctx, vf, orch)
+		if e2 != nil {
+			return
+		}
+		if len(side.Segments) > 0 && len(res.Segments) == 0 {
+			res.Segments = side.Segments
+		}
+		if side.Pose != nil && res.Pose == nil {
+			res.Pose = side.Pose
+		}
+		if side.Depth != nil && res.Depth == nil {
 			res.Depth = side.Depth
 		}
 	}
+	// prefer real Aito booth depth over local proxy
+	runSide("aito-sam")
+	runSide("aito-pose")
+	runSide("aito-gsplat")
+	if res.Depth == nil {
+		runSide("aito-depth")
+	}
+	if res.Depth == nil {
+		runSide("depth-proxy")
+	}
+
+	// enrich take from side channels when model omitted lines
+	enrichTakeFromSideChannels(&res)
 
 	res.Latency = time.Since(t0)
 	bus.RecordSuccessFull(label, res.Take, nB, res.Provider, res.Latency.Milliseconds())
+	// stash last side channels on bus for doctor / apply
+	bus.RecordSideChannels(res.Segments, res.Pose, res.Depth)
 
 	// EMIT event stream (plugins + subscribers)
 	ev := VisionEvent{
@@ -415,8 +510,8 @@ func FormatVisionBackboneDoctor(v *VisionBus) string {
 		fmt.Fprintf(&b, "    %s %-12s  kind=%-8s%s\n", mark, p.Name(), p.Kind(), prim)
 	}
 	b.WriteString("  hooks     plugin VisionHook · Subscribe() · mesh type:vision-take\n")
-	b.WriteString("  aito      GY_VISION_AITO_URL=http://127.0.0.1:8766  (zipdepth sidecar)\n")
-	b.WriteString("  future    SAM/MediaPipe/gsplat via aito sidecars (interfaces ready)\n")
+	b.WriteString("  aito      GY_VISION_AITO_URL · AITO_MOCK=1 · /segment /pose /gsplat /depth\n")
+	b.WriteString("  sides     aito-sam · aito-pose · aito-gsplat · aito-depth · depth-proxy\n")
 	b.WriteString(FormatVisionMediaDoctor())
 	return b.String()
 }

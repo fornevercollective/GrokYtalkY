@@ -13,7 +13,7 @@ func TestVisionRegistryProviders(t *testing.T) {
 	for _, p := range r.ListProviders() {
 		names[p.Name()] = true
 	}
-	for _, want := range []string{"grok", "offline", "aito-depth", "depth-proxy"} {
+	for _, want := range []string{"grok", "offline", "aito-depth", "aito-sam", "aito-pose", "aito-gsplat", "depth-proxy"} {
 		if !names[want] {
 			t.Fatalf("missing provider %s in %v", want, names)
 		}

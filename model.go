@@ -4709,6 +4709,13 @@ func (m *Model) startVisionTake(hint string) (tea.Model, tea.Cmd) {
 			}
 			_ = m.client.SendJSON(ev.MeshJSON(m.nick))
 		}
+		// side-channel note for apply (stored on bus already)
+		if len(res.Segments) > 0 || res.Pose != nil || res.Depth != nil {
+			// take may have been enriched; re-serialize media-less raw if empty
+			if res.Take.Raw == "" {
+				res.Take.Raw = res.Take.TakeSummary()
+			}
+		}
 		return grokReplyMsg{Text: res.Take.Raw, Orchestrate: true, Vision: true, Feed: res.Frame.Feed}
 	}
 }
@@ -4778,6 +4785,13 @@ func (m *Model) applyGrokTake(take GrokTake) (tea.Model, tea.Cmd) {
 	// FFmpeg control plane first so style/caption apply onto recovered pipes
 	if mediaApplied := ApplyVisionMediaControl(m, take); len(mediaApplied) > 0 {
 		applied = append(applied, mediaApplied...)
+	}
+
+	// side-channel stage cues (SAM/pose/depth from last bus snapshot)
+	if take.Vision {
+		if side := applyVisionSideChannels(m, take); len(side) > 0 {
+			applied = append(applied, side...)
+		}
 	}
 
 	if take.Theme != "" {

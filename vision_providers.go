@@ -2,9 +2,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"math"
 	"net/http"
 	"os"
@@ -125,36 +123,12 @@ func (AitoDepthProvider) Available() bool {
 
 func (AitoDepthProvider) Infer(ctx context.Context, frame VisionFrame, orch FeedOrchestrateContext) (VisionResult, error) {
 	_ = orch
-	url := strings.TrimSpace(os.Getenv("GY_VISION_AITO_URL"))
-	if url == "" {
-		url = "http://127.0.0.1:8766"
-	}
-	// health only for now — full depth POST left for aito booth integration
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(url, "/")+"/health", nil)
+	// real POST /depth (ZipDepth RGB protocol) or mock
+	d, err := aitoDepthInfer(ctx, frame)
 	if err != nil {
 		return VisionResult{}, err
 	}
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return VisionResult{}, err
-	}
-	defer res.Body.Close()
-	b, _ := io.ReadAll(io.LimitReader(res.Body, 8<<10))
-	backend := "aito"
-	var h map[string]any
-	if json.Unmarshal(b, &h) == nil {
-		if s, ok := h["backend"].(string); ok && s != "" {
-			backend = s
-		}
-	}
-	mean := frameMeanLum(frame.Frame)
-	return VisionResult{
-		Provider: "aito-depth",
-		Depth: &VisionDepthHint{
-			Backend: backend,
-			Mean:    mean,
-		},
-	}, nil
+	return VisionResult{Provider: "aito-depth", Depth: d}, nil
 }
 
 // ── Local depth proxy (gsplat-style stats, no neural net) ──

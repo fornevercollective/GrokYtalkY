@@ -1,7 +1,7 @@
-# Vision-first backbone + FFmpeg control plane (v1.70)
+# Vision-first backbone + FFmpeg control plane + Aito sides (v1.71)
 
-**Vision first. Full media control, not partial.**  
-Structured take path drives the orchestrator **and** spawns/restarts/retunes/encodes supervised FFmpeg pipelines.
+**Vision first. Full media control + Aito side channels.**  
+Structured take path drives the orchestrator, **FFmpeg control plane**, and **Aito** SAM / pose / gsplat / depth sidecars.
 
 ## Pipeline
 
@@ -52,18 +52,22 @@ Auto (when `GY_VISION_MEDIA_AUTO=1`): unhealthy focus news/watch after a vision 
 |------|------|------|
 | `grok` | take | `XAI_API_KEY` · multimodal |
 | `offline` | take | no key / `GY_VISION_OFFLINE=1` · deterministic |
-| `aito-depth` | depth | `GY_VISION_AITO_URL` zipdepth sidecar (:8766) |
-| `depth-proxy` | depth | local gsplat-style hint (always) |
+| `aito-sam` | segment | `POST /segment` · SAM regions (aito-living-canvas) |
+| `aito-pose` | pose | `POST /pose` · MediaPipe joints/hands (aito-mac) |
+| `aito-gsplat` | depth | `POST /gsplat` or `/booth` · gsplat stack |
+| `aito-depth` | depth | `POST /depth` · ZipDepth RGB protocol |
+| `depth-proxy` | depth | local gsplat-style hint (always, fallback) |
 
 ```bash
 export GY_VISION_PROVIDER=grok   # or offline
 export GY_VISION_AITO_URL=http://127.0.0.1:8766
+export GY_VISION_AITO_MOCK=1     # local geometry mocks (no sidecar)
 export GY_VISION_MEDIA=1         # FFmpeg control plane (default on)
 export GY_VISION_MEDIA_MAX=4     # ops per minute
 export GY_VISION_MEDIA_AUTO=1    # auto-recover dead focus
 ```
 
-**Future slots (interfaces ready):** SAM segment, MediaPipe pose/IK, gsplat booth — as Aito sidecars implementing `VisionProvider`.
+Side channels run **after** the primary take (best-effort). They enrich empty MUTE_HINT / DEPTH / CAPTION and appear on mesh `vision-take` (`segments`, `pose_hands`, `depth.backend`).
 
 ## Event stream (plugins)
 
@@ -88,8 +92,27 @@ Mesh: `type:vision-take` · `theme` · `caption` · `style` · `mute_hint` · `d
 | `GY_VISION_MEDIA` | on | FFmpeg control plane |
 | `GY_VISION_MEDIA_MAX` | 4 | media ops / minute |
 | `GY_VISION_MEDIA_AUTO` | on | auto recover dead focus |
+| `GY_VISION_AITO_URL` | `http://127.0.0.1:8766` | Aito sidecar base |
+| `GY_VISION_AITO_MOCK` | off | mock SAM/pose/gsplat/depth |
+| `GY_VISION_AITO_SEGMENT` | `/segment` | path override |
+| `GY_VISION_AITO_POSE` | `/pose` | path override |
+| `GY_VISION_AITO_GSPLAT` | `/gsplat` | path override (`/booth` fallback) |
+| `GY_VISION_AITO_DEPTH` | `/depth` | ZipDepth path |
+| `GY_VISION_NO_SAM` / `NO_POSE` / `NO_GSPLAT` | off | disable side providers |
 
 Requires `XAI_API_KEY` for live grok (or `GY_VISION_OFFLINE=1`).
+
+### Aito HTTP contract (sidecar)
+
+```
+GET  /health          → 2xx
+POST /segment         JSON { image: dataURL } → { segments: [{id,label,score,bbox:[x,y,w,h]}] }
+POST /pose            JSON { image } → { joints: {name:[x,y,c]}, hands: N }
+POST /gsplat|/booth   JSON { image, mode } → { backend, mean, preview[] }
+POST /depth           binary u32le w|h + RGB888 → { backend, mean, depth[], w, h }
+```
+
+Heavy ML stays in Aito. gy only POSTs focus frames and applies results.
 
 ## CLI / TUI
 
