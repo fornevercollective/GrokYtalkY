@@ -228,23 +228,24 @@ auto-update
 
 func helpBodyDocs() string {
 	ver := Version
-	return fmt.Sprintf(`docs · pages · repo  (gy %s)
+	return fmt.Sprintf(`docs · pages · powerhouse  (gy %s)
 
   site  https://fornevercollective.github.io/GrokYtalkY/
-  docs  …/docs.html
-  dojo  …/dojo.html   chat  …/chat.html   burst  …/burst.html
+  docs  …/docs.html · dojo · chat · burst
+
+  powerhouse stack (overview · blank · grok-cli · Qbpm)
+    docs/powerhouse-stack.md
+    integrations/powerhouse-protocol.json
+    scripts/powerhouse-up.sh
+    blank: STAGEFORGE_GY=1 Launch-StageForge
+    grok-cli: scripts/powerhouse-stage.sh
+    Qbpm: window.qbpmGy · gy-program-bridge.js
 
   repo docs/
-    streams-capacity.md   hybrid CF / SFU / hub lanes
-    st2110-sync-cameras.md  2110-20/30 · PTP · cameras · 2022-7
-    stream-binary.md      gyst/gyhex/pcap
-    burst.md · chat.md · companion.md
-    pages.md              GitHub Pages deploy
+    streams-capacity.md · st2110-sync-cameras.md
+    stream-binary.md · burst.md · chat.md · pages.md
 
-  scaffold
-    sfu/     gy-sfu (make sfu-media)
-    chat/    CF Worker + DO Space chat
-
-  module  github.com/fornevercollective/grokytalky
-  help    tab through pages · ? close`, ver)
+  scaffold  sfu/ · chat/
+  module    github.com/fornevercollective/grokytalky
+  help      tab pages · ? close`, ver)
 }

@@ -1,0 +1,59 @@
+{
+  "name": "GrokYtalkY powerhouse protocol",
+  "version": "1.36.0",
+  "hub": {
+    "default": "ws://127.0.0.1:9876/",
+    "env": "GY_HUB"
+  },
+  "mesh_types": {
+    "program": {
+      "owner": "gy conductor",
+      "fields": ["mode", "program", "preview", "caption", "conductor", "seq"],
+      "consumers": ["gy venue", "qbpm-gy-bridge", "blank multiview", "sfu-bridge"]
+    },
+    "gyst": {
+      "kinds": ["hexlum", "rgb24", "jpeg", "meta", "pcm16"],
+      "forge": "cgf: marks + lattice on hexlum",
+      "consumers": ["dual Glyph", "gy agent", "sfu glyph/hex"]
+    },
+    "chat": {
+      "consumers": ["gy TUI", "Space chat-bridge", "blank thread"]
+    }
+  },
+  "anc": {
+    "did": "0x5F",
+    "sdid": {
+      "0x01": "mark",
+      "0x02": "tally",
+      "0x03": "bus",
+      "0x04": "preview",
+      "0x05": "caption"
+    },
+    "capture": "program bus only (OnANC)"
+  },
+  "tools": {
+    "overview": {
+      "path": "~/dev/overview",
+      "hook": "blank-tools-manifest.ts · category dojo"
+    },
+    "blank": {
+      "path": "~/dev/blank",
+      "hook": "stageforge.yaml · service gy when STAGEFORGE_GY=1"
+    },
+    "grok-cli": {
+      "path": "~/dev/grok-cli-main",
+      "hook": "scripts/powerhouse-stage.sh multi-stage"
+    },
+    "qbpm": {
+      "path": "~/Projects/Qbpm",
+      "hook": "static/gy-program-bridge.js · window.qbpmGy"
+    }
+  },
+  "ports": {
+    "gy_hub": 9876,
+    "blank": 5173,
+    "qbpm": 8796,
+    "grok_notes": 3000,
+    "sfu": 9880
+  }
+}

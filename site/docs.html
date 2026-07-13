@@ -50,6 +50,7 @@
       <a href="#grok">Grok prompt</a>
       <a href="#server">Server / mesh</a>
       <a href="#cli">CLI map</a>
+      <a href="#powerhouse">Powerhouse stack</a>
       <a href="#env">Environment</a>
       <a href="#keys">Keys</a>
       <a href="#stack">Stack &amp; lineage</a>
@@ -375,6 +376,32 @@ export GROK_CLI_URL=http://127.0.0.1:3000   # optional notes backend</code></pre
             <tr><td><code>update</code></td><td>Channel install (TUI also auto-updates)</td></tr>
           </tbody>
         </table>
+      </section>
+
+      <section id="powerhouse" class="docs-section">
+        <h2>Powerhouse stack</h2>
+        <p>
+          Clean route across <strong>overview</strong> (research tools), <strong>blank</strong> (StageForge multi-stage),
+          <strong>grok-cli</strong> (notes + multi-stage), and <strong>Qbpm</strong> (jam graph) — with
+          <strong>GrokYtalkY</strong> as mesh / forge / program-bus / venue authority.
+        </p>
+        <pre class="code-block"><code># hub
+gy serve
+# or: ~/Projects/GrokYtalkY/scripts/powerhouse-up.sh
+
+# blank StageForge (+ optional gy)
+STAGEFORGE_GY=1 ~/dev/blank/Launch-StageForge.command
+
+# grok-cli multi-stage (notes → hub)
+~/dev/grok-cli-main/scripts/powerhouse-stage.sh
+
+# Qbpm: auto-connects window.qbpmGy when hub is up
+# override: window.QBPM_GY_HUB = 'ws://127.0.0.1:9876/'</code></pre>
+        <p>
+          Contract: <code>docs/powerhouse-stack.md</code> ·
+          <code>integrations/powerhouse-protocol.json</code>.
+          Authority for on-air stays on gy conductor (<code>/take</code> · ANC · venue).
+        </p>
       </section>
 
       <section id="env" class="docs-section">
