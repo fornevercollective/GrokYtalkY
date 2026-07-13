@@ -98,7 +98,25 @@ Vision().Registry().Subscribe(func(ev VisionEvent) { ... })
 // or Plugin implementing VisionHook() VisionHook
 ```
 
-Mesh: `type:vision-take` · `theme` · `caption` · `style` · `mute_hint` · `depth`
+Mesh: `type:vision-take` · `theme` · `caption` · `style` · `mute_hint` · `depth` · **`segment_top`** · **`pose_hands`** / `pose_joints`
+
+### Live News browser (`site/livenews.html`)
+
+Connect hub → consumes the same mesh:
+
+| Field | UI |
+|-------|-----|
+| `theme` | theme cluster / sort |
+| `caption` | tile chyron |
+| `segment_top` | **SAM · label** badge on tile |
+| `pose` / `pose_hands` | **pose ✋N** badge (hot when hands &gt; 0) |
+| chips | vision bar under main column (pin on click) |
+
+```bash
+export GY_VISION=1 GY_VISION_AITO_MOCK=1
+gy serve   # other terminal: gy lab · /news · /vision
+# browser: livenews.html → Connect hub  (or Demo vision without hub)
+```
 
 ### Builtin `theme-vision` VisionPlugin
 

@@ -148,6 +148,107 @@
   margin-left: 0.2rem;
 }
 
+/* vision-take: SAM segment_top + pose strip under main */
+.ln-vision-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  align-items: center;
+  margin-top: 0.45rem;
+  min-height: 1.2rem;
+}
+.ln-vision-bar[hidden] {
+  display: none !important;
+}
+.ln-vision-bar-label {
+  font-family: var(--mono);
+  font-size: 0.55rem;
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-right: 0.15rem;
+}
+.ln-vision-chip {
+  font-family: var(--mono);
+  font-size: 0.55rem;
+  padding: 0.12rem 0.35rem;
+  border-radius: 6px;
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  color: #a7f3d0;
+  background: rgba(16, 185, 129, 0.08);
+  cursor: pointer;
+}
+.ln-vision-chip em {
+  font-style: normal;
+  color: #fcd34d;
+  margin-left: 0.15rem;
+}
+.ln-vision-chip .ln-hand {
+  color: #f9a8d4;
+  margin-left: 0.15rem;
+}
+.ln-vision-chip:hover {
+  border-color: rgba(52, 211, 153, 0.7);
+  background: rgba(16, 185, 129, 0.15);
+}
+
+/* per-tile vision badges */
+.ln-vision-row {
+  position: absolute;
+  left: 0.25rem;
+  right: 0.25rem;
+  bottom: 1.55rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  z-index: 2;
+  pointer-events: none;
+}
+.ln-tile.has-vision {
+  border-color: rgba(52, 211, 153, 0.35);
+}
+.ln-sam-badge,
+.ln-pose-badge,
+.ln-theme-mini {
+  font-family: var(--mono);
+  font-size: 0.48rem;
+  padding: 0.08rem 0.28rem;
+  border-radius: 4px;
+  line-height: 1.2;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ln-sam-badge {
+  color: #fde68a;
+  background: rgba(234, 179, 8, 0.18);
+  border: 1px solid rgba(234, 179, 8, 0.35);
+}
+.ln-pose-badge {
+  color: #e9d5ff;
+  background: rgba(168, 85, 247, 0.15);
+  border: 1px solid rgba(168, 85, 247, 0.35);
+}
+.ln-pose-badge.is-hot {
+  color: #fbcfe8;
+  border-color: rgba(244, 114, 182, 0.55);
+  background: rgba(244, 114, 182, 0.18);
+}
+.ln-theme-mini {
+  color: var(--grok);
+  background: rgba(192, 132, 252, 0.12);
+  border: 1px solid rgba(192, 132, 252, 0.3);
+}
+.ln-main-grid .ln-vision-row {
+  bottom: 1.2rem;
+}
+.ln-main-grid .ln-sam-badge,
+.ln-main-grid .ln-pose-badge,
+.ln-main-grid .ln-theme-mini {
+  font-size: 0.42rem;
+}
+
 /* collapsible region */
 .ln-region {
   border: 1px solid var(--border);

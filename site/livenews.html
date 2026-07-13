@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Live News · World glyph wall · GrokYtalkY</title>
-  <meta name="description" content="Global news, weather, and public-access streams as 25×25 Glyph Matrix tiles. Main swap column, theme clusters for AI captions/transcripts." />
+  <meta name="description" content="Global news glyph wall: theme clusters, vision-take segment_top (SAM) + pose hands from the mesh hub." />
   <meta name="theme-color" content="#0c0c0f" />
   <link rel="canonical" href="https://fornevercollective.github.io/GrokYtalkY/livenews.html" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -25,7 +25,8 @@
       monument / highway / cityscape broadcasts worldwide as
       <strong>25×25 luminance</strong> tiles. Collapsible sections with
       <strong>refresh</strong>. Main column (like Burst Speakers) swaps the active mosaic —
-      ready for live AI captioning / transcripts to <strong>auto-sort and cluster by theme</strong>.
+      ready for live AI captioning / transcripts and <strong>vision-take</strong>
+      (<code>segment_top</code> SAM · pose hands) to <strong>auto-sort and cluster by theme</strong>.
     </p>
 
     <div class="ln-toolbar" role="toolbar" aria-label="News wall controls">
@@ -48,6 +49,7 @@
         </select>
       </label>
       <button type="button" class="btn ghost" id="ln-theme-demo" title="Inject demo captions to show clustering">Demo themes</button>
+      <button type="button" class="btn ghost" id="ln-vision-demo" title="Inject demo vision-take (SAM + pose)">Demo vision</button>
       <button type="button" class="btn ghost" id="ln-cluster" title="Re-cluster main column from captions">Cluster now</button>
       <span class="ln-meta" id="ln-meta">idle · 0 tiles</span>
     </div>
@@ -67,10 +69,12 @@
         </div>
         <div class="speaker-grid ln-main-grid" id="ln-main-grid" role="list" aria-label="Main feed mosaic"></div>
         <div class="ln-theme-bar" id="ln-theme-bar" aria-label="Theme clusters"></div>
+        <div class="ln-vision-bar" id="ln-vision-bar" aria-label="Vision SAM / pose feeds" hidden></div>
         <p class="ln-main-hint">
-          Click a section tile to <strong>pin → main</strong>. With hub captions
-          (<code>news-caption</code> / <code>news-transcript</code>), sort →
-          <em>by theme</em> clumps related stories. Terminal: <code>gy lab</code> · <code>/news</code>
+          Click a section tile to <strong>pin → main</strong>. Hub
+          <code>news-caption</code> / <code>vision-take</code>
+          (<code>segment_top</code> · <code>pose_hands</code> → theme clump.
+          Terminal: <code>gy lab</code> · <code>/news</code> · <code>GY_VISION=1</code>
         </p>
       </aside>
 
@@ -81,7 +85,8 @@
     <p class="ln-hint">
       Catalog: news + weather + public access / PEG / government worldwide.
       Refresh per section re-seeds posters + clears stale hub frames.
-      AI path: pipe captions via hub → auto theme cluster in the main column.
+      AI path: hub captions + <code>type:vision-take</code> (SAM <code>segment_top</code>, pose)
+      → auto theme cluster. Demo: <strong>Demo vision</strong> without a hub.
     </p>
   </main>
 

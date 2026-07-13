@@ -1,6 +1,6 @@
 /**
  * Live news glyph wall — world catalog, section refresh, main swap column,
- * theme cluster from AI captions / transcripts.
+ * theme cluster from AI captions / transcripts + vision-take (segment_top / pose).
  */
 (function () {
   'use strict';
@@ -25,11 +25,13 @@
     stress: document.getElementById('ln-stress'),
     sort: document.getElementById('ln-sort'),
     themeDemo: document.getElementById('ln-theme-demo'),
+    visionDemo: document.getElementById('ln-vision-demo'),
     cluster: document.getElementById('ln-cluster'),
     shuffle: document.getElementById('ln-main-shuffle'),
     cycle: document.getElementById('ln-main-cycle'),
     clear: document.getElementById('ln-main-clear'),
     fill: document.getElementById('ln-main-fill'),
+    visionBar: document.getElementById('ln-vision-bar'),
   };
 
   /** @type {Map<string, TileRec>} */
@@ -106,6 +108,37 @@
       cap.className = 'ln-cap';
       cap.textContent = (capMeta.caption || capMeta.transcript).slice(0, 80);
       tile.appendChild(cap);
+    }
+
+    // vision-take side channels: SAM segment_top + pose
+    if (capMeta && (capMeta.segment_top || capMeta.pose || capMeta.pose_hands > 0)) {
+      const vrow = document.createElement('div');
+      vrow.className = 'ln-vision-row';
+      if (capMeta.segment_top) {
+        const sam = document.createElement('span');
+        sam.className = 'ln-sam-badge';
+        sam.title = 'SAM segment_top';
+        sam.textContent = 'SAM · ' + String(capMeta.segment_top).slice(0, 14);
+        vrow.appendChild(sam);
+      }
+      if (capMeta.pose || capMeta.pose_hands > 0) {
+        const pose = document.createElement('span');
+        pose.className = 'ln-pose-badge' + (capMeta.pose_hands > 0 ? ' is-hot' : '');
+        pose.title = 'MediaPipe pose · hands=' + (capMeta.pose_hands || 0);
+        pose.textContent =
+          'pose' +
+          (capMeta.pose_hands > 0 ? ' ✋' + capMeta.pose_hands : '') +
+          (capMeta.pose_joints > 0 ? ' ·j' + capMeta.pose_joints : '');
+        vrow.appendChild(pose);
+      }
+      if (capMeta.theme && capMeta.theme !== 'unsorted') {
+        const th = document.createElement('span');
+        th.className = 'ln-theme-mini';
+        th.textContent = capMeta.theme;
+        vrow.appendChild(th);
+      }
+      tile.appendChild(vrow);
+      tile.classList.add('has-vision');
     }
 
     const meta = document.createElement('div');
@@ -405,6 +438,7 @@
       if (t.live) live++;
     });
     const mode = ws && ws.readyState === 1 ? 'hub' : 'poster';
+    const vs = TH && TH.visionStats ? TH.visionStats() : { sam: 0, pose: 0 };
     el.meta.innerHTML =
       mode +
       ' · <em>' +
@@ -413,9 +447,57 @@
       mainIds.length +
       '</em> · live ' +
       live +
-      ' · stress ' +
+      ' · SAM <em>' +
+      vs.sam +
+      '</em> · pose <em>' +
+      vs.pose +
+      '</em> · stress ' +
       stressN +
       (ws && ws.readyState === 1 ? ' · <em>' + nick + '</em>' : '');
+    renderVisionBar();
+  }
+
+  /** Chip strip: feeds with segment_top / pose from vision-take. */
+  function renderVisionBar() {
+    if (!el.visionBar || !TH) return;
+    el.visionBar.innerHTML = '';
+    const chips = [];
+    TH.meta.forEach((m, id) => {
+      if (!m.segment_top && !m.pose && !(m.pose_hands > 0)) return;
+      const src = NS.findById(id);
+      chips.push({
+        id: id,
+        label: (src && src.label) || id,
+        sam: m.segment_top || '',
+        hands: m.pose_hands || 0,
+        theme: m.theme || '',
+      });
+    });
+    if (!chips.length) {
+      el.visionBar.hidden = true;
+      return;
+    }
+    el.visionBar.hidden = false;
+    const title = document.createElement('span');
+    title.className = 'ln-vision-bar-label';
+    title.textContent = 'vision';
+    el.visionBar.appendChild(title);
+    chips.slice(0, 16).forEach((c) => {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'ln-vision-chip';
+      chip.title = c.label + (c.sam ? ' · SAM ' + c.sam : '') + (c.hands ? ' · hands ' + c.hands : '');
+      chip.innerHTML =
+        escapeHtml(c.label.slice(0, 10)) +
+        (c.sam ? ' <em>' + escapeHtml(String(c.sam).slice(0, 10)) + '</em>' : '') +
+        (c.hands > 0 ? ' <span class="ln-hand">✋' + c.hands + '</span>' : '');
+      chip.addEventListener('click', () => {
+        toggleMain(c.id, true);
+        if (el.sort) el.sort.value = 'theme';
+        clusterNow();
+      });
+      el.visionBar.appendChild(chip);
+    });
   }
 
   function loop(now) {
@@ -475,18 +557,57 @@
       } catch (_) {
         return;
       }
+      let visionHit = false;
       if (TH) {
         const m = TH.applyMesh(msg);
         // vision/orch mesh: type news-caption with theme
         if (msg.type === 'news-caption' && msg.theme && msg.feed) {
-          TH.setCaption(String(msg.feed).toLowerCase().replace(/\s+/g, ''), msg.text || msg.theme, {});
-          // also try label match
-          if (NS.findById) {
-            /* theme stored by applyMesh if id resolves */
+          TH.setCaption(String(msg.feed).toLowerCase().replace(/\s+/g, ''), msg.text || msg.theme, {
+            theme: msg.theme,
+          });
+        }
+        if (msg.type === 'vision-take') {
+          visionHit = !!m;
+          // refresh tiles that gained SAM/pose badges
+          if (m && mainIds.length) {
+            if (el.sort && el.sort.value === 'theme') {
+              mainIds = TH.sortIds(mainIds);
+            }
+            renderMain();
+            // light section refresh for badges
+            document.querySelectorAll('.ln-tile[data-id]').forEach((node) => {
+              const id = node.dataset.id;
+              const meta = TH.getMeta(id);
+              if (!meta || (!meta.segment_top && !meta.pose)) return;
+              // if tile lacks vision row, full rebuild of sections is heavy — patch badge
+              if (!node.querySelector('.ln-vision-row')) {
+                const vrow = document.createElement('div');
+                vrow.className = 'ln-vision-row';
+                if (meta.segment_top) {
+                  const sam = document.createElement('span');
+                  sam.className = 'ln-sam-badge';
+                  sam.textContent = 'SAM · ' + String(meta.segment_top).slice(0, 14);
+                  vrow.appendChild(sam);
+                }
+                if (meta.pose || meta.pose_hands > 0) {
+                  const pose = document.createElement('span');
+                  pose.className = 'ln-pose-badge' + (meta.pose_hands > 0 ? ' is-hot' : '');
+                  pose.textContent =
+                    'pose' + (meta.pose_hands > 0 ? ' ✋' + meta.pose_hands : '');
+                  vrow.appendChild(pose);
+                }
+                node.appendChild(vrow);
+                node.classList.add('has-vision');
+              }
+            });
           }
         }
-        if ((m || (msg.theme && msg.type === 'news-caption')) && el.sort && el.sort.value === 'theme') {
-          if (mainIds.length) {
+        if (
+          (m || visionHit || (msg.theme && msg.type === 'news-caption')) &&
+          el.sort &&
+          el.sort.value === 'theme'
+        ) {
+          if (mainIds.length && msg.type !== 'vision-take') {
             mainIds = TH.sortIds(mainIds);
             renderMain();
           }
@@ -558,6 +679,16 @@
     setMeta();
   }
 
+  function demoVision() {
+    if (!TH || !TH.demoVision) return;
+    TH.demoVision();
+    if (el.sort) el.sort.value = 'theme';
+    fillFromSort();
+    buildSections();
+    renderMain();
+    setMeta();
+  }
+
   function clusterNow() {
     if (!TH) return;
     if (!mainIds.length) fillFromSort();
@@ -584,6 +715,7 @@
       if (el.sort.value === 'theme') fillFromSort();
     });
   el.themeDemo && el.themeDemo.addEventListener('click', demoThemes);
+  el.visionDemo && el.visionDemo.addEventListener('click', demoVision);
   el.cluster && el.cluster.addEventListener('click', clusterNow);
   el.shuffle && el.shuffle.addEventListener('click', shuffleMain);
   el.cycle && el.cycle.addEventListener('click', cycleMain);
