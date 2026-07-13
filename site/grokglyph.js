@@ -47,6 +47,12 @@
     addBtn: document.getElementById("gg-add"),
     camBtn: document.getElementById("gg-cam"),
     castBtn: document.getElementById("gg-cast"),
+    screenBtn: document.getElementById("gg-screen"),
+    screenOpen: document.getElementById("gg-screen-open"),
+    screenFs: document.getElementById("gg-screen-fs"),
+    screenLayout: document.getElementById("gg-screen-layout"),
+    screenLed: document.getElementById("gg-screen-led"),
+    screenStatus: document.getElementById("gg-screen-status"),
     hubBtn: document.getElementById("gg-hub"),
     meshToggle: document.getElementById("gg-mesh-toggle"),
     nfcAdd: document.getElementById("gg-nfc-add"),
@@ -125,6 +131,16 @@
   let fileOn = false;
   let casting = false;
   let castSession = false; // vburst-start sent
+  /** @type {Window|null} */
+  let screenWin = null;
+  /** @type {BroadcastChannel|null} */
+  let screenBC = null;
+  /** @type {any} PresentationConnection */
+  let screenPres = null;
+  let screenOn = false;
+  let screenLayout = "grid";
+  let screenLed = "auto";
+  let lastScreenPush = 0;
   /** mobile double-stack GrokGlyph scale (portrait 1:2) */
   let mobileStack = false;
   /** @type {Array<{url:string,title:string,kind:string,platform?:string,mobile?:boolean}>} */
@@ -515,6 +531,7 @@
     });
     saveState();
     layoutAndPaint();
+    if (screenOn) pushScreenCast(true);
   }
 
   function setRenderStyle(st) {
@@ -535,6 +552,7 @@
     }
     saveState();
     layoutAndPaint();
+    if (screenOn) pushScreenCast(true);
   }
 
   function clearRoom(confirmFirst) {
@@ -818,6 +836,207 @@
   // ── cast / hub ───────────────────────────────────────────
   function setCastLabel(t) {
     if (els.castLabel) els.castLabel.textContent = t;
+  }
+
+  function setScreenStatus(t) {
+    if (els.screenStatus) els.screenStatus.textContent = t;
+  }
+
+  function lumToB64(lum) {
+    try {
+      let s = "";
+      const n = lum.length;
+      for (let i = 0; i < n; i++) s += String.fromCharCode(lum[i] & 255);
+      return btoa(s);
+    } catch {
+      return "";
+    }
+  }
+
+  function ensureScreenChannel() {
+    if (screenBC) return screenBC;
+    try {
+      screenBC = new BroadcastChannel("gy-glyph-cast");
+      screenBC.onmessage = (ev) => {
+        if (ev.data && ev.data.type === "glyph-cast-ready") {
+          setScreenStatus("screen player ready · streaming " + glyphN + "²");
+          pushScreenCast(true);
+        }
+      };
+    } catch {
+      screenBC = null;
+    }
+    return screenBC;
+  }
+
+  function screenPlayerURL(fs) {
+    const u = new URL("glyph-cast.html", window.location.href);
+    if (fs) {
+      u.searchParams.set("fs", "1");
+      u.searchParams.set("cast", "1");
+    }
+    return u.href;
+  }
+
+  function openScreenPlayer(opts) {
+    opts = opts || {};
+    ensureScreenChannel();
+    // Presentation API (Chromecast / second display) when available
+    if (opts.presentation && "PresentationRequest" in window) {
+      try {
+        const req = new PresentationRequest([screenPlayerURL(true)]);
+        req.start()
+          .then((conn) => {
+            screenPres = conn;
+            screenOn = true;
+            if (els.screenBtn) els.screenBtn.setAttribute("aria-pressed", "true");
+            setScreenStatus("presentation · full LED scale");
+            setCastLabel("screen on");
+            conn.addEventListener("close", () => {
+              screenPres = null;
+              if (!screenWin || screenWin.closed) {
+                screenOn = false;
+                if (els.screenBtn) els.screenBtn.setAttribute("aria-pressed", "false");
+                setScreenStatus("screen closed");
+              }
+            });
+            conn.addEventListener("message", (e) => {
+              try {
+                const m = typeof e.data === "string" ? JSON.parse(e.data) : e.data;
+                if (m && m.type === "glyph-cast-ready") pushScreenCast(true);
+              } catch (_) {}
+            });
+            pushScreenCast(true);
+          })
+          .catch(() => openScreenPopup(opts.fullscreen));
+        return;
+      } catch (_) {
+        /* fall through */
+      }
+    }
+    openScreenPopup(opts.fullscreen);
+  }
+
+  function openScreenPopup(fullscreen) {
+    ensureScreenChannel();
+    const url = screenPlayerURL(!!fullscreen);
+    if (screenWin && !screenWin.closed) {
+      try {
+        screenWin.focus();
+      } catch (_) {}
+    } else {
+      screenWin = window.open(
+        url,
+        "gy-glyph-cast",
+        "popup=yes,width=1280,height=800,menubar=no,toolbar=no,location=no,status=no"
+      );
+    }
+    screenOn = true;
+    if (els.screenBtn) els.screenBtn.setAttribute("aria-pressed", "true");
+    setScreenStatus(
+      (fullscreen ? "fullscreen player" : "screen player") +
+        " · " +
+        glyphN +
+        "×" +
+        glyphN +
+        " · LED " +
+        screenLed
+    );
+    setCastLabel("screen on");
+    // kick first frames after window loads
+    setTimeout(() => pushScreenCast(true), 300);
+    setTimeout(() => pushScreenCast(true), 800);
+  }
+
+  function toggleScreenCast() {
+    if (screenOn && ((screenWin && !screenWin.closed) || screenPres)) {
+      closeScreenCast();
+      return;
+    }
+    openScreenPlayer({ fullscreen: false, presentation: true });
+  }
+
+  function closeScreenCast() {
+    screenOn = false;
+    if (els.screenBtn) els.screenBtn.setAttribute("aria-pressed", "false");
+    if (screenWin && !screenWin.closed) {
+      try {
+        screenWin.close();
+      } catch (_) {}
+    }
+    screenWin = null;
+    if (screenPres) {
+      try {
+        screenPres.terminate && screenPres.terminate();
+        screenPres.close && screenPres.close();
+      } catch (_) {}
+      screenPres = null;
+    }
+    setScreenStatus("screen idle · press p or Screen");
+    setCastLabel(
+      casting ? "casting" : ws && ws.readyState === WebSocket.OPEN ? "hub on" : "idle"
+    );
+  }
+
+  function buildScreenPayload() {
+    if (els.screenLayout) screenLayout = els.screenLayout.value || "grid";
+    if (els.screenLed) screenLed = els.screenLed.value || "auto";
+    const list = stageOrder().filter((p) => isDrawn(p));
+    const outPeers = [];
+    for (const p of list) {
+      const buf = ensureLum(p.id);
+      // ensure latest self sample already in buf from tick; for others use lum
+      let lum = buf;
+      if (!p.self && p.lum && p.lum.length >= glyphN * glyphN) {
+        lum = p.lum;
+      }
+      let mode = "sim";
+      if (p.self) mode = casting ? "cast" : camOn || fileOn ? "self" : "sim";
+      else if (isLivePeer(p)) mode = "rx";
+      outPeers.push({
+        id: p.id,
+        nick: p.nick,
+        mode: mode,
+        self: !!p.self,
+        casting: !!(p.self && casting),
+        glyphN: glyphN,
+        lumB64: lumToB64(lum),
+      });
+    }
+    return {
+      type: "glyph-cast",
+      glyphN: glyphN,
+      style: renderStyle === "ascii" || renderStyle === "braille" ? "matrix" : renderStyle,
+      layout: screenLayout,
+      ledPx: screenLed,
+      peers: outPeers,
+      room: meshRoom,
+      t: Date.now(),
+    };
+  }
+
+  function pushScreenCast(force) {
+    if (!screenOn && !force) return;
+    // still open?
+    if (screenWin && screenWin.closed && !screenPres) {
+      closeScreenCast();
+      return;
+    }
+    const now = performance.now();
+    if (!force && now - lastScreenPush < 90) return;
+    lastScreenPush = now;
+    const msg = buildScreenPayload();
+    try {
+      if (screenBC) screenBC.postMessage(msg);
+    } catch (_) {}
+    try {
+      if (screenWin && !screenWin.closed) screenWin.postMessage(msg, "*");
+    } catch (_) {}
+    try {
+      if (screenPres && screenPres.state === "connected") {
+        screenPres.send(JSON.stringify(msg));
+      }
+    } catch (_) {}
   }
 
   function sendJSON(obj) {
@@ -1942,6 +2161,9 @@
       drawGlyph(c, buf, mode);
     }
 
+    // full-resolution external screen player (integer LED scale)
+    if (screenOn) pushScreenCast(false);
+
     // light roster badge refresh without full relayout (every ~1s)
     raf = requestAnimationFrame(tick);
   }
@@ -1977,6 +2199,29 @@
     if (els.addBtn) els.addBtn.addEventListener("click", addManualPeer);
     if (els.camBtn) els.camBtn.addEventListener("click", () => toggleCam());
     if (els.castBtn) els.castBtn.addEventListener("click", () => toggleCast());
+    if (els.screenBtn) els.screenBtn.addEventListener("click", () => toggleScreenCast());
+    if (els.screenOpen) {
+      els.screenOpen.addEventListener("click", () =>
+        openScreenPlayer({ fullscreen: false, presentation: true })
+      );
+    }
+    if (els.screenFs) {
+      els.screenFs.addEventListener("click", () =>
+        openScreenPlayer({ fullscreen: true, presentation: true })
+      );
+    }
+    if (els.screenLayout) {
+      els.screenLayout.addEventListener("change", () => {
+        screenLayout = els.screenLayout.value || "grid";
+        pushScreenCast(true);
+      });
+    }
+    if (els.screenLed) {
+      els.screenLed.addEventListener("change", () => {
+        screenLed = els.screenLed.value || "auto";
+        pushScreenCast(true);
+      });
+    }
     if (els.hubBtn) els.hubBtn.addEventListener("click", () => toggleHub());
     if (els.meshToggle) {
       els.meshToggle.addEventListener("click", () => {
@@ -2117,8 +2362,13 @@
         return;
       }
 
-      // shortcuts: c cam, v cast, h hub
+      // shortcuts: c cam, v cast, p screen, h hub
       if (inField) return;
+      if (e.key === "p" || e.key === "P") {
+        e.preventDefault();
+        toggleScreenCast();
+        return;
+      }
       if (e.key === "c" || e.key === "C") toggleCam();
       if (e.key === "v" || e.key === "V") toggleCast();
       if (e.key === "h" || e.key === "H") toggleHub();

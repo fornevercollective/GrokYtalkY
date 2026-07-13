@@ -31,7 +31,8 @@
 
     <div class="gg-header-main" role="toolbar" aria-label="Main controls">
       <button type="button" class="gg-hbtn" id="gg-cam" title="Camera → your glyph" aria-pressed="false">cam</button>
-      <button type="button" class="gg-hbtn primary" id="gg-cast" title="Cast video as luminance" aria-pressed="false">cast</button>
+      <button type="button" class="gg-hbtn primary" id="gg-cast" title="Cast video as luminance to mesh" aria-pressed="false">cast</button>
+      <button type="button" class="gg-hbtn" id="gg-screen" title="Cast Glyph player to screen / external display (full LED resolution)" aria-pressed="false">screen</button>
       <button type="button" class="gg-hbtn" id="gg-hub" title="Connect mesh hub" aria-pressed="false">hub</button>
       <button type="button" class="gg-hbtn" id="gg-add" title="Add peer slot">+</button>
       <button type="button" class="gg-hbtn" id="gg-mesh-toggle" title="Mesh join" aria-pressed="true">mesh</button>
@@ -191,6 +192,37 @@
               <button type="button" class="gg-chip" data-style="ascii">ascii</button>
             </div>
             <p class="gg-hint" id="gg-style-hint">matrix = LED luminance · blocks · braille dots · ascii ramp</p>
+
+            <h2 class="gg-h2">Screen cast</h2>
+            <p class="gg-hint">
+              Full-resolution Glyph player on a second window / TV / Chromecast.
+              Integer LED scale uses the full display for 13·25·37·49 matrix feeds.
+            </p>
+            <div class="gg-btn-row">
+              <button type="button" class="btn primary" id="gg-screen-open">Open screen player</button>
+              <button type="button" class="btn ghost" id="gg-screen-fs">Open + fullscreen</button>
+            </div>
+            <label class="gg-hub-label">
+              Cast layout
+              <select id="gg-screen-layout">
+                <option value="grid" selected>grid (all feeds)</option>
+                <option value="focus">focus (you / active)</option>
+                <option value="dual">dual (you + peer)</option>
+              </select>
+            </label>
+            <label class="gg-hub-label">
+              LED scale
+              <select id="gg-screen-led">
+                <option value="auto" selected>auto (fill screen)</option>
+                <option value="8">8 px / LED</option>
+                <option value="16">16 px / LED</option>
+                <option value="24">24 px / LED</option>
+                <option value="32">32 px / LED</option>
+                <option value="48">48 px / LED</option>
+                <option value="64">64 px / LED</option>
+              </select>
+            </label>
+            <p class="gg-hint" id="gg-screen-status">screen idle · press <kbd>p</kbd> or Screen</p>
           </section>
         </div>
 

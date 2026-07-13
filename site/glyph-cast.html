@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>GrokGlyph · Screen cast</title>
+  <meta name="theme-color" content="#000000" />
+  <meta name="description" content="Full-resolution Glyph Matrix screen cast — 13/25/37/49 LED scale for external displays." />
+  <link rel="stylesheet" href="glyph-cast.css" />
+</head>
+<body class="gc-body">
+  <div id="gc-stage" class="gc-stage" role="img" aria-label="Glyph Matrix screen cast"></div>
+
+  <div class="gc-hud" id="gc-hud" aria-label="Cast controls">
+    <div class="gc-hud-row">
+      <span class="gc-brand">◈ GrokGlyph · screen</span>
+      <span class="gc-meta" id="gc-meta">waiting for feed…</span>
+    </div>
+    <div class="gc-hud-row gc-tools">
+      <label>N
+        <select id="gc-res">
+          <option value="13">13</option>
+          <option value="25" selected>25</option>
+          <option value="37">37</option>
+          <option value="49">49</option>
+        </select>
+      </label>
+      <label>LED px
+        <select id="gc-led">
+          <option value="auto" selected>auto</option>
+          <option value="4">4</option>
+          <option value="8">8</option>
+          <option value="12">12</option>
+          <option value="16">16</option>
+          <option value="24">24</option>
+          <option value="32">32</option>
+          <option value="48">48</option>
+          <option value="64">64</option>
+        </select>
+      </label>
+      <label>Gap
+        <select id="gc-gap">
+          <option value="0">0</option>
+          <option value="1" selected>1</option>
+          <option value="2">2</option>
+          <option value="pct">10%</option>
+        </select>
+      </label>
+      <label>Layout
+        <select id="gc-layout">
+          <option value="grid" selected>grid</option>
+          <option value="focus">focus</option>
+          <option value="dual">dual</option>
+        </select>
+      </label>
+      <label>Style
+        <select id="gc-style">
+          <option value="matrix" selected>matrix</option>
+          <option value="blocks">blocks</option>
+          <option value="neon">neon</option>
+        </select>
+      </label>
+      <button type="button" id="gc-fs" class="gc-btn">Fullscreen</button>
+      <button type="button" id="gc-hud-hide" class="gc-btn ghost">Hide UI</button>
+    </div>
+    <p class="gc-hint">
+      Integer LED scale · full display · multi-feed matrix streams.
+      Open from GrokGlyph <strong>screen</strong> · or cast this page to a display.
+      Keys: <kbd>f</kbd> fullscreen · <kbd>h</kbd> HUD · <kbd>1–4</kbd> res · <kbd>g</kbd> grid
+    </p>
+  </div>
+
+  <script src="glyph-cast.js"></script>
+</body>
+</html>
