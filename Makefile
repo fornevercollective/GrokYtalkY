@@ -39,6 +39,16 @@ brew-local:
 test:
 	go test ./...
 
+# reliability-focused smoke (media supervisor + checksums + panic recovery)
+test-reli:
+	go test -count=1 -run 'TestMedia|TestSHA256|TestWithPanic|TestSampleReliability|TestMetric' .
+
+# multi-arch checksum build helper (local release dry-run)
+dist:
+	@mkdir -p dist
+	go build -ldflags "$(LDFLAGS)" -o dist/grokytalky_$(VERSION)_$(shell go env GOOS)_$(shell go env GOARCH) .
+	cd dist && sha256sum grokytalky_* > SHA256SUMS && cat SHA256SUMS
+
 # DOJO SFU sidecar (Rust + Tokio signaling; optional webrtc-rs via sfu-media)
 sfu:
 	cd sfu && cargo build --release

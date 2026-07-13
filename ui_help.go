@@ -132,6 +132,7 @@ func helpBodyStream() string {
   /media · H           ffmpeg supervisor health
   R restart tile · K kill pipe (lab/news)
   /orch [hint] · *     Grok take: STYLE/CAPTION/PATTERN/GLYPH
+  gy doctor reliability · metrics   process health / prom text
   /social @user      social handle · lazy lab fill
   /duplex            open-mic full duplex (RX duck)
   /meshmidi          Strudel/walkie → hub type:midi

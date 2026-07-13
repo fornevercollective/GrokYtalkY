@@ -20,5 +20,31 @@ jobs:
           go-version: "1.26.x"
       - name: Test
         run: go test ./...
+      - name: Media supervisor smoke
+        run: go test -count=1 -run 'TestMedia|TestSHA256|TestWithPanic|TestSampleReliability' .
       - name: Build
-        run: go build -o bin/grokytalky .
+        run: |
+          VER=$(git describe --tags --always 2>/dev/null || echo dev)
+          go build -ldflags "-s -w -X main.Version=${VER}" -o bin/grokytalky .
+          ./bin/grokytalky --version
+          ./bin/grokytalky doctor 2>/dev/null | head -40 || true
+      - name: Checksums (local artifact)
+        run: |
+          sha256sum bin/grokytalky > bin/SHA256SUMS
+          cat bin/SHA256SUMS
+
+  race:
+    runs-on: ubuntu-latest
+    # optional: may be flaky with cgo midi — keep focused
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: System deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libasound2-dev pkg-config
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+      - name: Race (media + reliability)
+        run: go test -race -count=1 -run 'TestMedia|TestSHA256|TestParseGrok|TestSample' .

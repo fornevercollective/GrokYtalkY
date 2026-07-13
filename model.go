@@ -2904,6 +2904,7 @@ func (m *Model) startWatch(src string, withAudio bool) (tea.Model, tea.Cmd) {
 		m.pushSys("watch: " + err.Error())
 		return m, nil
 	}
+	MetricIncr("watch_starts")
 	m.vpipe = vp
 	m.watchPath = r.Input
 	if r.Title != "" {
@@ -3198,6 +3199,7 @@ func (m *Model) startNewsWall(arg string) (tea.Model, tea.Cmd) {
 	m.status = fmt.Sprintf("news wall · %d · %s", len(srcs), region)
 	m.pushSys(fmt.Sprintf("◈ news wall · %d agencies · GrokGlyph tiles · staggered live", len(srcs)))
 	m.pushSys("  styles matrix·hex·braille·ascii·blocks · m cycle · L layout · /news stop")
+	MetricIncr("news_starts")
 	// kick first resolve
 	return m, tea.Tick(400*time.Millisecond, func(t time.Time) tea.Msg {
 		return newsWallLoadMsg{Index: 0, Region: region, MaxN: len(srcs)}
@@ -3333,6 +3335,7 @@ func (m *Model) recoverNewsWallTiles() {
 				m.lab.Feeds[i].Frame = fr
 			}
 		}
+		MetricIncr("recoveries")
 		m.pushSys(fmt.Sprintf("media · restart %s (#%d)", label, nt.Restarts))
 	}
 }
@@ -4237,6 +4240,8 @@ func (m *Model) startGrokOrchestrate(hint string) (tea.Model, tea.Cmd) {
 	}
 }
 
+// note: MetricIncr("orch_takes") applied in applyGrokTake
+
 // applyGrokTake applies STYLE/CAPTION/PATTERN/GLYPH/DEPTH/EFFECT to the dock.
 func (m *Model) applyGrokTake(take GrokTake) (tea.Model, tea.Cmd) {
 	m.grokThinking = false
@@ -4358,6 +4363,7 @@ func (m *Model) applyGrokTake(take GrokTake) (tea.Model, tea.Cmd) {
 	}
 
 	if len(applied) > 0 {
+		MetricIncr("orch_takes")
 		m.status = take.TakeSummary()
 		m.pushSys("✦ orch " + strings.Join(applied, " · "))
 	} else {

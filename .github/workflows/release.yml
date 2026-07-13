@@ -1,0 +1,88 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - name: System deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libasound2-dev pkg-config
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VER="${TAG#v}"
+          COMMIT="${GITHUB_SHA::7}"
+          DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          OUT="dist/grokytalky_${VER}_${{ matrix.goos }}_${{ matrix.goarch }}"
+          mkdir -p dist
+          go build -trimpath -ldflags "-s -w -X main.Version=${VER} -X main.Commit=${COMMIT} -X main.Date=${DATE}" \
+            -o "${OUT}" .
+          # note: CGO=0 may skip midi on some platforms; matrix still validates compile
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+
+  checksums-and-release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: bin-*
+          merge-multiple: true
+      - name: Collect + SHA256SUMS
+        run: |
+          mkdir -p dist
+          find artifacts -type f -name 'grokytalky_*' -exec cp {} dist/ \; 2>/dev/null || true
+          # artifacts may be flat
+          find . -maxdepth 3 -type f -name 'grokytalky_*' | while read -r f; do
+            cp -n "$f" dist/ 2>/dev/null || true
+          done
+          ls -la dist || true
+          cd dist
+          if ls grokytalky_* 1>/dev/null 2>&1; then
+            sha256sum grokytalky_* > SHA256SUMS
+            cat SHA256SUMS
+          else
+            echo "no binaries collected — skip sums" > SHA256SUMS
+          fi
+      - name: Create / update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

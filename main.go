@@ -28,7 +28,15 @@ import (
 )
 
 func main() {
-	if err := run(os.Args[1:]); err != nil {
+	// production: recover panics, dump stack, kill supervised ffmpeg, exit 2
+	err := WithPanicRecovery(true, func() error {
+		return run(os.Args[1:])
+	})
+	if err != nil {
+		// errUpdateAvailable → exit 2 already handled below for update --check
+		if err == errUpdateAvailable {
+			os.Exit(2)
+		}
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -200,15 +208,24 @@ TUI launches auto-update by default (check GitHub → install → re-exec).
 			// catalog summary
 			_ = runInstallDependencies([]string{"--list"})
 			return nil
+		case "reliability", "reli", "metrics", "health":
+			s := SampleReliability()
+			fmt.Print(FormatReliabilityDoctor(s))
+			if sub == "metrics" {
+				fmt.Println()
+				fmt.Print(FormatMetricsProm(s))
+			}
+			return nil
 		}
 		fmt.Print(StreamDoctor())
 		fmt.Print(FormatPackageManagersDoctor())
+		fmt.Print(FormatReliabilityDoctor(SampleReliability()))
 		fmt.Println(DepthDoctorLine())
 		fmt.Println(DepthModesList())
 		fmt.Printf("gy binary: %s\n", versionLine())
 		cap := DetectCapProfile(80, 24)
 		fmt.Println(cap.SummaryLine())
-		fmt.Println("doctor st2110 · sync · cameras · nmos · packages")
+		fmt.Println("doctor st2110 · sync · cameras · nmos · packages · reliability")
 		fmt.Println("deps: gy install deps -y · gy install deps --list")
 		if p, err := os.Executable(); err == nil {
 			fmt.Printf("path: %s\n", p)
