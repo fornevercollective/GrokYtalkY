@@ -29,14 +29,36 @@
       <span class="gg-brand-name">GrokGlyph</span>
     </a>
 
-    <div class="gg-header-main" role="toolbar" aria-label="Main controls">
+    <div class="gg-header-top">
+      <span class="gg-role-chip" id="gg-role-chip" title="This device role">laptop · C</span>
+      <span class="gg-status gg-status-compact" id="gg-status" aria-live="polite">
+        <span id="gg-cast-label">idle</span>
+        <span class="gg-status-sep">·</span>
+        <span id="gg-count-label">0</span>
+        <span class="gg-status-sep gg-hide-narrow">·</span>
+        <span id="gg-scale-label" class="gg-hide-narrow">—</span>
+        <span class="gg-status-sep gg-hide-narrow">·</span>
+        <span id="gg-room-label" class="gg-hide-narrow">global</span>
+      </span>
+      <button type="button" class="gg-hbtn gg-drawer-toggle" id="gg-drawer-toggle"
+        aria-expanded="false" aria-controls="gg-drawer" title="Open controls">
+        <span class="gg-drawer-icon" aria-hidden="true">☰</span>
+        <span class="gg-drawer-label">more</span>
+      </button>
+    </div>
+
+    <div class="gg-header-main" id="gg-header-main" role="toolbar" aria-label="Main controls">
       <!-- 1 · This device: laptop vs phone role -->
       <div class="gg-tool-group gg-tool-device" role="group" aria-label="This device">
         <span class="gg-tool-label" id="gg-device-label">device</span>
         <button type="button" class="gg-hbtn gg-role-laptop" id="gg-role-laptop"
-          title="This is the laptop / webcam (scene center C)" aria-pressed="false">laptop</button>
+          title="This is the laptop / webcam (scene center C)" aria-pressed="false">
+          <span class="gg-lbl-long">laptop</span><span class="gg-lbl-short" aria-hidden="true">💻</span>
+        </button>
         <button type="button" class="gg-hbtn gg-role-phone" id="gg-role-phone"
-          title="This is a phone cam (pick slot L1/R1 for face/scene)" aria-pressed="false">phone</button>
+          title="This is a phone cam (pick slot L1/R1 for face/scene)" aria-pressed="false">
+          <span class="gg-lbl-long">phone</span><span class="gg-lbl-short" aria-hidden="true">📱</span>
+        </button>
       </div>
       <span class="gg-tool-sep" aria-hidden="true"></span>
       <!-- 2 · Scene seat for this device -->
@@ -55,9 +77,13 @@
       <div class="gg-tool-group gg-tool-capture" role="group" aria-label="Capture">
         <span class="gg-tool-label">capture</span>
         <button type="button" class="gg-hbtn gg-cam-btn" id="gg-cam"
-          title="Open cameras on THIS device only (not remote phones)" aria-pressed="false">open cams</button>
+          title="Open cameras on THIS device only (not remote phones)" aria-pressed="false">
+          <span class="gg-lbl-long">open cams</span><span class="gg-lbl-short" aria-hidden="true">cams</span>
+        </button>
         <button type="button" class="gg-hbtn is-on" id="gg-scene"
-          title="Order all feeds L2·L1·C·R1·R2 on stage" aria-pressed="true">layout</button>
+          title="Order all feeds L2·L1·C·R1·R2 on stage" aria-pressed="true">
+          <span class="gg-lbl-long">layout</span><span class="gg-lbl-short" aria-hidden="true">lay</span>
+        </button>
         <button type="button" class="gg-hbtn" id="gg-hdri"
           title="Freeze open cams → subject strip + equirect probe" aria-pressed="false">HDRI</button>
       </div>
@@ -66,7 +92,9 @@
       <div class="gg-tool-group gg-tool-ship" role="group" aria-label="Ship">
         <span class="gg-tool-label">ship</span>
         <button type="button" class="gg-hbtn primary" id="gg-cast"
-          title="Stream this device’s open cams to hub / sphere (phones must cast themselves)" aria-pressed="false">cast live</button>
+          title="Stream this device’s open cams to hub / sphere (phones must cast themselves)" aria-pressed="false">
+          <span class="gg-lbl-long">cast live</span><span class="gg-lbl-short" aria-hidden="true">cast</span>
+        </button>
         <button type="button" class="gg-hbtn" id="gg-screen" title="External screen / TV glyph player" aria-pressed="false">TV</button>
         <button type="button" class="gg-hbtn" id="gg-hub" title="Connect mesh hub WebSocket" aria-pressed="false">hub</button>
       </div>
@@ -77,24 +105,7 @@
         <button type="button" class="gg-hbtn danger" id="gg-clear-room" title="Clear room peers">clear</button>
         <button type="button" class="gg-hbtn" id="gg-nfc-add" title="NFC tap add">nfc</button>
       </div>
-      <span class="gg-status" id="gg-status" aria-live="polite">
-        <span class="gg-role-chip" id="gg-role-chip" title="This device role">laptop · C</span>
-        <span class="gg-status-sep">·</span>
-        <span id="gg-cast-label">idle</span>
-        <span class="gg-status-sep">·</span>
-        <span id="gg-count-label">0</span>
-        <span class="gg-status-sep">·</span>
-        <span id="gg-scale-label">—</span>
-        <span class="gg-status-sep gg-hide-narrow">·</span>
-        <span id="gg-room-label" class="gg-hide-narrow">global</span>
-      </span>
     </div>
-
-    <button type="button" class="gg-hbtn gg-drawer-toggle" id="gg-drawer-toggle"
-      aria-expanded="false" aria-controls="gg-drawer" title="Open controls">
-      <span class="gg-drawer-icon" aria-hidden="true">☰</span>
-      <span class="gg-drawer-label">more</span>
-    </button>
   </header>
 
   <video id="gg-local-video" class="gg-hidden-media" playsinline muted autoplay></video>
@@ -124,6 +135,21 @@
       <span class="gg-caption-text" id="gg-caption-text"></span>
     </div>
   </main>
+
+  <!-- Fixed phone dock — always on-screen above footer (not sticky; body overflow:hidden) -->
+  <nav class="gg-mobile-dock" id="gg-mobile-dock" aria-label="Phone controls">
+    <button type="button" class="gg-dock-btn" data-dock="role-phone" title="Phone mode">📱</button>
+    <button type="button" class="gg-dock-btn" data-dock="role-laptop" title="Laptop mode">💻</button>
+    <div class="gg-dock-slots" role="group" aria-label="Seat">
+      <button type="button" class="gg-dock-slot" data-slot="L1">L1</button>
+      <button type="button" class="gg-dock-slot is-on" data-slot="C">C</button>
+      <button type="button" class="gg-dock-slot" data-slot="R1">R1</button>
+    </div>
+    <button type="button" class="gg-dock-btn gg-dock-primary" data-dock="cam" id="gg-dock-cam" title="Open this device cams">cams</button>
+    <button type="button" class="gg-dock-btn gg-dock-cast" data-dock="cast" id="gg-dock-cast" title="Cast this device">cast</button>
+    <button type="button" class="gg-dock-btn gg-dock-hub" data-dock="hub" title="Hub">hub</button>
+    <button type="button" class="gg-dock-btn" data-dock="more" title="More controls">☰</button>
+  </nav>
 
   <div class="gg-drawer-root" id="gg-drawer-root">
     <div class="gg-drawer-scrim" id="gg-drawer-scrim" hidden></div>

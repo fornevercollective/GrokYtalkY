@@ -1164,16 +1164,12 @@
 
       camOn = true;
       fileOn = false;
-      if (els.camBtn) {
-        els.camBtn.setAttribute("aria-pressed", "true");
-        const prefix = deviceRole === "phone" ? "phone" : "laptop";
-        els.camBtn.textContent =
-          camLanes.length > 1
-            ? prefix + " " + camLanes.length + " on"
-            : prefix + " on";
-      }
-      if (typeof syncDeviceRoleUI === "function") {
-        /* keep seat chip; cam label overridden above */
+      if (els.camBtn) els.camBtn.setAttribute("aria-pressed", "true");
+      setCamButtonLabel(true);
+      const dockCam = document.getElementById("gg-dock-cam");
+      if (dockCam) {
+        dockCam.classList.add("is-on");
+        dockCam.textContent = camLanes.length > 1 ? String(camLanes.length) : "on";
       }
       const orderStr = camLanes.map((l) => l.slot + ":" + l.short).join(" · ");
       setCastLabel(
@@ -1223,10 +1219,12 @@
     }
     if (els.localVideo) els.localVideo.srcObject = null;
     camOn = false;
-    if (els.camBtn) {
-      els.camBtn.setAttribute("aria-pressed", "false");
-      els.camBtn.textContent =
-        deviceRole === "phone" ? "open phone cams" : "open laptop cam";
+    if (els.camBtn) els.camBtn.setAttribute("aria-pressed", "false");
+    setCamButtonLabel(false);
+    const dockCamOff = document.getElementById("gg-dock-cam");
+    if (dockCamOff) {
+      dockCamOff.classList.remove("is-on");
+      dockCamOff.textContent = "cams";
     }
     peers.forEach((p) => {
       if (p.selfCam || p.source === "cam") {
@@ -3222,6 +3220,52 @@
     /* ignore */
   }
 
+  function setCamButtonLabel(on) {
+    const long = on
+      ? deviceRole === "phone"
+        ? "phone on"
+        : "laptop on"
+      : deviceRole === "phone"
+        ? "open phone cams"
+        : "open laptop cam";
+    const short = on ? "on" : "cams";
+    ["gg-cam", "gg-dock-cam"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const l = el.querySelector(".gg-lbl-long");
+      const s = el.querySelector(".gg-lbl-short");
+      if (l || s) {
+        if (l) l.textContent = long;
+        if (s) s.textContent = short;
+      } else {
+        el.textContent = short === "cams" || short === "on" ? short : long;
+      }
+      el.title =
+        deviceRole === "phone"
+          ? "Open front/back on THIS phone only · then cast"
+          : "Open webcam on THIS laptop (C) · does not start phones";
+    });
+  }
+
+  function setCastButtonLabel(on) {
+    const long = on ? "casting…" : deviceRole === "phone" ? "cast phone" : "cast live";
+    const short = on ? "live" : "cast";
+    ["gg-cast", "gg-dock-cast"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const l = el.querySelector(".gg-lbl-long");
+      const s = el.querySelector(".gg-lbl-short");
+      if (l || s) {
+        if (l) l.textContent = long;
+        if (s) s.textContent = short;
+      } else {
+        el.textContent = short;
+      }
+      el.setAttribute("aria-pressed", on ? "true" : "false");
+      el.classList.toggle("is-live", !!on);
+    });
+  }
+
   function syncDeviceRoleUI() {
     const isPhone = deviceRole === "phone";
     const slot = forcedSlot || (isPhone ? "L1" : "C");
@@ -3235,30 +3279,31 @@
       rp.setAttribute("aria-pressed", isPhone ? "true" : "false");
       rp.classList.toggle("is-on", isPhone);
     }
-    document.querySelectorAll(".gg-slot-btn").forEach((btn) => {
+    document.querySelectorAll(".gg-slot-btn, .gg-dock-slot").forEach((btn) => {
       const on = btn.getAttribute("data-slot") === slot;
       btn.classList.toggle("is-on", on);
       btn.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    // mobile dock role highlights
+    document.querySelectorAll(".gg-dock-btn[data-dock='role-phone']").forEach((b) => {
+      b.classList.toggle("is-phone-on", isPhone);
+      b.classList.toggle("is-on", isPhone);
+    });
+    document.querySelectorAll(".gg-dock-btn[data-dock='role-laptop']").forEach((b) => {
+      b.classList.toggle("is-on", !isPhone);
     });
     const chip = document.getElementById("gg-role-chip");
     if (chip) {
       chip.textContent = (isPhone ? "phone" : "laptop") + " · " + slot;
       chip.classList.toggle("is-phone", isPhone);
       chip.title = isPhone
-        ? "This browser is a phone cam · seat " + slot + " · open cams then cast live"
-        : "This browser is the laptop / director · seat " + slot + " · open cams for webcam C";
+        ? "Phone cam · seat " + slot + " · open cams then cast"
+        : "Laptop · seat " + slot + " · open laptop cam";
     }
-    const cam = document.getElementById("gg-cam");
-    if (cam && !camOn) {
-      cam.textContent = isPhone ? "open phone cams" : "open laptop cam";
-      cam.title = isPhone
-        ? "Open front/back on THIS phone only · then cast live to join the laptop stage"
-        : "Open webcam(s) on THIS laptop (center C) · does not start phones";
-    }
-    const cast = document.getElementById("gg-cast");
-    if (cast && !casting) {
-      cast.textContent = isPhone ? "cast phone" : "cast live";
-    }
+    if (!camOn) setCamButtonLabel(false);
+    else setCamButtonLabel(true);
+    if (!casting) setCastButtonLabel(false);
+    else setCastButtonLabel(true);
     const cl = document.getElementById("gg-card-laptop");
     const cp = document.getElementById("gg-card-phone");
     if (cl) cl.classList.toggle("is-on", !isPhone);
@@ -3346,12 +3391,35 @@
   if (cardL) cardL.addEventListener("click", () => setDeviceRole("laptop", { resetSlot: true }));
   if (cardP) cardP.addEventListener("click", () => setDeviceRole("phone", { resetSlot: true }));
 
-  // Scene seat segment
-  document.querySelectorAll(".gg-slot-btn").forEach((btn) => {
+  // Scene seat segment (header + mobile dock)
+  document.querySelectorAll(".gg-slot-btn, .gg-dock-slot").forEach((btn) => {
     btn.addEventListener("click", () => {
       setSceneSlot(btn.getAttribute("data-slot"), { reopen: camOn });
     });
   });
+
+  // Mobile sticky dock — always on-screen primary actions
+  const mobileDock = document.getElementById("gg-mobile-dock");
+  if (mobileDock) {
+    mobileDock.addEventListener("click", (e) => {
+      const t = e.target.closest("[data-dock], .gg-dock-slot");
+      if (!t || !mobileDock.contains(t)) return;
+      if (t.classList.contains("gg-dock-slot")) return; // handled above
+      const act = t.getAttribute("data-dock");
+      if (act === "role-phone") setDeviceRole("phone", { resetSlot: true });
+      else if (act === "role-laptop") setDeviceRole("laptop", { resetSlot: true });
+      else if (act === "cam") toggleCam();
+      else if (act === "cast") {
+        if (typeof toggleCast === "function") toggleCast();
+        else if (els.castBtn) els.castBtn.click();
+      } else if (act === "hub") {
+        if (typeof toggleHub === "function") toggleHub();
+        else if (els.hubBtn) els.hubBtn.click();
+      } else if (act === "more") {
+        setDrawer(true);
+      }
+    });
+  }
 
   // Scene layout toggle (stage order)
   const sceneBtn = document.getElementById("gg-scene");
