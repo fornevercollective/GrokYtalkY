@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0a0a0c" />
+  <title>GrokYtalkY · HDRI Sphere · Three.js</title>
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    html, body { height: 100%; overflow: hidden; }
+    body.hdri-body {
+      margin: 0;
+      background: #07070a;
+      color: #eee;
+      font-family: "Instrument Sans", system-ui, sans-serif;
+      display: flex;
+      flex-direction: column;
+      height: 100dvh;
+    }
+    body.hdri-body .nav { flex-shrink: 0; }
+    .hv-wrap {
+      position: relative;
+      flex: 1;
+      min-height: 0;
+      background: #050508;
+    }
+    #hv-stage {
+      position: absolute;
+      inset: 0;
+    }
+    .hv-status {
+      position: absolute;
+      top: 0.5rem;
+      left: 0.65rem;
+      right: 10rem;
+      z-index: 4;
+      font: 0.7rem/1.4 "IBM Plex Mono", ui-monospace, monospace;
+      color: #9ca3af;
+      text-shadow: 0 1px 4px #000;
+      pointer-events: none;
+    }
+    .hv-status strong { color: #a7f3d0; }
+    .hv-status.is-err { color: #f87171; }
+    .hv-bar {
+      position: absolute;
+      left: 0; right: 0; bottom: 0;
+      z-index: 5;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      align-items: center;
+      padding: 0.55rem 0.65rem max(0.55rem, env(safe-area-inset-bottom));
+      background: linear-gradient(transparent, rgba(7,7,10,0.96) 28%);
+    }
+    .hv-bar button, .hv-bar label.file {
+      appearance: none;
+      border: 1px solid #333;
+      background: #15151c;
+      color: #ddd;
+      border-radius: 8px;
+      padding: 0.4rem 0.6rem;
+      font: 600 0.72rem/1 system-ui, sans-serif;
+      cursor: pointer;
+    }
+    .hv-bar button.primary { background: #6ee7b7; color: #042; border-color: transparent; }
+    .hv-bar button.is-on { outline: 2px solid #6ee7b7; }
+    .hv-bar label.file input { display: none; }
+    .hv-bar a {
+      color: #7dd3fc;
+      font: 0.7rem/1 "IBM Plex Mono", ui-monospace, monospace;
+      margin-left: 0.25rem;
+    }
+    .hv-hint {
+      position: absolute;
+      top: 0.5rem;
+      right: 0.65rem;
+      z-index: 4;
+      font: 0.62rem/1.35 "IBM Plex Mono", ui-monospace, monospace;
+      color: #555;
+      text-align: right;
+      pointer-events: none;
+    }
+    .hv-drop {
+      position: absolute;
+      inset: 12%;
+      z-index: 3;
+      border: 1px dashed #333;
+      border-radius: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 0.4rem;
+      color: #6b6b7a;
+      font: 0.85rem/1.4 system-ui, sans-serif;
+      pointer-events: none;
+      background: rgba(8,8,12,0.35);
+    }
+    .hv-drop[hidden] { display: none !important; }
+    .hv-drop strong { color: #a7f3d0; font-weight: 600; }
+    .hv-engine {
+      font: 0.6rem/1 "IBM Plex Mono", ui-monospace, monospace;
+      color: #555;
+      margin-left: auto;
+    }
+  </style>
+</head>
+<body class="hdri-body">
+  <header class="nav" id="site-nav" data-active="sphere" data-site-nav data-brand="GrokYtalkY"></header>
+  <script src="site-nav.js"></script>
+
+  <div class="hv-wrap">
+    <div id="hv-stage" aria-label="HDRI sphere view"></div>
+    <div class="hv-status" id="hv-status">Loading HDRI viewer…</div>
+    <p class="hv-hint">drag orbit · scroll zoom<br/>outside ball · inside 360</p>
+    <div class="hv-drop" id="hv-drop">
+      <strong>Drop equirect PNG/JPG</strong>
+      <span>or open from GrokGlyph → view 3D</span>
+    </div>
+    <div class="hv-bar">
+      <label class="file">Open map…<input type="file" id="hv-file" accept="image/*,.hdr,.exr" /></label>
+      <button type="button" id="hv-stash" title="Load last GrokGlyph HDRI">From GrokGlyph</button>
+      <button type="button" class="primary is-on" id="hv-mode-out">Outside ball</button>
+      <button type="button" id="hv-mode-in">Inside 360</button>
+      <button type="button" id="hv-mesh" title="Listen mesh for hdri-probe">Mesh listen</button>
+      <a href="sphere.html">Sphere venue</a>
+      <a href="grokglyph.html">GrokGlyph</a>
+      <span class="hv-engine" id="hv-engine"></span>
+    </div>
+  </div>
+
+  <script src="hdri-sphere.js"></script>
+  <script>
+    (function () {
+      "use strict";
+      var HV = window.GY_HDRI_VIEW;
+      if (!HV) {
+        document.getElementById("hv-status").textContent = "hdri-sphere.js missing";
+        return;
+      }
+
+      var stage = document.getElementById("hv-stage");
+      var statusEl = document.getElementById("hv-status");
+      var dropEl = document.getElementById("hv-drop");
+      var engineEl = document.getElementById("hv-engine");
+      var viewer = null;
+      var ws = null;
+      var params = new URLSearchParams(location.search || "");
+      var startMode = params.get("mode") === "inside" ? "inside" : "outside";
+
+      function setStatus(html, kind) {
+        statusEl.innerHTML = html;
+        statusEl.classList.toggle("is-err", kind === "err");
+      }
+
+      function syncModeBtns() {
+        var m = viewer ? viewer.getMode() : startMode;
+        document.getElementById("hv-mode-out").classList.toggle("is-on", m === "outside");
+        document.getElementById("hv-mode-in").classList.toggle("is-on", m === "inside");
+      }
+
+      function showDrop(show) {
+        if (dropEl) dropEl.hidden = !show;
+      }
+
+      function applyMap(src, label) {
+        if (!viewer) return Promise.resolve();
+        return viewer.setMap(src).then(function (dim) {
+          showDrop(false);
+          setStatus(
+            "<strong>HDRI</strong> · " +
+              (label || "map") +
+              (dim ? " · " + dim.w + "×" + dim.h : "") +
+              " · " +
+              viewer.getMode() +
+              " · " +
+              viewer.kind
+          );
+          if (engineEl) engineEl.textContent = viewer.kind === "three" ? "Three.js" : "WebGL fallback";
+        }).catch(function (e) {
+          setStatus("Map failed: " + (e && e.message ? e.message : e), "err");
+        });
+      }
+
+      HV.createViewer(stage, { mode: startMode }).then(function (v) {
+        viewer = v;
+        syncModeBtns();
+        if (engineEl) engineEl.textContent = v.kind === "three" ? "Three.js" : "WebGL fallback";
+
+        // 1) stashed from GrokGlyph
+        var st = HV.loadStashed();
+        if (st && st.dataUrl) {
+          var meta = st.meta || {};
+          applyMap(
+            st.dataUrl,
+            (meta.from || "stash") +
+              (meta.slots && meta.slots.length ? " · " + meta.slots.join("·") : "")
+          );
+        } else if (params.get("src")) {
+          applyMap(params.get("src"), "url");
+        } else {
+          showDrop(true);
+          setStatus("<strong>HDRI viewer</strong> · drop equirect or open from GrokGlyph");
+        }
+
+        // live stash updates from other tab
+        try {
+          if (typeof BroadcastChannel !== "undefined") {
+            var bc = new BroadcastChannel(HV.BC_NAME);
+            bc.onmessage = function (ev) {
+              var m = ev.data;
+              if (m && m.type === "hdri-update") {
+                var again = HV.loadStashed();
+                if (again) applyMap(again.dataUrl, "live update");
+              }
+            };
+          }
+        } catch (_) {}
+
+        if (params.get("mesh") === "1") connectMesh();
+      }).catch(function (e) {
+        setStatus("Viewer failed: " + (e && e.message ? e.message : e), "err");
+      });
+
+      document.getElementById("hv-mode-out").onclick = function () {
+        if (viewer) viewer.setMode("outside");
+        syncModeBtns();
+        setStatus("<strong>mode</strong> · outside ball · drag orbit · scroll zoom");
+      };
+      document.getElementById("hv-mode-in").onclick = function () {
+        if (viewer) viewer.setMode("inside");
+        syncModeBtns();
+        setStatus("<strong>mode</strong> · inside 360 · drag look");
+      };
+      document.getElementById("hv-stash").onclick = function () {
+        var st = HV.loadStashed();
+        if (!st) {
+          setStatus("No stashed HDRI — run probe in GrokGlyph first", "err");
+          return;
+        }
+        applyMap(st.dataUrl, "GrokGlyph stash");
+      };
+      document.getElementById("hv-file").onchange = function (e) {
+        var f = e.target.files && e.target.files[0];
+        if (!f) return;
+        var url = URL.createObjectURL(f);
+        applyMap(url, f.name).then(function () {
+          // also stash for sphere handoff
+          try {
+            var img = new Image();
+            img.onload = function () {
+              var c = document.createElement("canvas");
+              c.width = img.naturalWidth;
+              c.height = img.naturalHeight;
+              c.getContext("2d").drawImage(img, 0, 0);
+              HV.stashEquirect(c, { from: f.name, w: c.width, h: c.height });
+            };
+            img.src = url;
+          } catch (_) {}
+        });
+      };
+      document.getElementById("hv-mesh").onclick = function () {
+        if (ws && ws.readyState === 1) {
+          try { ws.close(); } catch (_) {}
+          ws = null;
+          this.classList.remove("is-on");
+          setStatus("mesh listen off");
+          return;
+        }
+        connectMesh();
+      };
+
+      // drag-drop
+      var wrap = document.querySelector(".hv-wrap");
+      ["dragenter", "dragover"].forEach(function (ev) {
+        wrap.addEventListener(ev, function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+        });
+      });
+      wrap.addEventListener("drop", function (e) {
+        e.preventDefault();
+        var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+        if (!f) return;
+        var url = URL.createObjectURL(f);
+        applyMap(url, f.name);
+      });
+
+      function hubWS() {
+        try {
+          if (location.protocol === "https:" || location.protocol === "http:") {
+            var u = new URL(location.href);
+            u.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+            u.pathname = "/";
+            u.search = "";
+            u.hash = "";
+            return u.toString();
+          }
+        } catch (_) {}
+        return "ws://127.0.0.1:9876/";
+      }
+
+      function connectMesh() {
+        var btn = document.getElementById("hv-mesh");
+        try {
+          if (ws) ws.close();
+        } catch (_) {}
+        setStatus("mesh connecting…");
+        ws = new WebSocket(hubWS());
+        ws.onopen = function () {
+          if (btn) btn.classList.add("is-on");
+          setStatus("<strong>mesh</strong> · listening for hdri-probe");
+          try {
+            ws.send(JSON.stringify({ type: "hello", from: "hdri-view", role: "hdri-view" }));
+          } catch (_) {}
+        };
+        ws.onclose = function () {
+          if (btn) btn.classList.remove("is-on");
+        };
+        ws.onerror = function () {
+          setStatus("mesh error — is gy hub up?", "err");
+        };
+        ws.onmessage = function (ev) {
+          var msg;
+          try {
+            msg = JSON.parse(ev.data);
+          } catch (_) {
+            return;
+          }
+          if (msg.type === "hdri-probe" && (msg.b64 || msg.jpeg)) {
+            var b64 = msg.b64 || msg.jpeg;
+            var src = b64.indexOf("data:") === 0 ? b64 : "data:image/jpeg;base64," + b64;
+            HV.stashEquirect(src, {
+              from: msg.from || "mesh",
+              slots: msg.slots,
+              w: msg.w,
+              h: msg.h,
+              t: msg.t,
+            });
+            applyMap(
+              src,
+              (msg.from || "mesh") +
+                (msg.slots && msg.slots.length ? " · " + msg.slots.join("·") : "")
+            );
+          }
+        };
+      }
+    })();
+  </script>
+</body>
+</html>

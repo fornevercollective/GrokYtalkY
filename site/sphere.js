@@ -182,12 +182,15 @@
   /** Full-dome UV cast — glyph projected across shell + seats via az/el */
   let domeCast = null; // { nick, glyph, n, t, avg }
   /** HDRI equirect probe on dome (filmmaker hurdle hop) */
-  let envMap = null; // { img, w, h, t, nick, slots }
+  let envMap = null; // { img, w, h, t, nick, slots, dataUrl? }
   let envSampleCanvas = null;
   let envSampleCtx = null;
+  let envSampleCache = null; // { canvas, ctx, w, h } downscaled for fast LED sample
+  let hdri3dViewer = null;
+  let hdri3dOn = false;
   let castMode = "sphere"; // sphere | pin
   const DOME_TTL_MS = 900; // keep live while frames stream (~6 fps)
-  const ENV_TTL_MS = 120000; // HDRI probe holds 2 min
+  const ENV_TTL_MS = 600000; // HDRI probe holds 10 min (viewable longer)
   let ws = null;
   let demoTimer = 0;
   let bulkDemoTimer = 0;
@@ -703,9 +706,50 @@
     return typeof L === "number" ? L / 255 : 0.5;
   }
 
+  /** Build downscaled RGBA cache so LED sampling is O(1) getImageData */
+  function rebuildEnvSampleCache(img) {
+    try {
+      const iw = img.naturalWidth || img.width || 1;
+      const ih = img.naturalHeight || img.height || 1;
+      const maxW = 512;
+      const scale = Math.min(1, maxW / iw);
+      const w = Math.max(1, Math.round(iw * scale));
+      const h = Math.max(1, Math.round(ih * scale));
+      const c = document.createElement("canvas");
+      c.width = w;
+      c.height = h;
+      const ctx = c.getContext("2d", { willReadFrequently: true });
+      if (!ctx) {
+        envSampleCache = null;
+        return;
+      }
+      ctx.drawImage(img, 0, 0, w, h);
+      envSampleCache = {
+        data: ctx.getImageData(0, 0, w, h).data,
+        w: w,
+        h: h,
+      };
+    } catch (_) {
+      envSampleCache = null;
+    }
+  }
+
   /** Sample HDRI equirect → RGB 0..1 at az/el fractions */
   function sampleEnvMap(u, v) {
-    if (!envMap || !envMap.img || !envMap.img.complete) return null;
+    if (!envMap) return null;
+    if (envSampleCache && envSampleCache.data) {
+      const w = envSampleCache.w;
+      const h = envSampleCache.h;
+      const sx = Math.max(0, Math.min(w - 1, Math.floor(u * w)));
+      const sy = Math.max(0, Math.min(h - 1, Math.floor(v * h)));
+      const i = (sy * w + sx) * 4;
+      const d = envSampleCache.data;
+      const r = d[i] / 255,
+        g = d[i + 1] / 255,
+        b = d[i + 2] / 255;
+      return { r: r, g: g, b: b, L: 0.299 * r + 0.587 * g + 0.114 * b };
+    }
+    if (!envMap.img || !envMap.img.complete) return null;
     if (!envSampleCanvas) {
       envSampleCanvas = document.createElement("canvas");
       envSampleCanvas.width = 1;
@@ -726,33 +770,109 @@
     }
   }
 
+  function pushEnvToHdri3d() {
+    if (!hdri3dViewer || !envMap) return;
+    const src = envMap.dataUrl || envMap.img;
+    if (!src) return;
+    hdri3dViewer.setMap(src).catch(function () {});
+  }
+
+  function setHdri3d(on) {
+    const stage = document.getElementById("sp-hdri3d");
+    const btn = document.getElementById("sp-hdri-ball");
+    hdri3dOn = !!on;
+    document.body.classList.toggle("hdri3d-on", hdri3dOn);
+    if (stage) stage.classList.toggle("is-on", hdri3dOn);
+    if (btn) btn.classList.toggle("is-on", hdri3dOn);
+    if (!hdri3dOn) {
+      if (hdri3dViewer) {
+        try {
+          hdri3dViewer.dispose();
+        } catch (_) {}
+        hdri3dViewer = null;
+      }
+      if (stage) stage.innerHTML = "";
+      return;
+    }
+    if (!window.GY_HDRI_VIEW) {
+      setStatus("hdri-sphere.js missing", "err");
+      setHdri3d(false);
+      return;
+    }
+    if (!envMap || (!envMap.img && !envMap.dataUrl)) {
+      // try stash from GrokGlyph
+      const st = window.GY_HDRI_VIEW.loadStashed();
+      if (st && st.dataUrl) {
+        setEnvMapFromB64(st.dataUrl, st.meta || { from: "stash" });
+      } else {
+        setStatus("No HDRI map yet — cast from GrokGlyph or open file in HDRI view", "err");
+        setHdri3d(false);
+        return;
+      }
+    }
+    if (!stage) return;
+    window.GY_HDRI_VIEW.createViewer(stage, { mode: "outside" })
+      .then(function (v) {
+        hdri3dViewer = v;
+        pushEnvToHdri3d();
+        setStatus(
+          "<strong>HDRI ball</strong> · Three.js equirect · drag orbit · scroll zoom",
+          "live"
+        );
+      })
+      .catch(function (e) {
+        setStatus("HDRI 3D failed: " + (e && e.message ? e.message : e), "err");
+        setHdri3d(false);
+      });
+  }
+
   function setEnvMapFromB64(b64, meta) {
     meta = meta || {};
     if (!b64) return;
+    const dataUrl = b64.indexOf("data:") === 0 ? b64 : "data:image/jpeg;base64," + b64;
     const img = new Image();
     img.onload = function () {
       envMap = {
         img: img,
+        dataUrl: dataUrl,
         w: img.naturalWidth,
         h: img.naturalHeight,
         t: Date.now(),
         nick: meta.from || "hdri",
         slots: meta.slots || [],
       };
+      rebuildEnvSampleCache(img);
+      if (window.GY_HDRI_VIEW) {
+        try {
+          window.GY_HDRI_VIEW.stashEquirect(dataUrl, {
+            from: envMap.nick,
+            slots: envMap.slots,
+            w: envMap.w,
+            h: envMap.h,
+            t: envMap.t,
+          });
+        } catch (_) {}
+      }
+      pushEnvToHdri3d();
       setStatus(
         "<strong>HDRI</strong> · dome map · " +
           envMap.w +
           "×" +
           envMap.h +
-          (meta.slots && meta.slots.length ? " · " + meta.slots.join("·") : ""),
+          (meta.slots && meta.slots.length ? " · " + meta.slots.join("·") : "") +
+          " · tap <em>HDRI ball</em> for 3D",
         "live"
       );
+      // auto-enter 3D when opened with ?hdri=1 or first map while already in ball mode
+      try {
+        const q = new URLSearchParams(location.search || "");
+        if (q.get("hdri") === "1" && !hdri3dOn) setHdri3d(true);
+      } catch (_) {}
     };
     img.onerror = function () {
       setStatus("HDRI decode failed", "err");
     };
-    if (b64.indexOf("data:") === 0) img.src = b64;
-    else img.src = "data:image/jpeg;base64," + b64;
+    img.src = dataUrl;
   }
 
   function setDomeCast(nick, glyph, gn, avg) {
@@ -1666,6 +1786,63 @@
         el.lights.classList.toggle("is-on", !el.lightPanel.hidden);
         if (!el.lightPanel.hidden) refreshLightPanel();
       });
+
+    const hdriBallBtn = document.getElementById("sp-hdri-ball");
+    const hdriOpenBtn = document.getElementById("sp-hdri-open");
+    if (hdriBallBtn) {
+      hdriBallBtn.addEventListener("click", function () {
+        setHdri3d(!hdri3dOn);
+      });
+    }
+    if (hdriOpenBtn) {
+      hdriOpenBtn.addEventListener("click", function () {
+        if (window.GY_HDRI_VIEW) {
+          if (envMap && envMap.dataUrl) {
+            window.GY_HDRI_VIEW.stashEquirect(envMap.dataUrl, {
+              from: envMap.nick,
+              slots: envMap.slots,
+              w: envMap.w,
+              h: envMap.h,
+            });
+          }
+          window.GY_HDRI_VIEW.openViewerPage({ mode: "outside" });
+        } else {
+          window.open("hdri-view.html", "_blank", "noopener");
+        }
+      });
+    }
+
+    // load stashed GrokGlyph HDRI (view 3D / cast sphere handoff)
+    try {
+      const q = new URLSearchParams(location.search || "");
+      if (window.GY_HDRI_VIEW) {
+        const st = window.GY_HDRI_VIEW.loadStashed();
+        if (st && st.dataUrl) {
+          setEnvMapFromB64(st.dataUrl, st.meta || { from: "GrokGlyph" });
+          if (q.get("hdri") === "1") {
+            // defer until image onload inside setEnvMapFromB64 also auto-enables
+            setTimeout(function () {
+              if (!hdri3dOn) setHdri3d(true);
+            }, 120);
+          }
+        } else if (q.get("hdri") === "1") {
+          setStatus("HDRI mode · waiting for map (cast from GrokGlyph or open HDRI view)", "live");
+        }
+        // live updates from GrokGlyph tab
+        if (typeof BroadcastChannel !== "undefined") {
+          const bc = new BroadcastChannel(window.GY_HDRI_VIEW.BC_NAME);
+          bc.onmessage = function (ev) {
+            const m = ev.data;
+            if (!m || m.type !== "hdri-update") return;
+            const again = window.GY_HDRI_VIEW.loadStashed();
+            if (again && again.dataUrl) {
+              setEnvMapFromB64(again.dataUrl, again.meta || { from: "live" });
+            }
+          };
+        }
+      }
+    } catch (_) {}
+
     if (el.wave) {
       el.wave.classList.toggle("is-on", waveOn);
       el.wave.textContent = waveOn ? "Wave on" : "Wave off";
@@ -1683,7 +1860,7 @@
     );
     if (el.legend)
       el.legend.innerHTML =
-        "hold orb / Space = TX<br/>peer frames → seats<br/>" +
+        "hold orb / Space = TX<br/>peer frames → seats<br/>HDRI ball = equirect 3D<br/>" +
         TOTAL.toLocaleString() +
         " pts";
 

@@ -160,6 +160,13 @@ html, body.gg-body {
 @media (max-width: 700px) {
   .gg-hdri-body { grid-template-columns: 1fr; }
 }
+.gg-hdri-eq-wrap {
+  position: relative;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
 .gg-hdri-canvas {
   width: 100%;
   height: auto;
@@ -168,6 +175,20 @@ html, body.gg-body {
   background: #050508;
   border-radius: 6px;
   image-rendering: auto;
+}
+.gg-hdri-mini {
+  width: 100%;
+  height: min(22vh, 180px);
+  min-height: 120px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #050508;
+  overflow: hidden;
+  touch-action: none;
+}
+.gg-hdri-mini .hdri-view-canvas {
+  width: 100% !important;
+  height: 100% !important;
 }
 
 .gg-header-main {

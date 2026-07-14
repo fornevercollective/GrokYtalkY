@@ -3440,8 +3440,44 @@
     });
   }
 
-  // HDRI hurdle hop
+  // HDRI hurdle hop + Three.js sphere view
   let lastHdri = null;
+  let hdriMiniViewer = null;
+
+  function stashHdriForView(result) {
+    if (!result || !result.equirect || !window.GY_HDRI_VIEW) return false;
+    return window.GY_HDRI_VIEW.stashEquirect(result.equirect, {
+      from: myNick() + "-hdri",
+      slots: result.slots || [],
+      w: result.equirect.width,
+      h: result.equirect.height,
+      t: result.t || Date.now(),
+      quality: 0.8,
+    });
+  }
+
+  function mountHdriMini(result) {
+    const mini = document.getElementById("gg-hdri-mini");
+    if (!mini || !result || !result.equirect || !window.GY_HDRI_VIEW) return;
+    mini.hidden = false;
+    const boot = () => {
+      if (hdriMiniViewer) {
+        hdriMiniViewer.setMap(result.equirect).catch(function () {});
+        return;
+      }
+      window.GY_HDRI_VIEW.createViewer(mini, { mode: "outside" })
+        .then(function (v) {
+          hdriMiniViewer = v;
+          return v.setMap(result.equirect);
+        })
+        .catch(function (e) {
+          console.warn("[gg] hdri mini", e);
+          mini.hidden = true;
+        });
+    };
+    boot();
+  }
+
   function showHdriPanel(result) {
     const panel = document.getElementById("gg-hdri-panel");
     if (!panel || !result || !result.ok) return;
@@ -3466,6 +3502,8 @@
       eqC.height = result.equirect.height;
       eqC.getContext("2d").drawImage(result.equirect, 0, 0);
     }
+    stashHdriForView(result);
+    mountHdriMini(result);
   }
   function runHdriProbe(opts) {
     opts = opts || {};
@@ -3521,7 +3559,7 @@
     setCastLabel("HDRI · " + (result.slots || []).join("·"));
     if (els.hubHint) {
       els.hubHint.textContent =
-        "HDRI probe ready — subject strip + equirect. Download or cast sphere. Not multi-bracket VFX HDRI.";
+        "HDRI probe ready — mini sphere + view 3D (Three.js). Cast sphere paints venue LEDs. Not multi-bracket VFX HDRI.";
     }
   }
   const hdriBtn = document.getElementById("gg-hdri");
@@ -3533,6 +3571,12 @@
     hdriClose.addEventListener("click", () => {
       const panel = document.getElementById("gg-hdri-panel");
       if (panel) panel.hidden = true;
+      if (hdriMiniViewer) {
+        try {
+          hdriMiniViewer.dispose();
+        } catch (_) {}
+        hdriMiniViewer = null;
+      }
     });
   }
   const hdriDlEq = document.getElementById("gg-hdri-dl-eq");
@@ -3551,6 +3595,22 @@
       }
     });
   }
+  const hdriView3d = document.getElementById("gg-hdri-view3d");
+  if (hdriView3d) {
+    hdriView3d.addEventListener("click", () => {
+      if (!lastHdri || !lastHdri.ok || !lastHdri.equirect) {
+        runHdriProbe({ cast: false });
+        if (!lastHdri || !lastHdri.ok) return;
+      }
+      stashHdriForView(lastHdri);
+      if (window.GY_HDRI_VIEW) {
+        window.GY_HDRI_VIEW.openViewerPage({ mode: "outside" });
+        setCastLabel("HDRI → 3D view");
+      } else {
+        window.open("hdri-view.html", "_blank", "noopener");
+      }
+    });
+  }
   const hdriCast = document.getElementById("gg-hdri-cast");
   if (hdriCast) {
     hdriCast.addEventListener("click", () => {
@@ -3558,6 +3618,7 @@
         runHdriProbe({ cast: true });
         return;
       }
+      stashHdriForView(lastHdri);
       if (lastHdri.glyph) {
         sendJSON({
           type: "vburst-frame",
@@ -3587,6 +3648,10 @@
         });
       }
       setCastLabel("HDRI → sphere");
+      // also open venue sphere so cast is visible (same origin session stash)
+      try {
+        window.open("sphere.html?hdri=1", "_blank", "noopener");
+      } catch (_) {}
     });
   }
   if (window.GY_BITCHAT) {

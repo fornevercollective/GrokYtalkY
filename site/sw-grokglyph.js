@@ -1,10 +1,13 @@
 /* GrokGlyph service worker — cache shell for offline PWA */
-const CACHE = "grokglyph-v12-mobile-dock";
+const CACHE = "grokglyph-v13-hdri3d";
 const PRECACHE = [
   "./grokglyph.html",
   "./grokglyph.js",
   "./grokglyph.css",
   "./grokglyph-presets.js",
+  "./hdri-stitch.js",
+  "./hdri-sphere.js",
+  "./hdri-view.html",
   "./styles.css",
   "./manifest-grokglyph.webmanifest",
   "./icons/grokglyph.svg",

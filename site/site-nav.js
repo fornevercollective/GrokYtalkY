@@ -50,6 +50,7 @@
     if (path.indexOf('docs') === 0) return 'docs';
     if (path.indexOf('phone') === 0) return 'phone';
     if (path.indexOf('sphere') === 0) return 'sphere';
+    if (path.indexOf('hdri-view') === 0 || path.indexOf('hdri') === 0) return 'sphere';
     if (path.indexOf('glyph-cast') === 0) return 'grokglyph';
     return '';
   }
