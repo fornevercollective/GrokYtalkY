@@ -77,8 +77,12 @@
       <div class="gg-tool-group gg-tool-capture" role="group" aria-label="Capture">
         <span class="gg-tool-label">capture</span>
         <button type="button" class="gg-hbtn gg-cam-btn" id="gg-cam"
-          title="Open cameras on THIS device only (not remote phones)" aria-pressed="false">
+          title="Open ALL cameras on THIS device (front+back+lenses when OS allows)" aria-pressed="false">
           <span class="gg-lbl-long">open cams</span><span class="gg-lbl-short" aria-hidden="true">cams</span>
+        </button>
+        <button type="button" class="gg-hbtn" id="gg-cam-flip"
+          title="Cycle to next phone lens (when OS only allows one live)" aria-pressed="false">
+          <span class="gg-lbl-long">flip lens</span><span class="gg-lbl-short" aria-hidden="true">flip</span>
         </button>
         <button type="button" class="gg-hbtn is-on" id="gg-scene"
           title="Order all feeds L2·L1·C·R1·R2 on stage" aria-pressed="true">
@@ -149,7 +153,8 @@
       <button type="button" class="gg-dock-slot is-on" data-slot="C">C</button>
       <button type="button" class="gg-dock-slot" data-slot="R1">R1</button>
     </div>
-    <button type="button" class="gg-dock-btn gg-dock-primary" data-dock="cam" id="gg-dock-cam" title="Open this device cams">cams</button>
+    <button type="button" class="gg-dock-btn gg-dock-primary" data-dock="cam" id="gg-dock-cam" title="Open all phone cams">cams</button>
+    <button type="button" class="gg-dock-btn" data-dock="flip" id="gg-dock-flip" title="Flip / next lens">flip</button>
     <button type="button" class="gg-dock-btn gg-dock-cast" data-dock="cast" id="gg-dock-cast" title="Cast this device">cast</button>
     <button type="button" class="gg-dock-btn gg-dock-hub" data-dock="hub" title="Hub">hub</button>
     <button type="button" class="gg-dock-btn" data-dock="more" title="More controls">☰</button>

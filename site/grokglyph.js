@@ -988,6 +988,7 @@
   /**
    * Assign unique scene slots L2·L1·C·R1·R2 for local lanes.
    * Prefer laptop/webcam at C; phone front left; phone back right.
+   * forcedSlot only pins the *primary* lens (matching role), not every lane.
    */
   function assignSceneSlots(lanes) {
     const used = new Set();
@@ -999,21 +1000,46 @@
       uw: "R2",
       tele: "L2",
     };
+    const primaryKindForForced = {
+      C: "laptop",
+      L1: "front",
+      L2: "tele",
+      R1: "back",
+      R2: "uw",
+    };
     // sort by preferred film order (kind priority)
     const ranked = lanes.slice().sort((a, b) => {
-      const pa = a.kind === "laptop" ? 0 : a.kind === "front" ? 1 : a.kind === "back" ? 2 : 3;
-      const pb = b.kind === "laptop" ? 0 : b.kind === "front" ? 1 : b.kind === "back" ? 2 : 3;
+      const pa = a.kind === "laptop" ? 0 : a.kind === "front" ? 1 : a.kind === "back" ? 2 : a.kind === "uw" ? 3 : 4;
+      const pb = b.kind === "laptop" ? 0 : b.kind === "front" ? 1 : b.kind === "back" ? 2 : b.kind === "uw" ? 3 : 4;
       return pa - pb || (a.order || 0) - (b.order || 0);
     });
+    let primaryPinned = false;
     ranked.forEach((lane) => {
-      let slot = forcedSlot && SCENE_SLOTS.includes(forcedSlot) ? forcedSlot : prefer[lane.kind] || lane.slot || "R1";
+      let slot = prefer[lane.kind] || lane.slot || "R1";
+      // Pin primary lens to forced seat once (phone ?slot=L1 keeps front on L1, other lenses free)
+      if (
+        forcedSlot &&
+        SCENE_SLOTS.includes(forcedSlot) &&
+        !primaryPinned &&
+        (!primaryKindForForced[forcedSlot] ||
+          lane.kind === primaryKindForForced[forcedSlot] ||
+          ranked.length === 1)
+      ) {
+        slot = forcedSlot;
+        primaryPinned = true;
+      }
       if (used.has(slot)) {
         slot = SCENE_SLOTS.find((s) => !used.has(s)) || slot;
       }
       used.add(slot);
       lane.slot = slot;
       lane.sceneOrder = SCENE_ORD[slot];
-      lane.short = slot === "C" ? lane.kind === "laptop" || lane.kind === "webcam" ? "laptop" : "C" : lane.kind || slot;
+      lane.short =
+        slot === "C"
+          ? lane.kind === "laptop" || lane.kind === "webcam"
+            ? "laptop"
+            : "C"
+          : lane.kind || slot;
     });
     // re-sort lanes array left→right for stable peer indices
     lanes.sort((a, b) => a.sceneOrder - b.sceneOrder);
@@ -1104,9 +1130,34 @@
     return p;
   }
 
+  /** Known videoinput devices after last permission grant (for flip / retry). */
+  let availableVideoInputs = [];
+  let flipLensIndex = 0;
+  let lastCamFailNotes = [];
+
+  function isIOSUA() {
+    try {
+      return /iPhone|iPad|iPod/i.test(navigator.userAgent || "") ||
+        (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Soft constraints first (ideal) — exact often fails after re-open on Android/iOS.
+   */
   async function openDeviceStream(deviceId, facingMode) {
     const tries = [];
     if (deviceId) {
+      tries.push({
+        video: {
+          deviceId: { ideal: deviceId },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+        audio: false,
+      });
       tries.push({
         video: {
           deviceId: { exact: deviceId },
@@ -1120,6 +1171,14 @@
     if (facingMode) {
       tries.push({
         video: {
+          facingMode: { ideal: facingMode },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+        audio: false,
+      });
+      tries.push({
+        video: {
           facingMode: { exact: facingMode },
           width: { ideal: 1280 },
           height: { ideal: 720 },
@@ -1128,7 +1187,13 @@
       });
       tries.push({ video: { facingMode: facingMode }, audio: false });
     }
-    tries.push({ video: true, audio: false });
+    if (!deviceId && !facingMode) {
+      tries.push({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
+      });
+      tries.push({ video: true, audio: false });
+    }
     let last = null;
     for (let i = 0; i < tries.length; i++) {
       try {
@@ -1144,15 +1209,26 @@
   async function attachLane(stream, label, deviceId, index, facingHint) {
     const video = document.createElement("video");
     video.setAttribute("playsinline", "");
+    video.setAttribute("webkit-playsinline", "true");
     video.playsInline = true;
     video.muted = true;
     video.autoplay = true;
     video.srcObject = stream;
     await video.play().catch(() => {});
-    const cls = classifyCam(label, index, facingHint);
+    // wait briefly for dimensions (some phones report 0 until first frame)
+    for (let w = 0; w < 12 && !(video.videoWidth > 0); w++) {
+      await new Promise((r) => setTimeout(r, 40));
+    }
+    const track = stream.getVideoTracks()[0];
+    const settings = track && track.getSettings ? track.getSettings() : {};
+    const face =
+      facingHint ||
+      settings.facingMode ||
+      "";
+    const cls = classifyCam(label || (track && track.label) || "", index, face);
     const lane = {
-      deviceId: deviceId || "default-" + index,
-      label: label || cls.short,
+      deviceId: deviceId || settings.deviceId || "default-" + index,
+      label: label || (track && track.label) || cls.short,
       stream: stream,
       video: video,
       peerId: "",
@@ -1160,15 +1236,158 @@
       kind: cls.kind,
       slot: cls.slot,
       order: cls.order,
-      facing: cls.facing,
+      facing: cls.facing || face || "",
       sceneOrder: SCENE_ORD[cls.slot] || 50,
+      groupId: "",
     };
+    try {
+      // match MediaDeviceInfo.groupId when available
+      const dev = availableVideoInputs.find((d) => d.deviceId === lane.deviceId);
+      if (dev && dev.groupId) lane.groupId = dev.groupId;
+    } catch {
+      /* ignore */
+    }
     return lane;
   }
 
   /**
-   * Open all local cameras (laptop webcam + phone front/back when OS allows)
-   * and place them in filmmaker scene order around center.
+   * Choose which enumerated devices to open.
+   * Mobile: front + back + ultra + tele (dedupe labels), not every virtual clone.
+   */
+  function selectDevicesToOpen(videoInputs, allCams) {
+    if (!videoInputs || !videoInputs.length) return [];
+    if (!allCams) return [videoInputs[0]];
+    if (!isMobileUA()) {
+      // desktop: all physical inputs (skip obvious virtual dupes if many)
+      const real = videoInputs.filter(
+        (d) => !/virtual|obs|snap|manycam|iriun|epoccam|continuity/i.test(d.label || "")
+      );
+      return (real.length ? real : videoInputs).slice(0, 6);
+    }
+
+    const ranked = videoInputs.map((d, i) => ({
+      d: d,
+      i: i,
+      cls: classifyCam(d.label, i, ""),
+      label: d.label || "",
+    }));
+    const picks = [];
+    const takenIds = new Set();
+    const take = (pred) => {
+      const hit = ranked.find((r) => !takenIds.has(r.d.deviceId) && pred(r));
+      if (!hit) return;
+      takenIds.add(hit.d.deviceId);
+      picks.push(hit.d);
+    };
+    take((r) => r.cls.kind === "front");
+    take((r) => r.cls.kind === "back");
+    take((r) => r.cls.kind === "uw");
+    take((r) => r.cls.kind === "tele");
+    // unlabeled phone cameras — take remaining up to 4
+    ranked.forEach((r) => {
+      if (picks.length >= 4) return;
+      if (takenIds.has(r.d.deviceId)) return;
+      // skip pure virtual
+      if (/virtual|obs|snap/i.test(r.label)) return;
+      takenIds.add(r.d.deviceId);
+      picks.push(r.d);
+    });
+    // iOS often lists 2–3 with empty labels until permission; take first two if empty
+    if (picks.length < 2 && videoInputs.length >= 2) {
+      return videoInputs.slice(0, Math.min(3, videoInputs.length));
+    }
+    return picks.length ? picks : videoInputs.slice(0, 2);
+  }
+
+  function preferredFacingForRole() {
+    if (forcedSlot === "R1" || forcedSlot === "R2") return "environment";
+    if (forcedSlot === "L1" || forcedSlot === "L2") return "user";
+    if (deviceRole === "phone") return "user";
+    return "user";
+  }
+
+  function finishCamOpen(opened) {
+    assignSceneSlots(opened);
+    opened.forEach((lane, i) => {
+      ensureCamPeer(lane, i);
+      camLanes.push(lane);
+    });
+
+    const center = camLanes.find((l) => l.slot === "C") || camLanes[0];
+    if (center) {
+      mediaStream = center.stream;
+      if (els.localVideo) {
+        els.localVideo.srcObject = center.stream;
+        els.localVideo.muted = true;
+        els.localVideo.playsInline = true;
+        els.localVideo.play().catch(() => {});
+      }
+    }
+
+    camOn = true;
+    fileOn = false;
+    if (els.camBtn) els.camBtn.setAttribute("aria-pressed", "true");
+    setCamButtonLabel(true);
+    const dockCam = document.getElementById("gg-dock-cam");
+    if (dockCam) {
+      dockCam.classList.add("is-on");
+      dockCam.textContent = camLanes.length > 1 ? String(camLanes.length) : "on";
+    }
+    const flipBtn = document.getElementById("gg-cam-flip");
+    const dockFlip = document.getElementById("gg-dock-flip");
+    const canFlip = availableVideoInputs.length > 1 || camLanes.length > 0;
+    if (flipBtn) {
+      flipBtn.disabled = !canFlip;
+      flipBtn.classList.toggle("is-on", camLanes.length === 1 && availableVideoInputs.length > 1);
+    }
+    if (dockFlip) {
+      dockFlip.disabled = !canFlip;
+      dockFlip.classList.toggle("is-on", camLanes.length === 1 && availableVideoInputs.length > 1);
+    }
+
+    const orderStr = camLanes.map((l) => l.slot + ":" + l.short).join(" · ");
+    const listed = availableVideoInputs.length;
+    setCastLabel(
+      casting
+        ? "casting " + camLanes.length + "/" + Math.max(listed, camLanes.length)
+        : camLanes.length > 1
+          ? camLanes.length + " cams live"
+          : listed > 1
+            ? "1 cam · flip for more"
+            : "cam live"
+    );
+    if (els.hubHint) {
+      let tip =
+        "Active " +
+        camLanes.length +
+        "/" +
+        Math.max(listed, camLanes.length) +
+        " · " +
+        orderStr +
+        ". ";
+      if (camLanes.length < 2 && listed > 1) {
+        tip += isIOSUA()
+          ? "iOS usually allows only one live camera — use Flip lens to cycle front/back/ultra, or open a second phone for another seat."
+          : "Only one lens opened — tap Flip lens or Open cams again. Some Androids block concurrent front+back.";
+      } else if (camLanes.length >= 2) {
+        tip += "Multi-lens live · cast ships every lane. ";
+      }
+      if (lastCamFailNotes.length) {
+        tip += " Skipped: " + lastCamFailNotes.slice(0, 3).join("; ") + ".";
+      }
+      els.hubHint.textContent = tip;
+    }
+    const sceneBtn = document.getElementById("gg-scene");
+    if (sceneBtn) {
+      sceneBtn.setAttribute("aria-pressed", sceneMode ? "true" : "false");
+      sceneBtn.classList.toggle("is-on", sceneMode);
+    }
+    layoutAndPaint();
+  }
+
+  /**
+   * Open all local cameras (laptop webcam + phone front/back/ultra when OS allows)
+   * and place them in filmmaker scene order.
    */
   async function enableCam(opts) {
     opts = opts || {};
@@ -1180,168 +1399,262 @@
     }
     try {
       if (!window.isSecureContext) {
-        setCastLabel("need https/localhost");
+        setCastLabel("need secure cam");
         if (els.hubHint) {
           els.hubHint.textContent =
-            "Camera needs HTTPS or localhost. Use https://fornevercollective.github.io/GrokYtalkY/grokglyph.html";
+            "Camera needs a secure context. On phone use the LAN hub over http://192.168.x.x only if the browser allows it, or open via localhost tunnel / HTTPS. Prefer: open gy serve page and Allow when prompted.";
         }
-        return false;
+        // still attempt — some WebViews / flags allow LAN
       }
     } catch {
       /* ignore */
     }
 
+    lastCamFailNotes = [];
     try {
       setCastLabel("opening cams…");
-      // Permission probe unlocks labels; prefer user-facing first
-      let probe = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
-        audio: false,
-      });
+      // Prefer seat-facing first (L1=front, R1=back) and KEEP stream as first lane
+      const preferFace = preferredFacingForRole();
+      let firstStream = null;
+      try {
+        firstStream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: preferFace },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: false,
+        });
+      } catch {
+        firstStream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false,
+        });
+      }
+
       let devices = [];
       try {
         devices = await navigator.mediaDevices.enumerateDevices();
       } catch {
         devices = [];
       }
-      const videoInputs = devices.filter((d) => d.kind === "videoinput");
-      probe.getTracks().forEach((t) => t.stop());
-      probe = null;
+      availableVideoInputs = devices.filter((d) => d.kind === "videoinput");
 
+      // tear down previous lanes only (keep firstStream)
       stopCamLanes();
       if (els.localVideo) els.localVideo.srcObject = null;
 
       const opened = [];
       const openIds = new Set();
+      const openGroup = new Set();
 
-      // 1) Open each enumerated device (best path for multi-lens Android / multi-USB)
-      const list =
-        allCams && videoInputs.length
-          ? videoInputs
-          : videoInputs.length
-            ? [videoInputs[0]]
-            : [];
+      const t0 = firstStream.getVideoTracks()[0];
+      const s0 = t0 && t0.getSettings ? t0.getSettings() : {};
+      const firstLane = await attachLane(
+        firstStream,
+        (t0 && t0.label) || availableVideoInputs[0] && availableVideoInputs[0].label || "cam",
+        s0.deviceId || "",
+        0,
+        s0.facingMode || preferFace
+      );
+      opened.push(firstLane);
+      if (firstLane.deviceId) openIds.add(firstLane.deviceId);
+      if (firstLane.groupId) openGroup.add(firstLane.groupId);
 
+      const list = selectDevicesToOpen(availableVideoInputs, allCams);
+
+      // Open remaining selected devices while keeping first stream live
       for (let i = 0; i < list.length; i++) {
         const d = list[i];
+        if (!d || !d.deviceId) continue;
+        if (openIds.has(d.deviceId)) continue;
+        // same groupId often can't open twice (iOS dual-cam)
+        if (d.groupId && openGroup.has(d.groupId) && isIOSUA()) continue;
         try {
           const stream = await openDeviceStream(d.deviceId, "");
-          const lane = await attachLane(stream, d.label, d.deviceId, opened.length, "");
+          const track = stream.getVideoTracks()[0];
+          const st = track && track.getSettings ? track.getSettings() : {};
+          const did = st.deviceId || d.deviceId;
+          // if browser remapped to already-open camera, drop
+          if (did && openIds.has(did)) {
+            stream.getTracks().forEach((t) => t.stop());
+            lastCamFailNotes.push((d.label || "cam") + "→dup");
+            continue;
+          }
+          const lane = await attachLane(
+            stream,
+            d.label || (track && track.label) || "cam",
+            did,
+            opened.length,
+            st.facingMode || ""
+          );
+          // verify we actually got frames (or at least a live track)
+          if (track && track.readyState === "ended") {
+            stream.getTracks().forEach((t) => t.stop());
+            lastCamFailNotes.push((d.label || "cam") + " ended");
+            continue;
+          }
           opened.push(lane);
-          openIds.add(d.deviceId);
+          if (did) openIds.add(did);
+          if (lane.groupId) openGroup.add(lane.groupId);
         } catch (e) {
+          const name = (e && e.name) || "err";
+          lastCamFailNotes.push((d.label || d.deviceId || "cam").slice(0, 18) + " " + name);
           console.warn("[grokglyph] cam device skip", d.label || d.deviceId, e);
         }
       }
 
-      // 2) Explicit front + back via facingMode (phones — often only one works at once)
-      if (allCams && isMobileUA()) {
-        for (const facing of ["user", "environment"]) {
-          const already = opened.some(
-            (l) =>
-              l.facing === facing ||
-              (facing === "user" && l.kind === "front") ||
-              (facing === "environment" && (l.kind === "back" || l.kind === "uw"))
-          );
-          if (already) continue;
+      // Explicit opposite facing if we still only have one side (Android concurrent)
+      if (allCams && isMobileUA() && opened.length < 2) {
+        const haveUser = opened.some(
+          (l) => l.facing === "user" || l.kind === "front"
+        );
+        const haveEnv = opened.some(
+          (l) =>
+            l.facing === "environment" ||
+            l.kind === "back" ||
+            l.kind === "uw" ||
+            l.kind === "tele"
+        );
+        const tryList = [];
+        if (!haveUser) tryList.push("user");
+        if (!haveEnv) tryList.push("environment");
+        if (!tryList.length) tryList.push(haveUser ? "environment" : "user");
+        for (let f = 0; f < tryList.length; f++) {
+          const facing = tryList[f];
           try {
             const stream = await openDeviceStream("", facing);
             const track = stream.getVideoTracks()[0];
-            const settings = track && track.getSettings ? track.getSettings() : {};
-            const did = settings.deviceId || "";
+            const st = track && track.getSettings ? track.getSettings() : {};
+            const did = st.deviceId || "";
             if (did && openIds.has(did)) {
               stream.getTracks().forEach((t) => t.stop());
               continue;
             }
-            if (did) openIds.add(did);
             const label =
-              (track && track.label) || (facing === "user" ? "Front Camera" : "Back Camera");
+              (track && track.label) ||
+              (facing === "user" ? "Front Camera" : "Back Camera");
             const lane = await attachLane(stream, label, did, opened.length, facing);
             opened.push(lane);
+            if (did) openIds.add(did);
           } catch (e) {
+            lastCamFailNotes.push(facing + " " + ((e && e.name) || "fail"));
             console.warn("[grokglyph] facingMode", facing, e && e.name);
           }
         }
       }
 
-      // 3) Desktop fallback: single default webcam as center
       if (!opened.length) {
-        try {
-          const stream = await openDeviceStream("", "user");
-          const track = stream.getVideoTracks()[0];
-          const lane = await attachLane(
-            stream,
-            (track && track.label) || "webcam",
-            "",
-            0,
-            "user"
-          );
-          opened.push(lane);
-        } catch (e) {
-          throw e;
-        }
+        throw new Error("no camera streams");
       }
 
-      assignSceneSlots(opened);
-      // rebuild peers in scene order
-      opened.forEach((lane, i) => {
-        ensureCamPeer(lane, i);
-        camLanes.push(lane);
-      });
-
-      // center stream → hidden local video for compat
-      const center = camLanes.find((l) => l.slot === "C") || camLanes[0];
-      if (center) {
-        mediaStream = center.stream;
-        if (els.localVideo) {
-          els.localVideo.srcObject = center.stream;
-          els.localVideo.muted = true;
-          els.localVideo.playsInline = true;
-          await els.localVideo.play().catch(() => {});
-        }
-      }
-
-      camOn = true;
-      fileOn = false;
-      if (els.camBtn) els.camBtn.setAttribute("aria-pressed", "true");
-      setCamButtonLabel(true);
-      const dockCam = document.getElementById("gg-dock-cam");
-      if (dockCam) {
-        dockCam.classList.add("is-on");
-        dockCam.textContent = camLanes.length > 1 ? String(camLanes.length) : "on";
-      }
-      const orderStr = camLanes.map((l) => l.slot + ":" + l.short).join(" · ");
-      setCastLabel(
-        casting
-          ? "casting scene " + camLanes.length
-          : camLanes.length > 1
-            ? "scene " + camLanes.length + " cams"
-            : "cam live"
-      );
-      if (els.hubHint) {
-        els.hubHint.textContent =
-          "Scene order " +
-          orderStr +
-          ". Filmmaker layout: L2·L1·[laptop C]·R1·R2. Phones: open this page with ?slot=L1 or ?slot=R1 and Cast. Cast ships every lens.";
-      }
-      const sceneBtn = document.getElementById("gg-scene");
-      if (sceneBtn) {
-        sceneBtn.setAttribute("aria-pressed", sceneMode ? "true" : "false");
-        sceneBtn.classList.toggle("is-on", sceneMode);
-      }
-      layoutAndPaint();
+      finishCamOpen(opened);
       return true;
     } catch (err) {
       camOn = false;
       stopCamLanes();
       setCastLabel("cam blocked");
+      if (els.hubBtn) {
+        /* keep */
+      }
       if (els.hubHint) {
         const n = err && err.name;
         els.hubHint.textContent =
           n === "NotAllowedError"
-            ? "Camera permission denied — 🔒 → Allow, then cam. Filmmaker tip: laptop cam = center; phones join hub with ?slot=L1 / R1."
-            : "Camera blocked — " + (err && err.message ? err.message : "");
+            ? "Camera permission denied — Allow camera, then Open cams. Multi-lens: Android may open front+back; iOS often needs Flip lens."
+            : n === "NotFoundError"
+              ? "No camera found on this device."
+              : "Camera blocked — " +
+                (err && err.message ? err.message : String(err)) +
+                (window.isSecureContext === false
+                  ? " · page is not a secure context (use hub on this device / HTTPS)."
+                  : "");
       }
+      return false;
+    }
+  }
+
+  /**
+   * Cycle to next enumerated lens (iOS / single-stream phones).
+   * Stops current lanes and opens the next deviceId.
+   */
+  async function flipLens() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return false;
+    // ensure we have a device list
+    if (!availableVideoInputs.length) {
+      try {
+        // need permission first
+        const s = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        s.getTracks().forEach((t) => t.stop());
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        availableVideoInputs = devices.filter((d) => d.kind === "videoinput");
+      } catch (e) {
+        setCastLabel("flip need cam");
+        return false;
+      }
+    }
+    if (availableVideoInputs.length < 2) {
+      // try facing toggle with single device list
+      const cur = camLanes[0];
+      const nextFace =
+        cur && (cur.facing === "user" || cur.kind === "front") ? "environment" : "user";
+      setCastLabel("flip " + nextFace + "…");
+      try {
+        const stream = await openDeviceStream("", nextFace);
+        stopCamLanes();
+        const track = stream.getVideoTracks()[0];
+        const st = track && track.getSettings ? track.getSettings() : {};
+        const lane = await attachLane(
+          stream,
+          (track && track.label) || nextFace,
+          st.deviceId || "",
+          0,
+          nextFace
+        );
+        finishCamOpen([lane]);
+        setCastLabel("lens " + lane.short);
+        return true;
+      } catch (e) {
+        setCastLabel("flip fail");
+        return false;
+      }
+    }
+
+    flipLensIndex = (flipLensIndex + 1) % availableVideoInputs.length;
+    // prefer a device not currently open
+    const openSet = new Set(camLanes.map((l) => l.deviceId));
+    let pick = availableVideoInputs[flipLensIndex];
+    for (let i = 0; i < availableVideoInputs.length; i++) {
+      const idx = (flipLensIndex + i) % availableVideoInputs.length;
+      const d = availableVideoInputs[idx];
+      if (!openSet.has(d.deviceId)) {
+        pick = d;
+        flipLensIndex = idx;
+        break;
+      }
+    }
+    setCastLabel("flip…");
+    try {
+      // single-lens swap: release others so iOS can open next
+      const stream = await openDeviceStream(pick.deviceId, "");
+      stopCamLanes();
+      const track = stream.getVideoTracks()[0];
+      const st = track && track.getSettings ? track.getSettings() : {};
+      const lane = await attachLane(
+        stream,
+        pick.label || (track && track.label) || "lens",
+        st.deviceId || pick.deviceId,
+        0,
+        st.facingMode || ""
+      );
+      finishCamOpen([lane]);
+      setCastLabel("lens " + (lane.short || lane.label || flipLensIndex + 1));
+      return true;
+    } catch (e) {
+      console.warn("[grokglyph] flip", e);
+      setCastLabel("flip fail");
+      // try restore previous
+      if (!camLanes.length) await enableCam({ all: true, force: true });
       return false;
     }
   }
@@ -2965,7 +3278,13 @@
     });
 
     if (els.addBtn) els.addBtn.addEventListener("click", addManualPeer);
-    if (els.camBtn) els.camBtn.addEventListener("click", () => toggleCam());
+    if (els.camBtn) {
+      els.camBtn.addEventListener("click", () => toggleCam());
+      // double-click re-opens every lens (force)
+      els.camBtn.addEventListener("dblclick", () => enableCam({ all: true, force: true }));
+    }
+    const camFlip = document.getElementById("gg-cam-flip");
+    if (camFlip) camFlip.addEventListener("click", () => flipLens());
     if (els.castBtn) els.castBtn.addEventListener("click", () => toggleCast());
     if (els.screenBtn) els.screenBtn.addEventListener("click", () => toggleScreenCast());
     if (els.screenOpen) {
@@ -3728,6 +4047,7 @@
       if (act === "role-phone") setDeviceRole("phone", { resetSlot: true });
       else if (act === "role-laptop") setDeviceRole("laptop", { resetSlot: true });
       else if (act === "cam") toggleCam();
+      else if (act === "flip") flipLens();
       else if (act === "cast") {
         if (typeof toggleCast === "function") toggleCast();
         else if (els.castBtn) els.castBtn.click();
