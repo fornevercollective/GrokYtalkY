@@ -65,11 +65,16 @@
     return false;
   }
 
-  /** Facility ingest: ndi: · srt:// · device: · decklink: · pgm: */
+  /** Facility + XR ingest: ndi: · srt:// · device: · decklink: · pgm: · xr: · stereo: · webxr: */
   function looksIngest(s) {
     s = String(s || "").trim();
     if (!s) return false;
-    if (/^(ndi|device|decklink|blackmagic|bmd|pgm|program|cam|uvc):/i.test(s)) return true;
+    if (
+      /^(ndi|device|decklink|blackmagic|bmd|pgm|program|cam|uvc|three-cam|xr|ar|vr|mr|stereo|webxr|quest|vision|hololens|pico|vive|varjo|xreal|viture|rokid|openxr|headset|glasses):/i.test(
+        s
+      )
+    )
+      return true;
     if (/^(srt|rtmp|rtmps|rtsp|rtsps|udp|tcp|rtp):\/\//i.test(s)) return true;
     return false;
   }

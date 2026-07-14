@@ -247,15 +247,21 @@
         b.type = "button";
         b.className = "mq-ingest-chip" + (s.ready ? " is-ready" : "");
         b.title = (s.detail || "") + " · " + s.id;
-        b.innerHTML =
-          (s.brand === "Blackmagic" ? '<span class="bmd">BMD</span> ' : "") +
-          escapeHtml((s.label || s.id).slice(0, 36));
+        var tag = "";
+        if (s.brand === "Blackmagic") tag = '<span class="bmd">BMD</span> ';
+        else if (s.scheme === "xr" || s.kind === "ar" || s.kind === "vr" || s.kind === "mr")
+          tag = '<span class="xr">XR</span> ';
+        b.innerHTML = tag + escapeHtml((s.label || s.id).slice(0, 36));
         b.addEventListener("click", function () {
-          if (!s.ready && s.scheme !== "pgm") {
+          if (!s.ready && s.scheme !== "pgm" && s.scheme !== "xr" && s.scheme !== "stereo") {
             setStatus((s.detail || "not ready on this host"), "err");
           }
-          q.addOne(s.id, { title: s.label });
-          setStatus("queued " + s.id, "live");
+          var addId = s.id;
+          if (s.scheme === "stereo" && (!s.id || s.id.endsWith(":"))) {
+            addId = s.id + "device:0";
+          }
+          q.addOne(addId || s.id, { title: s.label });
+          setStatus("queued " + (addId || s.id), "live");
           renderList();
         });
         ingestList.appendChild(b);
@@ -441,6 +447,56 @@
         "HDRI · " + (result.slots || []).join("·") + " · view 3D opened · sphere via GrokGlyph cast",
         "live"
       );
+    });
+  }
+
+  var xrBtn = document.getElementById("mq-xr");
+  if (xrBtn) {
+    xrBtn.addEventListener("click", async function () {
+      setStatus("XR · load headset pack…");
+      xrBtn.disabled = true;
+      try {
+        // Queue catalog schemes
+        [
+          "xr:auto",
+          "xr:quest",
+          "xr:vision",
+          "xr:hololens",
+          "xr:pico",
+          "xr:vive",
+          "xr:xreal",
+          "webxr:",
+          "stereo:sbs:",
+        ].forEach(function (id) {
+          q.addOne(id, { title: id });
+        });
+        // Prefer live capture / equirect
+        if (window.GY_XR_BRIDGE) {
+          try {
+            var xr = await window.GY_XR_BRIDGE.hdriFromXR({ layout: "sbs" });
+            if (xr && xr.equirect && window.GY_HDRI_VIEW) {
+              window.GY_HDRI_VIEW.openViewerPage({ mode: "inside" });
+            }
+            setStatus(
+              "XR · equirect ready" + (xr.pose ? " · head pose" : "") + " · inside 360",
+              "live"
+            );
+          } catch (e) {
+            setStatus(
+              "XR schemes queued · " +
+                (e && e.message ? e.message : e) +
+                " · set GY_XR_CAST_URL or connect UVC",
+              "live"
+            );
+          }
+        } else {
+          setStatus("XR schemes queued · resolve cast URL on hub", "live");
+        }
+        renderList();
+      } catch (e) {
+        setStatus("XR error · " + (e && e.message ? e.message : e), "err");
+      }
+      xrBtn.disabled = false;
     });
   }
 

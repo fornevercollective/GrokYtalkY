@@ -351,6 +351,7 @@
 .mq-ingest-chip.is-ready { border-color: rgba(110, 231, 183, 0.35); }
 .mq-ingest-chip:not(.is-ready) { opacity: 0.55; }
 .mq-ingest-chip .bmd { color: #fbbf24; }
+.mq-ingest-chip .xr { color: #c084fc; }
 
 /* TV / player out mode — chrome minimal */
 body.mq-out-tv .nav,

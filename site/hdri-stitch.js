@@ -142,13 +142,82 @@
   }
 
   /**
+   * Convert stereo SBS / OU / full-frame into equirect canvas for XR headsets.
+   * layout: sbs | ou | equirect | mono
+   */
+  function stereoToEquirect(srcCanvas, layout, opts) {
+    opts = opts || {};
+    var W = opts.width || 2048;
+    var H = opts.height || 1024;
+    if (!srcCanvas) return null;
+    var out = document.createElement("canvas");
+    out.width = W;
+    out.height = H;
+    var ctx = out.getContext("2d");
+    layout = String(layout || "sbs").toLowerCase();
+    var sw = srcCanvas.width || srcCanvas.videoWidth || 0;
+    var sh = srcCanvas.height || srcCanvas.videoHeight || 0;
+    if (!sw || !sh) {
+      try {
+        sw = srcCanvas.width;
+        sh = srcCanvas.height;
+      } catch (_) {}
+    }
+    if (!sw || !sh) return null;
+    ctx.fillStyle = "#0a0a10";
+    ctx.fillRect(0, 0, W, H);
+    if (layout === "equirect" || layout === "eq") {
+      ctx.drawImage(srcCanvas, 0, 0, sw, sh, 0, 0, W, H);
+    } else if (layout === "ou" || layout === "tb") {
+      // over-under: use top eye as full sphere base
+      ctx.drawImage(srcCanvas, 0, 0, sw, sh / 2, 0, 0, W, H);
+    } else {
+      // side-by-side: left eye → full equirect (common Quest/Vision cast)
+      ctx.drawImage(srcCanvas, 0, 0, sw / 2, sh, 0, 0, W, H);
+    }
+    ctx.fillStyle = "rgba(0,0,0,0.5)";
+    ctx.fillRect(8, H - 28, 280, 20);
+    ctx.fillStyle = "#c4b5fd";
+    ctx.font = "11px ui-monospace, monospace";
+    ctx.fillText("XR stereo → equirect · " + layout, 12, H - 14);
+    return out;
+  }
+
+  /**
    * Equirect wedge probe — map each slot image into a longitude band.
    * Vertical: center band of source (face/horizon-ish) stretched in lat.
+   * opts.xrLayout: sbs|ou|equirect — if set and single view, use stereo path.
    */
   function stitchEquirect(views, opts) {
     opts = opts || {};
     var W = opts.width || 2048;
     var H = opts.height || 1024;
+
+    // XR single-source stereo / equirect
+    if (opts.xrLayout && views && views.length === 1 && views[0].canvas) {
+      var xr = stereoToEquirect(views[0].canvas, opts.xrLayout, { width: W, height: H });
+      if (xr) return xr;
+    }
+    // dual-eye L1 + R1 as SBS composite
+    if (opts.xrLayout === "dual-eye" && views && views.length >= 2) {
+      var by = {};
+      views.forEach(function (v) {
+        by[String(v.slot || "").toUpperCase()] = v;
+      });
+      var left = by.L1 || by.C || views[0];
+      var right = by.R1 || views[1];
+      if (left && left.canvas && right && right.canvas) {
+        var pack = document.createElement("canvas");
+        pack.width = (left.canvas.width || 640) + (right.canvas.width || 640);
+        pack.height = Math.max(left.canvas.height || 480, right.canvas.height || 480);
+        var pctx = pack.getContext("2d");
+        pctx.drawImage(left.canvas, 0, 0);
+        pctx.drawImage(right.canvas, left.canvas.width || 640, 0);
+        var eq = stereoToEquirect(pack, "sbs", { width: W, height: H });
+        if (eq) return eq;
+      }
+    }
+
     var out = document.createElement("canvas");
     out.width = W;
     out.height = H;
@@ -273,6 +342,7 @@
     var equirect = stitchEquirect(views, {
       width: opts.eqW || 2048,
       height: opts.eqH || 1024,
+      xrLayout: opts.xrLayout || "",
     });
     if (opts.tonemap !== false && equirect) quickTonemap(equirect);
 
@@ -351,6 +421,7 @@
     quickTonemap: quickTonemap,
     stitchSubjectStrip: stitchSubjectStrip,
     stitchEquirect: stitchEquirect,
+    stereoToEquirect: stereoToEquirect,
     equirectToGlyph: equirectToGlyph,
     captureFromLanes: captureFromLanes,
     runProbe: runProbe,

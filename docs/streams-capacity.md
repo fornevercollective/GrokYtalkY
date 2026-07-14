@@ -166,6 +166,28 @@ export GY_PGM_PLAY_URL='http://127.0.0.1:9876/api/media/play/…'
 
 Cinema bodies (ARRI / RED / Panavision / Canon / …) enter via **SDI → DeckLink / NDI / SRT**, not brand browser plugins.
 
+### AR / VR / MR glasses & headsets
+
+| Scheme | Devices | Path |
+|--------|---------|------|
+| `xr:quest` | Meta Quest 2/3/Pro | Cast URL / NDI / UVC · `GY_XR_CAST_URL` |
+| `xr:vision` | Apple Vision Pro | Continuity / WebXR Safari / capture |
+| `xr:hololens` | HoloLens 2 | PV/RTSP/NDI apps |
+| `xr:pico` · `xr:vive` · `xr:varjo` | Pico / Vive / Varjo | Streaming companion → SRT/HLS |
+| `xr:xreal` · `xr:viture` · `xr:rokid` | Lightweight AR glasses | USB-C UVC when exposed |
+| `xr:spectacles` · `xr:glass` | Snap / Glass Enterprise | Companion export → URL |
+| `stereo:sbs:` · `stereo:ou:` · `stereo:eq:` | Any stereo pack | → equirect for Sphere HDRI |
+| `webxr:` | Browser WebXR | Client session (passthrough = platform-dependent) |
+
+```bash
+export GY_XR_CAST_URL='http://…/quest-cast.m3u8'   # or srt://
+export GY_XR_LEFT_URL='…' GY_XR_RIGHT_URL='…'     # dual-eye
+curl -s http://127.0.0.1:9876/api/media/ingest | jq '.xr'
+# queue.html → XR / glasses · HDRI inside-360
+```
+
+Stereo layouts feed `GY_HDRI.stereoToEquirect` → same dome / TV path as multi-cam HDRI.
+
 ### Dual-path media queue (LAN hub + SFU WebRTC)
 
 Play Queue timeline (`media-queue` seek/play/index) and Sphere `media-dome` ride **two planes**:

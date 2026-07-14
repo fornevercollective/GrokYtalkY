@@ -112,9 +112,12 @@ func ParseIngestScheme(src string) (scheme, ref string, ok bool) {
 	}
 }
 
-// IsIngestSource true when ResolveMedia should use facility path.
+// IsIngestSource true when ResolveMedia should use facility / XR path.
 func IsIngestSource(src string) bool {
-	_, _, ok := ParseIngestScheme(src)
+	if _, _, ok := ParseIngestScheme(src); ok {
+		return true
+	}
+	_, _, ok := ParseXRIngest(src)
 	return ok
 }
 
@@ -213,6 +216,9 @@ func ListIngestSources() []IngestSource {
 			Detail: "paste real srt://host:port", Ready: true, Brand: "Generic",
 		},
 	)
+
+	// AR / VR / MR glasses & headsets
+	out = append(out, ListXRSources()...)
 
 	return out
 }
@@ -428,6 +434,10 @@ func ThreeCamSources() []IngestSource {
 // ResolveIngest turns a scheme ref into ResolvedStream.
 // Browser consumers should call EnsureIngestBrowserPlay for facility I/O.
 func ResolveIngest(src string) (*ResolvedStream, error) {
+	// XR / stereo / webxr first
+	if _, _, ok := ParseXRIngest(src); ok {
+		return ResolveXR(src)
+	}
 	scheme, ref, ok := ParseIngestScheme(src)
 	if !ok {
 		return nil, fmt.Errorf("not an ingest scheme")
@@ -806,9 +816,13 @@ func HandleMediaIngestAPI(w http.ResponseWriter, r *http.Request) {
 		_ = jsonWrite(w, map[string]any{
 			"ok":      true,
 			"sources": ListIngestSources(),
-			"schemes": []string{"ndi:", "srt://", "rtmp://", "rtsp://", "device:", "decklink:", "blackmagic:", "pgm:", "three-cam:"},
-			"three":   ThreeCamSources(),
-			"note":    "Blackmagic-first decklink · three-cam: built-in+externals · cinema via SDI→DeckLink/NDI/SRT",
+			"schemes": []string{
+				"ndi:", "srt://", "rtmp://", "rtsp://", "device:", "decklink:", "blackmagic:",
+				"pgm:", "three-cam:", "xr:", "xr:quest", "xr:vision", "stereo:sbs:", "webxr:",
+			},
+			"three": ThreeCamSources(),
+			"xr":    ListXRSources(),
+			"note":  "Blackmagic-first · three-cam · XR/AR/VR/MR glasses via UVC/NDI/SRT/WebXR/cast",
 		})
 	case path == "resolve":
 		src := strings.TrimSpace(r.URL.Query().Get("src"))

@@ -27,20 +27,21 @@
 
     <section class="mq-panel mq-add" aria-label="Add links">
       <label class="mq-label" for="mq-input">Add links, @handles, or facility ingest (one per line)</label>
-      <textarea id="mq-input" rows="3" placeholder="https://x.com/…/status/…&#10;@channel · yt:@CNN&#10;srt://10.0.0.5:9000&#10;ndi:Studio Camera&#10;decklink:0&#10;device:avfoundation:0&#10;pgm:"></textarea>
+      <textarea id="mq-input" rows="3" placeholder="https://x.com/…/status/…&#10;srt://10.0.0.5:9000&#10;ndi:Studio Camera&#10;decklink:0&#10;device:avfoundation:0&#10;xr:quest · xr:vision · webxr:&#10;stereo:sbs:device:0&#10;pgm:"></textarea>
       <div class="mq-row">
         <button type="button" class="btn primary" id="mq-add">Add to queue</button>
         <button type="button" class="btn ghost" id="mq-add-page" title="Add current page if opened via bookmarklet">Add clipboard URL</button>
         <button type="button" class="btn ghost" id="mq-resolve">Resolve all</button>
         <button type="button" class="btn ghost" id="mq-pgm" title="Add program bus tile">+ PGM</button>
         <button type="button" class="btn primary" id="mq-threecam" title="Open 3-cam pack: built-in + externals → queue + HDRI">3-cam live</button>
+        <button type="button" class="btn ghost" id="mq-xr" title="AR/VR/MR headset pack → queue + equirect">XR / glasses</button>
         <button type="button" class="btn ghost" id="mq-hdri" title="HDRI probe from live 3-cam / open cams">HDRI map</button>
         <button type="button" class="btn ghost danger" id="mq-clear">Clear</button>
       </div>
       <p class="mq-hint" id="mq-add-hint">
-        Web: <code>/api/media/resolve</code> + yt-dlp. Facility:
-        <code>ndi:</code> · <code>srt://</code> · <code>device:</code> · <code>decklink:</code> (Blackmagic-first) ·
-        <code>pgm:</code> — via <code>/api/media/ingest</code> → HLS for browser/TV.
+        Web: yt-dlp resolve. Facility: <code>ndi:</code> · <code>srt://</code> · <code>decklink:</code> · <code>device:</code> · <code>pgm:</code>.
+        <strong>XR:</strong> <code>xr:quest</code> · <code>xr:vision</code> · <code>stereo:sbs:</code> · <code>webxr:</code>
+        (Quest/Vision/HoloLens/Pico/Vive/XREAL/…) — UVC/NDI/SRT/cast, not brand browser plugins.
       </p>
       <div class="mq-ingest" id="mq-ingest" aria-label="Ingest registry">
         <div class="mq-player-head">
@@ -194,6 +195,7 @@
   <script src="hdri-stitch.js"></script>
   <script src="hdri-sphere.js"></script>
   <script src="cam-bridge.js"></script>
+  <script src="xr-bridge.js"></script>
   <script src="media-queue.js"></script>
   <script src="media-sfu.js"></script>
   <script src="queue-app.js"></script>
