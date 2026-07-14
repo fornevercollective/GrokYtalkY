@@ -300,16 +300,155 @@
   }
 
   function defaultHubURL() {
-    const host = location.hostname || "127.0.0.1";
-    const h =
-      host === "localhost" || host === "127.0.0.1" || host === ""
-        ? "127.0.0.1"
-        : host;
-    // Pages on github.io can't reach local hub without tunnel — still default local for gy serve
-    if (location.protocol === "https:" && h.includes("github.io")) {
-      return "wss://";
+    // GitHub Pages cannot open LAN mesh — open via gy serve instead
+    if ((location.hostname || "").includes("github.io")) {
+      return "ws://";
     }
-    return "ws://" + h + ":9876/";
+    if (location.protocol === "file:") {
+      return "ws://127.0.0.1:9876/";
+    }
+    if (location.protocol === "http:" || location.protocol === "https:") {
+      const proto = location.protocol === "https:" ? "wss:" : "ws:";
+      // gy serve: page and hub share host:9876
+      if (location.port === "9876") {
+        return proto + "//" + location.host + "/";
+      }
+      return "ws://" + (location.hostname || "127.0.0.1") + ":9876/";
+    }
+    return "ws://127.0.0.1:9876/";
+  }
+
+  /** HTTP origin for /api/lan discovery */
+  function hubHttpOrigin() {
+    try {
+      const raw = (els.hubUrl && els.hubUrl.value.trim()) || defaultHubURL();
+      if (!raw || raw === "ws://" || raw === "wss://") {
+        if (location.protocol === "http:" || location.protocol === "https:") return location.origin;
+        return "http://127.0.0.1:9876";
+      }
+      const u = new URL(raw.replace(/^ws/i, "http"));
+      return u.origin;
+    } catch {
+      return location.protocol === "http:" || location.protocol === "https:"
+        ? location.origin
+        : "http://127.0.0.1:9876";
+    }
+  }
+
+  let lanInfo = null;
+  let pairPeers = 0;
+
+  function updatePairStatus(text, isErr) {
+    const el = document.getElementById("gg-pair-status");
+    if (!el) return;
+    el.textContent = text || "hub · idle";
+    el.classList.toggle("is-err", !!isErr);
+    el.classList.toggle("is-live", !isErr && /linked|peer|room|joined|hub on/i.test(text || ""));
+  }
+
+  function buildPhonePairURL(slot) {
+    slot = (slot || (deviceRole === "phone" ? forcedSlot || "L1" : "L1")).toUpperCase();
+    const room = meshRoom || "global";
+    let base = "";
+    if (lanInfo && lanInfo.http) {
+      base = String(lanInfo.http).replace(/\/?$/, "/");
+    } else if (location.protocol === "http:" || location.protocol === "https:") {
+      base = location.origin + "/";
+    } else if (lanInfo && lanInfo.glyph) {
+      base = String(lanInfo.glyph).replace(/grokglyph\.html.*$/i, "");
+    } else {
+      base = "http://127.0.0.1:9876/";
+    }
+    const nick = "phone-" + slot;
+    return (
+      base +
+      "grokglyph.html?role=phone&slot=" +
+      encodeURIComponent(slot) +
+      "&room=" +
+      encodeURIComponent(room) +
+      "&nick=" +
+      encodeURIComponent(nick) +
+      "&hub=1&connect=1"
+    );
+  }
+
+  function renderPairQR(text) {
+    const img = document.getElementById("gg-pair-qr");
+    const wrap = document.getElementById("gg-pair-qr-wrap");
+    if (!img || !wrap || !text) return false;
+    if (typeof qrcode !== "function") {
+      wrap.hidden = false;
+      wrap.title = "Open /qr.html?url=… for QR";
+      return false;
+    }
+    try {
+      const q = qrcode(0, "M");
+      q.addData(text);
+      q.make();
+      img.src = q.createDataURL(4, 2);
+      img.alt = "QR: " + text;
+      wrap.hidden = false;
+      return true;
+    } catch {
+      wrap.hidden = true;
+      return false;
+    }
+  }
+
+  function refreshPairUI() {
+    const phoneUrl = buildPhonePairURL("L1");
+    const phoneInput = document.getElementById("gg-pair-phone-url");
+    const lanInput = document.getElementById("gg-pair-lan");
+    if (phoneInput) phoneInput.value = phoneUrl;
+    if (lanInput) {
+      lanInput.value =
+        (lanInfo && lanInfo.ws) ||
+        (els.hubUrl && els.hubUrl.value) ||
+        defaultHubURL();
+    }
+    // keep QR in sync if visible
+    const wrap = document.getElementById("gg-pair-qr-wrap");
+    if (wrap && !wrap.hidden) renderPairQR(phoneUrl);
+  }
+
+  async function fetchLanPair() {
+    try {
+      const res = await fetch(hubHttpOrigin() + "/api/lan", {
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) throw new Error("lan " + res.status);
+      lanInfo = await res.json();
+      if (lanInfo && lanInfo.ws && els.hubUrl) {
+        // Prefer LAN advertise IP so phone QR uses reachable host
+        const cur = (els.hubUrl.value || "").trim();
+        if (!cur || cur.indexOf("127.0.0.1") >= 0 || cur.indexOf("localhost") >= 0) {
+          // laptop: keep 127.0.0.1 for self if already local page, but store LAN for phone
+          if ((location.hostname === "127.0.0.1" || location.hostname === "localhost") && lanInfo.ws) {
+            // leave hub field as 127.0.0.1 for laptop loopback — phone URL uses LAN
+          } else if (lanInfo.ws) {
+            els.hubUrl.value = lanInfo.ws;
+          }
+        }
+      }
+      if (lanInfo && lanInfo.room && (!meshRoom || meshRoom === "global") && lanInfo.room !== "global") {
+        // optional env GY_ROOM
+      }
+      refreshPairUI();
+      updatePairStatus(
+        "LAN · " +
+          (lanInfo.ws || "?") +
+          " · open hub pages at " +
+          (lanInfo.http || "")
+      );
+      return lanInfo;
+    } catch (e) {
+      updatePairStatus(
+        "LAN offline · run: gy serve --bind 0.0.0.0  · then open http://<laptop-ip>:9876/grokglyph.html",
+        true
+      );
+      refreshPairUI();
+      return null;
+    }
   }
 
   // ── video → 25×25 luminance ──────────────────────────────
@@ -1492,13 +1631,23 @@
     }
     const nick = myNick();
     const room = meshRoom || "global";
-    if (!url.includes("nick=")) {
-      url += (url.includes("?") ? "&" : "?") + "role=peer&nick=" + encodeURIComponent(nick);
+    const role =
+      deviceRole === "phone" ? "phone" : deviceRole === "laptop" ? "laptop" : "peer";
+    // ensure trailing path before query
+    if (!/[/?#]/.test(url.slice(-1)) && !url.includes("?")) url += "/";
+    if (!/[?&]nick=/.test(url)) {
+      url += (url.includes("?") ? "&" : "?") + "nick=" + encodeURIComponent(nick);
+    } else {
+      url = url.replace(/([?&])nick=[^&]*/, "$1nick=" + encodeURIComponent(nick));
     }
-    if (!url.includes("room=")) {
+    if (!/[?&]role=/.test(url)) {
+      url += (url.includes("?") ? "&" : "?") + "role=" + encodeURIComponent(role);
+    } else {
+      url = url.replace(/([?&])role=[^&]*/, "$1role=" + encodeURIComponent(role));
+    }
+    if (!/[?&]room=/.test(url)) {
       url += (url.includes("?") ? "&" : "?") + "room=" + encodeURIComponent(room);
     } else {
-      // refresh room= param
       url = url.replace(/([?&])room=[^&]*/, "$1room=" + encodeURIComponent(room));
     }
     return url;
@@ -1508,6 +1657,7 @@
     const url = hubURL();
     if (!url) {
       setCastLabel("set hub url");
+      updatePairStatus("set hub URL (not GitHub Pages) · gy serve LAN", true);
       setDrawer(true);
       return;
     }
@@ -1520,34 +1670,65 @@
       ws = null;
     }
     setCastLabel("hub…");
+    updatePairStatus("connecting " + url.replace(/\?.*/, "") + " …");
     try {
       ws = new WebSocket(url);
     } catch (e) {
       setCastLabel("hub error");
+      updatePairStatus("WS error · " + (e && e.message ? e.message : e), true);
       return;
     }
     ws.onopen = () => {
       // advertise hex + gyst lanes so room can pick 25×25 hexlum
+      const role =
+        deviceRole === "phone"
+          ? "phone"
+          : deviceRole === "laptop"
+            ? "laptop"
+            : "grokglyph";
       sendJSON({
         type: "join",
         nick: myNick(),
-        role: "grokglyph",
+        role: role,
         room: meshRoom,
+        slot: forcedSlot || (deviceRole === "phone" ? "L1" : "C"),
+        device: deviceRole,
         geo: geoFix ? { lat: geoFix.lat, lon: geoFix.lon, heading: geoHeading } : null,
         cap: {
-          class: "term-lean",
-          role: "peer",
+          class: deviceRole === "phone" ? "glyph-iot" : "term-lean",
+          role: role,
           lanes: ["glyph", "hex", "chat", "gyst"],
           glyph_n: glyphN,
           forge: false,
+          slot: forcedSlot || "",
         },
       });
       if (els.hubBtn) els.hubBtn.setAttribute("aria-pressed", "true");
+      const pairBtn = document.getElementById("gg-pair-connect");
+      if (pairBtn) {
+        pairBtn.classList.add("is-on");
+        pairBtn.textContent = "Hub linked";
+      }
       setCastLabel(casting ? "casting" : "hub on");
+      updatePairStatus(
+        "linked · " +
+          deviceRole +
+          " · seat " +
+          (forcedSlot || "?") +
+          " · room " +
+          meshRoom +
+          " · waiting for peer cast"
+      );
       saveState();
+      refreshPairUI();
     };
     ws.onclose = () => {
       if (els.hubBtn) els.hubBtn.setAttribute("aria-pressed", "false");
+      const pairBtn = document.getElementById("gg-pair-connect");
+      if (pairBtn) {
+        pairBtn.classList.remove("is-on");
+        pairBtn.textContent = "Connect hub";
+      }
       if (castSession) {
         castSession = false;
       }
@@ -1556,8 +1737,12 @@
         if (els.castBtn) els.castBtn.setAttribute("aria-pressed", "false");
       }
       setCastLabel("hub off");
+      updatePairStatus("hub closed · tap Connect hub", true);
     };
-    ws.onerror = () => setCastLabel("hub err");
+    ws.onerror = () => {
+      setCastLabel("hub err");
+      updatePairStatus("hub error · same Wi‑Fi + gy serve --bind 0.0.0.0", true);
+    };
     ws.onmessage = onHubMessage;
   }
 
@@ -1691,10 +1876,25 @@
       lane: "hex",
       room: meshRoom,
       via: "grokglyph-cast",
-      cam: laneMeta || null,
+      cam: Object.assign(
+        {
+          kind: deviceRole === "phone" ? "phone" : "laptop",
+          slot: forcedSlot || (deviceRole === "phone" ? "L1" : "C"),
+          device: deviceRole,
+        },
+        laneMeta || {}
+      ),
     });
     // 2) walkie / sphere-compatible vburst — project across dome when cast=sphere
     const b64jpeg = jpegB64FromLum(lum);
+    const camMeta = Object.assign(
+      {
+        kind: deviceRole === "phone" ? "phone" : "laptop",
+        slot: forcedSlot || (deviceRole === "phone" ? "L1" : "C"),
+        device: deviceRole,
+      },
+      laneMeta || {}
+    );
     sendJSON({
       type: "vburst-frame",
       from: from,
@@ -1710,7 +1910,7 @@
       hex_lane: true,
       cast: "sphere",
       project: true,
-      cam: laneMeta || null,
+      cam: camMeta,
     });
   }
 
@@ -1725,6 +1925,45 @@
     const from = msg.from || msg.nick || "";
     // BitChat dual-path (may be same nick with bt: prefix)
     if (bitchat) bitchat.onMesh(msg);
+
+    // Room control + link status (must run even when msg has no from)
+    if (typ === "hello") {
+      updatePairStatus("linked · id " + (msg.id || "?") + " · room " + (msg.room || meshRoom));
+      return;
+    }
+    if (typ === "join" || typ === "roster" || typ === "leave") {
+      if (typ === "roster" && Array.isArray(msg.peers)) {
+        msg.peers.forEach((pr) => {
+          const n = pr.nick || pr.id;
+          if (n && n !== myNick()) ensureRxPeer(n, false);
+        });
+        const n = msg.peers.length;
+        updatePairStatus(
+          "room " +
+            (msg.room || meshRoom) +
+            " · " +
+            n +
+            " peer" +
+            (n === 1 ? "" : "s") +
+            " on hub"
+        );
+      }
+      if (typ === "join" && from && from !== myNick()) {
+        ensureRxPeer(from, false);
+        updatePairStatus("joined · " + from + (msg.role ? " (" + msg.role + ")" : ""));
+        setCastLabel("peer " + from);
+      }
+      if (typ === "leave" && from) {
+        updatePairStatus("left · " + from);
+      }
+      return;
+    }
+    if (typ === "error") {
+      updatePairStatus("hub error · " + (msg.text || msg.code || "error"), true);
+      setCastLabel(msg.code || "hub err");
+      return;
+    }
+
     if (!from || from === myNick()) return;
 
     if (typ === "bitchat-chat" || (typ === "chat" && msg.meta && msg.meta.via === "bitchat")) {
@@ -1793,15 +2032,6 @@
         Array.isArray(msg.glyph)
       ) {
         applyHexLum(from, msg);
-      }
-    }
-    if (typ === "join" || typ === "roster") {
-      // optional: show roster peers as empty slots
-      if (typ === "roster" && Array.isArray(msg.peers)) {
-        msg.peers.forEach((pr) => {
-          const n = pr.nick || pr.id;
-          if (n && n !== myNick()) ensureRxPeer(n, false);
-        });
       }
     }
     // on-air caption (program bus full update or soft type:caption)
@@ -3194,7 +3424,8 @@
   }
 
 
-  // boot — filmmaker scene params + device role
+  // boot — filmmaker scene params + device role + mesh room from URL
+  let wantAutoHub = false;
   try {
     const q = new URLSearchParams(location.search);
     if (q.get("scene") === "0" || q.get("scene") === "off") sceneMode = false;
@@ -3216,6 +3447,16 @@
     }
     if (deviceRole === "phone" && !forcedSlot) forcedSlot = "L1";
     if (deviceRole === "laptop" && !forcedSlot) forcedSlot = "C";
+    const roomQ = (q.get("room") || q.get("mesh") || "").trim();
+    if (roomQ) meshRoom = roomQ.slice(0, 48);
+    const nickQ = (q.get("nick") || "").trim();
+    if (nickQ && els.nick) els.nick.value = nickQ.slice(0, 16);
+    // ?hub=1|connect=1|link=1 → auto WebSocket join
+    wantAutoHub =
+      q.get("hub") === "1" ||
+      q.get("connect") === "1" ||
+      q.get("link") === "1" ||
+      q.get("auto") === "1";
   } catch {
     /* ignore */
   }
@@ -3380,6 +3621,8 @@
   wire();
   wireExtra();
   syncDeviceRoleUI();
+  if (els.roomId) els.roomId.value = meshRoom;
+  if (els.roomLabel) els.roomLabel.textContent = meshRoom;
 
   // Device role: laptop vs phone
   const roleLaptop = document.getElementById("gg-role-laptop");
@@ -3390,6 +3633,82 @@
   const cardP = document.getElementById("gg-card-phone");
   if (cardL) cardL.addEventListener("click", () => setDeviceRole("laptop", { resetSlot: true }));
   if (cardP) cardP.addEventListener("click", () => setDeviceRole("phone", { resetSlot: true }));
+
+  // Live link · phone ↔ laptop (same Wi‑Fi hub)
+  const pairConnect = document.getElementById("gg-pair-connect");
+  const pairQrBtn = document.getElementById("gg-pair-qr-btn");
+  const pairCopy = document.getElementById("gg-pair-copy");
+  const pairFilm = document.getElementById("gg-pair-film");
+  if (pairConnect) {
+    pairConnect.addEventListener("click", () => {
+      if (ws && ws.readyState === WebSocket.OPEN) disconnectHub();
+      else connectHub();
+    });
+  }
+  if (pairQrBtn) {
+    pairQrBtn.addEventListener("click", () => {
+      const wrap = document.getElementById("gg-pair-qr-wrap");
+      if (wrap && !wrap.hidden) {
+        wrap.hidden = true;
+        pairQrBtn.textContent = "Show phone QR";
+        return;
+      }
+      refreshPairUI();
+      const url = buildPhonePairURL("L1");
+      renderPairQR(url);
+      if (pairQrBtn) pairQrBtn.textContent = "Hide QR";
+      setDrawer(true);
+    });
+  }
+  if (pairCopy) {
+    pairCopy.addEventListener("click", async () => {
+      const url = buildPhonePairURL("L1");
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(url);
+        } else {
+          const ta = document.createElement("textarea");
+          ta.value = url;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          ta.remove();
+        }
+        updatePairStatus("copied phone link · paste on phone browser");
+        setCastLabel("link copied");
+      } catch {
+        updatePairStatus(url);
+      }
+    });
+  }
+  if (pairFilm) {
+    pairFilm.addEventListener("click", () => {
+      setMeshRoom("film", { reconnect: true });
+      refreshPairUI();
+      updatePairStatus("room = film · reconnect both devices");
+    });
+  }
+  // Discover LAN + auto-link when served by gy hub
+  fetchLanPair().then(() => {
+    const onHubHost =
+      location.protocol !== "file:" &&
+      !(location.hostname || "").includes("github.io") &&
+      (location.port === "9876" || wantAutoHub);
+    if (onHubHost || wantAutoHub) {
+      // slight delay so UI settles
+      setTimeout(() => {
+        if (!ws || ws.readyState !== WebSocket.OPEN) connectHub();
+        // laptop: show phone QR for live test
+        if (deviceRole === "laptop" && !isMobileUA()) {
+          const wrap = document.getElementById("gg-pair-qr-wrap");
+          if (wrap) {
+            renderPairQR(buildPhonePairURL("L1"));
+            if (pairQrBtn) pairQrBtn.textContent = "Hide QR";
+          }
+        }
+      }, 180);
+    }
+  });
 
   // Scene seat segment (header + mobile dock)
   document.querySelectorAll(".gg-slot-btn, .gg-dock-slot").forEach((btn) => {

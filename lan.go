@@ -45,6 +45,7 @@ type LanInfo struct {
 	WS      string   `json:"ws"`    // preferred ws://IP:port/
 	HTTP    string   `json:"http"`  // preferred http://IP:port/
 	Phone   string   `json:"phone"` // cast page for mobile browsers
+	Film    string   `json:"film,omitempty"` // GrokGlyph multi-cam phone seat (L1 + auto hub)
 	QR      string   `json:"qr,omitempty"` // scan page (HTML; client-side QR)
 	Sphere  string   `json:"sphere,omitempty"` // Sphere Glyph live seat viewer
 	Burst   string   `json:"burst,omitempty"`
@@ -182,6 +183,12 @@ func BuildLanInfo(port int, room string) LanInfo {
 	host, _ := os.Hostname()
 	udp := port + 1
 	httpBase := fmt.Sprintf("http://%s:%d", ip, port)
+	if room == "" {
+		room = "global"
+	}
+	// Phone multi-cam film link (GrokGlyph seat L1 + auto hub)
+	filmL1 := fmt.Sprintf("%s/grokglyph.html?role=phone&slot=L1&room=%s&nick=phone-L1&hub=1&connect=1",
+		httpBase, room)
 	return LanInfo{
 		Type:    "gy-hub",
 		V:       1,
@@ -189,11 +196,12 @@ func BuildLanInfo(port int, room string) LanInfo {
 		UDP:     udp,
 		WS:      fmt.Sprintf("ws://%s:%d/", ip, port),
 		HTTP:    httpBase + "/",
-		Phone:   httpBase + "/phone.html",
+		Phone:   httpBase + "/phone.html?room=" + room + "&quick=1",
+		Film:    filmL1,
 		QR:      httpBase + "/api/lan/qr",
 		Sphere:  httpBase + "/sphere.html",
 		Burst:   httpBase + "/burst.html",
-		Glyph:   httpBase + "/grokglyph.html",
+		Glyph:   httpBase + "/grokglyph.html?role=laptop&slot=C&room=" + room + "&hub=1",
 		Room:    room,
 		Version: Version,
 		Host:    host,
@@ -305,12 +313,16 @@ func FormatLanQRHTML(content, phoneURL string) string {
 // FormatLanBanner multi-line for gy serve / /lan TUI.
 func FormatLanBanner(info LanInfo) string {
 	var b strings.Builder
-	b.WriteString("same Wi‑Fi · phone → terminal\n")
+	b.WriteString("same Wi‑Fi · phone ↔ laptop mesh\n")
+	b.WriteString(fmt.Sprintf("  laptop      %s\n", info.Glyph))
+	if info.Film != "" {
+		b.WriteString(fmt.Sprintf("  phone film  %s\n", info.Film))
+	}
 	b.WriteString(fmt.Sprintf("  phone cast  %s\n", info.Phone))
 	b.WriteString(fmt.Sprintf("  sphere      %s\n", info.Sphere))
 	b.WriteString(fmt.Sprintf("  quick QR    %s\n", info.QR))
-	b.WriteString("  scan tip    open QR on laptop · phone scans → Sphere shows Glyphs\n")
-	b.WriteString(fmt.Sprintf("  mesh WS     %s?role=phone&nick=phone\n", strings.TrimRight(info.WS, "/")))
+	b.WriteString("  scan tip    open GrokGlyph on laptop · Show phone QR · both cast live\n")
+	b.WriteString(fmt.Sprintf("  mesh WS     %s?role=phone&nick=phone&room=%s\n", strings.TrimRight(info.WS, "/"), info.Room))
 	if len(info.IPs) > 1 {
 		b.WriteString("  also        ")
 		for i, ip := range info.IPs {

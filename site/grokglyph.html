@@ -208,6 +208,41 @@
                 <span>Front/back · seat L1 or R1 · cast in</span>
               </button>
             </div>
+
+            <!-- Live link: same Wi‑Fi hub WS for laptop + phone -->
+            <section class="gg-pair" id="gg-pair" aria-label="Link phone and laptop">
+              <h2 class="gg-h2">Live link · phone ↔ laptop</h2>
+              <p class="gg-hint" id="gg-pair-hint">
+                Run <code>gy serve</code> on the laptop (already binds <code>0.0.0.0:9876</code>).
+                Open this page from the <strong>LAN hub URL</strong> (not GitHub Pages) so both devices share one WebSocket room.
+              </p>
+              <div class="gg-pair-status" id="gg-pair-status" role="status">hub · idle</div>
+              <div class="gg-pair-grid">
+                <div class="gg-pair-qr-wrap" id="gg-pair-qr-wrap" hidden>
+                  <img id="gg-pair-qr" alt="QR for phone GrokGlyph" width="140" height="140" />
+                </div>
+                <div class="gg-pair-meta">
+                  <label class="gg-hub-label">LAN hub
+                    <input type="text" id="gg-pair-lan" readonly autocomplete="off" spellcheck="false" placeholder="fetching…" />
+                  </label>
+                  <label class="gg-hub-label">Phone open
+                    <input type="text" id="gg-pair-phone-url" readonly autocomplete="off" spellcheck="false" placeholder="scan or copy" />
+                  </label>
+                  <div class="gg-btn-row">
+                    <button type="button" class="btn primary" id="gg-pair-connect">Connect hub</button>
+                    <button type="button" class="btn ghost" id="gg-pair-qr-btn">Show phone QR</button>
+                    <button type="button" class="btn ghost" id="gg-pair-copy">Copy phone link</button>
+                    <button type="button" class="btn ghost" id="gg-pair-film">Room = film</button>
+                  </div>
+                  <p class="gg-hint gg-pair-steps">
+                    <strong>1</strong> Laptop: Connect hub · seat C · open cam · cast<br />
+                    <strong>2</strong> Phone: scan QR · seat L1 or R1 · open cams · cast<br />
+                    Both must be on the same mesh room (default <code>global</code> or <code>film</code>).
+                  </p>
+                </div>
+              </div>
+            </section>
+
             <div class="gg-btn-row">
               <button type="button" class="btn ghost danger" id="gg-clear-room-drawer">Delete / clear room</button>
               <label class="gg-file-label btn ghost">
@@ -404,6 +439,7 @@
     </aside>
   </div>
 
+  <script src="qrcode-generator.js"></script>
   <script src="bitchat-bridge.js"></script>
   <script src="hdri-stitch.js"></script>
   <script src="hdri-sphere.js"></script>

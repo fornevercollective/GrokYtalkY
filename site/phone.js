@@ -197,6 +197,15 @@
     return pos;
   }
 
+  function meshRoom() {
+    try {
+      const q = new URLSearchParams(location.search);
+      return (q.get("room") || q.get("mesh") || "global").slice(0, 48);
+    } catch {
+      return "global";
+    }
+  }
+
   function hubWS() {
     let u = (els.hubUrl && els.hubUrl.value.trim()) || defaultHubWS();
     if (!u) u = defaultHubWS();
@@ -205,10 +214,13 @@
     }
     if (!u.endsWith("/") && !u.includes("?")) u += "/";
     const nick = encodeURIComponent(myNick());
-    const sep = u.includes("?") ? "&" : "?";
-    // role=phone for roster clarity
-    if (!/[?&]nick=/.test(u)) u += sep + "nick=" + nick + "&role=phone";
-    else if (!/[?&]role=/.test(u)) u += "&role=phone";
+    const room = encodeURIComponent(meshRoom());
+    // role=phone for roster clarity + same room as laptop GrokGlyph
+    if (!/[?&]nick=/.test(u)) u += (u.includes("?") ? "&" : "?") + "nick=" + nick;
+    else u = u.replace(/([?&])nick=[^&]*/, "$1nick=" + nick);
+    if (!/[?&]role=/.test(u)) u += (u.includes("?") ? "&" : "?") + "role=phone";
+    if (!/[?&]room=/.test(u)) u += (u.includes("?") ? "&" : "?") + "room=" + room;
+    else u = u.replace(/([?&])room=[^&]*/, "$1room=" + room);
     return u;
   }
 
@@ -382,6 +394,7 @@
         type: "join",
         nick: myNick(),
         role: "phone",
+        room: meshRoom(),
         cap: {
           class: "glyph-iot",
           role: "phone",
@@ -390,6 +403,7 @@
           bp: 16,
         },
       });
+      setStatus("hub connected · " + myNick() + " · room " + meshRoom(), "is-live");
     };
     ws.onclose = () => {
       setStatus("hub closed · tap Connect", "is-err");

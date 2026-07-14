@@ -365,6 +365,61 @@ html, body.gg-body {
   background: rgba(251, 191, 36, 0.1);
 }
 
+/* Live link · phone ↔ laptop */
+.gg-pair {
+  margin-top: 0.75rem;
+  padding: 0.65rem 0.7rem;
+  border-radius: 12px;
+  border: 1px solid rgba(110, 231, 183, 0.28);
+  background: rgba(110, 231, 183, 0.05);
+}
+.gg-pair .gg-h2 { margin: 0 0 0.35rem; color: #a7f3d0; font-size: 0.82rem; }
+.gg-pair-status {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--muted);
+  padding: 0.35rem 0.45rem;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--border);
+  margin: 0.4rem 0 0.55rem;
+  word-break: break-word;
+}
+.gg-pair-status.is-live { color: #6ee7b7; border-color: rgba(110, 231, 183, 0.35); }
+.gg-pair-status.is-err { color: #f87171; border-color: rgba(248, 113, 113, 0.4); }
+.gg-pair-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.65rem;
+  align-items: start;
+}
+@media (max-width: 520px) {
+  .gg-pair-grid { grid-template-columns: 1fr; }
+}
+.gg-pair-qr-wrap {
+  background: #fff;
+  padding: 8px;
+  border-radius: 12px;
+  line-height: 0;
+  width: fit-content;
+}
+.gg-pair-qr-wrap img {
+  display: block;
+  width: 140px;
+  height: 140px;
+}
+.gg-pair-meta .gg-hub-label { margin-bottom: 0.35rem; }
+.gg-pair-meta input[readonly] {
+  opacity: 0.95;
+  font-size: 0.65rem;
+}
+.gg-pair-steps { margin-top: 0.45rem; }
+#gg-pair-connect.is-on {
+  background: rgba(110, 231, 183, 0.2);
+  border-color: rgba(110, 231, 183, 0.5);
+  color: #a7f3d0;
+}
+
 .gg-hbtn {
   appearance: none;
   flex-shrink: 0;
