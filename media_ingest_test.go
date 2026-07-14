@@ -102,3 +102,15 @@ func TestNormalizeDeviceRef(t *testing.T) {
 		t.Fatal(d)
 	}
 }
+
+func TestRegexpDeviceLine(t *testing.T) {
+	m := regexpDeviceLine.FindStringSubmatch(`[AVFoundation indev @ 0x1] [0] FaceTime HD Camera (Built-in)`)
+	if len(m) != 3 || m[1] != "0" || !strings.Contains(m[2], "FaceTime") {
+		t.Fatalf("%v", m)
+	}
+}
+
+func TestThreeCamSourcesShape(t *testing.T) {
+	// may be empty in CI without cameras; just ensure no panic
+	_ = ThreeCamSources()
+}

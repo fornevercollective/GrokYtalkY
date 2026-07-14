@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -37,7 +38,10 @@ type IngestSource struct {
 	Label  string `json:"label"`            // human
 	Detail string `json:"detail,omitempty"` // driver / hint
 	Ready  bool   `json:"ready"`            // ffmpeg can open today
-	Brand  string `json:"brand,omitempty"`  // Blackmagic|NDI|Generic
+	Brand  string `json:"brand,omitempty"`  // Blackmagic|NDI|Generic|Built-in|External
+	Kind   string `json:"kind,omitempty"`   // laptop|front|back|uw|tele|screen|external
+	Slot   string `json:"slot,omitempty"`   // preferred scene seat L2|L1|C|R1|R2
+	Index  int    `json:"index,omitempty"`  // device index when known
 }
 
 type ingestJob struct {
@@ -89,7 +93,7 @@ func ParseIngestScheme(src string) (scheme, ref string, ok bool) {
 	ref = strings.TrimPrefix(ref, "//")
 
 	switch scheme {
-	case "ndi", "device", "decklink", "blackmagic", "bmd", "pgm", "program", "cam", "uvc":
+	case "ndi", "device", "decklink", "blackmagic", "bmd", "pgm", "program", "cam", "uvc", "three-cam", "threecam":
 		if scheme == "bmd" || scheme == "blackmagic" {
 			scheme = "decklink"
 		}
@@ -98,6 +102,9 @@ func ParseIngestScheme(src string) (scheme, ref string, ok bool) {
 		}
 		if scheme == "cam" || scheme == "uvc" {
 			scheme = "device"
+		}
+		if scheme == "threecam" {
+			scheme = "three-cam"
 		}
 		return scheme, ref, true
 	default:
@@ -176,9 +183,27 @@ func ListIngestSources() []IngestSource {
 		})
 	}
 
-	// Local cameras (UVC / Continuity / FaceTime)
+	// Local cameras (UVC / Continuity / FaceTime) — real enumerated names
 	for _, d := range listLocalVideoDevices() {
 		out = append(out, d)
+	}
+
+	// Three-cam preset (built-in C + up to 2 externals)
+	if three := ThreeCamSources(); len(three) > 0 {
+		ids := make([]string, 0, len(three))
+		for _, t := range three {
+			ids = append(ids, t.ID)
+		}
+		out = append([]IngestSource{{
+			ID:     "three-cam:" + strings.Join(ids, ","),
+			Scheme: "three-cam",
+			Label:  fmt.Sprintf("3-cam pack · %d devices", len(three)),
+			Detail: "built-in + externals → seats C·L1·R1 · open all in queue",
+			Ready:  true,
+			Brand:  "GrokYtalkY",
+			Kind:   "multi",
+			Slot:   "C",
+		}}, out...)
 	}
 
 	// Example facility URLs
@@ -193,45 +218,209 @@ func ListIngestSources() []IngestSource {
 }
 
 func listLocalVideoDevices() []IngestSource {
-	var out []IngestSource
 	switch runtime.GOOS {
 	case "darwin":
-		// avfoundation device indexes are environment-specific; offer 0..3 + default
-		for i := 0; i < 3; i++ {
-			out = append(out, IngestSource{
-				ID:     fmt.Sprintf("device:avfoundation:%d", i),
-				Scheme: "device",
-				Label:  fmt.Sprintf("Camera · avfoundation:%d", i),
-				Detail: "macOS FaceTime / UVC / Continuity",
-				Ready:  ffmpegHasFormat("avfoundation"),
-				Brand:  "Generic",
-			})
+		if list := listAvfoundationVideoDevices(); len(list) > 0 {
+			return list
 		}
+		// fallback indexes if probe fails
+		return []IngestSource{{
+			ID: "device:avfoundation:0", Scheme: "device", Label: "Camera · avfoundation:0",
+			Detail: "macOS (list_devices probe failed)", Ready: ffmpegHasFormat("avfoundation"),
+			Brand: "Generic", Kind: "laptop", Slot: "C", Index: 0,
+		}}
 	case "linux":
-		for i := 0; i < 3; i++ {
-			path := fmt.Sprintf("/dev/video%d", i)
-			ready := false
-			if _, err := os.Stat(path); err == nil {
-				ready = true
-			}
-			out = append(out, IngestSource{
-				ID:     fmt.Sprintf("device:v4l2:%d", i),
-				Scheme: "device",
-				Label:  fmt.Sprintf("V4L2 · video%d", i),
-				Detail: path,
-				Ready:  ready && ffmpegHasFormat("v4l2"),
-				Brand:  "Generic",
-			})
-		}
+		return listV4L2Devices()
 	case "windows":
+		return []IngestSource{{
+			ID: "device:dshow:0", Scheme: "device", Label: "DirectShow camera 0",
+			Detail: "device:dshow:Video Name", Ready: ffmpegHasFormat("dshow"),
+			Brand: "Generic", Kind: "laptop", Slot: "C",
+		}}
+	default:
+		return nil
+	}
+}
+
+// listAvfoundationVideoDevices parses `ffmpeg -f avfoundation -list_devices true -i ""`.
+// Three-cam pattern: built-in FaceTime → C, then externals → L1/R1, skip pure screen grabs unless only option.
+func listAvfoundationVideoDevices() []IngestSource {
+	if !ffmpegHasFormat("avfoundation") {
+		return nil
+	}
+	ff, err := lookFFmpeg()
+	if err != nil {
+		return nil
+	}
+	// ffmpeg prints device list to stderr and exits non-zero
+	cmd := exec.Command(ff, "-hide_banner", "-f", "avfoundation", "-list_devices", "true", "-i", "")
+	raw, _ := cmd.CombinedOutput()
+	text := string(raw)
+
+	// Only video section lines like: [0] FaceTime HD Camera (Built-in)
+	videoSection := false
+	type dev struct {
+		idx  int
+		name string
+	}
+	var found []dev
+	for _, line := range strings.Split(text, "\n") {
+		low := strings.ToLower(line)
+		if strings.Contains(low, "avfoundation video devices") {
+			videoSection = true
+			continue
+		}
+		if strings.Contains(low, "avfoundation audio devices") {
+			break
+		}
+		if !videoSection {
+			continue
+		}
+		// [AVFoundation indev @ …] [0] Name
+		if i := strings.LastIndex(line, "]"); i >= 0 && i+1 < len(line) {
+			// find [N] before name
+			re := regexpDeviceLine.FindStringSubmatch(line)
+			if len(re) == 3 {
+				idx, _ := strconv.Atoi(re[1])
+				name := strings.TrimSpace(re[2])
+				if name != "" {
+					found = append(found, dev{idx: idx, name: name})
+				}
+			}
+		}
+	}
+	if len(found) == 0 {
+		return nil
+	}
+
+	var out []IngestSource
+	extN := 0
+	for _, d := range found {
+		low := strings.ToLower(d.name)
+		isScreen := strings.Contains(low, "capture screen") || strings.Contains(low, "screen ")
+		isBuiltIn := strings.Contains(low, "facetime") || strings.Contains(low, "built-in") ||
+			strings.Contains(low, "built in") || strings.Contains(low, "integrated")
+		kind, slot, brand := "external", "R1", "External"
+		if isScreen {
+			kind, slot, brand = "screen", "R2", "Screen"
+		} else if isBuiltIn {
+			kind, slot, brand = "laptop", "C", "Built-in"
+		} else {
+			// external USB / Continuity / phone
+			if extN == 0 {
+				slot = "L1"
+				kind = "front"
+			} else if extN == 1 {
+				slot = "R1"
+				kind = "back"
+			} else {
+				slot = "L2"
+				kind = "tele"
+			}
+			extN++
+			if strings.Contains(low, "continuity") || strings.Contains(low, "iphone") {
+				brand = "Continuity"
+			} else if strings.Contains(low, "usb") || strings.Contains(low, "cam") {
+				brand = "USB"
+			}
+		}
 		out = append(out, IngestSource{
-			ID:     "device:dshow:0",
+			ID:     fmt.Sprintf("device:avfoundation:%d", d.idx),
 			Scheme: "device",
-			Label:  "DirectShow camera 0",
-			Detail: "device:dshow:Video Name",
-			Ready:  ffmpegHasFormat("dshow"),
-			Brand:  "Generic",
+			Label:  d.name,
+			Detail: fmt.Sprintf("avfoundation:%d · seat %s · %s", d.idx, slot, kind),
+			Ready:  true,
+			Brand:  brand,
+			Kind:   kind,
+			Slot:   slot,
+			Index:  d.idx,
 		})
+	}
+	return out
+}
+
+// [0] Device Name  (may be prefixed by [AVFoundation indev @ 0x…])
+var regexpDeviceLine = regexp.MustCompile(`\[(\d+)\]\s+(.+)$`)
+
+func listV4L2Devices() []IngestSource {
+	var out []IngestSource
+	for i := 0; i < 8; i++ {
+		path := fmt.Sprintf("/dev/video%d", i)
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
+		slot := "C"
+		kind := "laptop"
+		brand := "V4L2"
+		if i == 1 {
+			slot, kind = "L1", "front"
+		} else if i >= 2 {
+			slot, kind = "R1", "external"
+		}
+		out = append(out, IngestSource{
+			ID:     fmt.Sprintf("device:v4l2:%d", i),
+			Scheme: "device",
+			Label:  fmt.Sprintf("V4L2 · video%d", i),
+			Detail: path + " · seat " + slot,
+			Ready:  ffmpegHasFormat("v4l2"),
+			Brand:  brand,
+			Kind:   kind,
+			Slot:   slot,
+			Index:  i,
+		})
+	}
+	if len(out) == 0 {
+		out = append(out, IngestSource{
+			ID: "device:v4l2:0", Scheme: "device", Label: "V4L2 · video0",
+			Detail: "/dev/video0", Ready: false, Brand: "V4L2", Kind: "laptop", Slot: "C",
+		})
+	}
+	return out
+}
+
+// ThreeCamSources returns up to 3 preferred cameras: C built-in + L1 + R1 externals (skip screen).
+func ThreeCamSources() []IngestSource {
+	all := listLocalVideoDevices()
+	var c, sides []IngestSource
+	for _, s := range all {
+		if s.Kind == "screen" {
+			continue
+		}
+		if s.Slot == "C" || s.Kind == "laptop" {
+			if c == nil {
+				c = []IngestSource{s}
+			}
+			continue
+		}
+		sides = append(sides, s)
+	}
+	out := []IngestSource{}
+	if len(c) > 0 {
+		out = append(out, c[0])
+	}
+	for i := 0; i < len(sides) && len(out) < 3; i++ {
+		out = append(out, sides[i])
+	}
+	// if only one built-in, still return what we have; pad with remaining non-screen
+	if len(out) < 3 {
+		for _, s := range all {
+			if s.Kind == "screen" {
+				continue
+			}
+			dup := false
+			for _, o := range out {
+				if o.ID == s.ID {
+					dup = true
+					break
+				}
+			}
+			if !dup {
+				out = append(out, s)
+			}
+			if len(out) >= 3 {
+				break
+			}
+		}
 	}
 	return out
 }
@@ -302,9 +491,53 @@ func ResolveIngest(src string) (*ResolvedStream, error) {
 		}
 		return r, nil
 
+	case "three-cam":
+		// Expand happens in StartThreeCam — single resolve returns pack meta
+		three := ThreeCamSources()
+		if len(three) == 0 {
+			return nil, fmt.Errorf("three-cam: no local cameras found")
+		}
+		ids := make([]string, 0, len(three))
+		for _, t := range three {
+			ids = append(ids, t.ID)
+		}
+		return &ResolvedStream{
+			Input: "three-cam:" + strings.Join(ids, ","),
+			Via:   "ingest-three-cam",
+			Title: fmt.Sprintf("3-cam · %d devices", len(three)),
+			Format: strings.Join(ids, ","),
+		}, nil
+
 	default:
 		return nil, fmt.Errorf("unknown ingest scheme %q", scheme)
 	}
+}
+
+// StartThreeCamHLS starts HLS restreams for up to 3 local cameras (C·L1·R1).
+// Returns play URLs for each seat.
+func StartThreeCamHLS(publicBase string) ([]map[string]any, error) {
+	three := ThreeCamSources()
+	if len(three) == 0 {
+		return nil, fmt.Errorf("no cameras for three-cam pack")
+	}
+	var out []map[string]any
+	for _, src := range three {
+		r, kind, err := EnsureIngestBrowserPlay(src.ID, publicBase)
+		item := map[string]any{
+			"src": src.ID, "slot": src.Slot, "kind": src.Kind, "label": src.Label,
+			"brand": src.Brand, "ready": err == nil,
+		}
+		if err != nil {
+			item["error"] = err.Error()
+		} else {
+			item["video"] = r.Video
+			item["via"] = r.Via
+			item["streamKind"] = kind
+			item["title"] = r.Title
+		}
+		out = append(out, item)
+	}
+	return out, nil
 }
 
 func normalizeDeviceRef(ref string) string {
@@ -573,8 +806,9 @@ func HandleMediaIngestAPI(w http.ResponseWriter, r *http.Request) {
 		_ = jsonWrite(w, map[string]any{
 			"ok":      true,
 			"sources": ListIngestSources(),
-			"schemes": []string{"ndi:", "srt://", "rtmp://", "rtsp://", "device:", "decklink:", "blackmagic:", "pgm:"},
-			"note":    "Blackmagic-first: decklink:0 when FFmpeg has decklink; cinema via SDI→DeckLink/NDI/SRT",
+			"schemes": []string{"ndi:", "srt://", "rtmp://", "rtsp://", "device:", "decklink:", "blackmagic:", "pgm:", "three-cam:"},
+			"three":   ThreeCamSources(),
+			"note":    "Blackmagic-first decklink · three-cam: built-in+externals · cinema via SDI→DeckLink/NDI/SRT",
 		})
 	case path == "resolve":
 		src := strings.TrimSpace(r.URL.Query().Get("src"))
@@ -614,6 +848,20 @@ func HandleMediaIngestAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		base := mediaPublicBase(r)
+		// three-cam pack → multiple HLS plays
+		if strings.HasPrefix(strings.ToLower(src), "three-cam") {
+			items, err := StartThreeCamHLS(base)
+			if err != nil {
+				w.WriteHeader(http.StatusBadGateway)
+				_ = jsonWrite(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
+			_ = jsonWrite(w, map[string]any{
+				"ok": true, "src": src, "multi": true, "items": items,
+				"note": "push each item.video into queue · seats C·L1·R1",
+			})
+			return
+		}
 		rsl, kind, err := EnsureIngestBrowserPlay(src, base)
 		if err != nil {
 			w.WriteHeader(http.StatusBadGateway)
@@ -624,6 +872,15 @@ func HandleMediaIngestAPI(w http.ResponseWriter, r *http.Request) {
 			"ok": true, "src": src, "video": rsl.Video, "title": rsl.Title,
 			"via": rsl.Via, "streamKind": kind, "play": rsl.Video,
 		})
+	case path == "three-cam" || path == "threecam":
+		base := mediaPublicBase(r)
+		items, err := StartThreeCamHLS(base)
+		if err != nil {
+			w.WriteHeader(http.StatusBadGateway)
+			_ = jsonWrite(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		_ = jsonWrite(w, map[string]any{"ok": true, "multi": true, "items": items})
 	case path == "pgm":
 		room := strings.TrimSpace(r.URL.Query().Get("room"))
 		if room == "" {

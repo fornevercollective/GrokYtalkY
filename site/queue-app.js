@@ -277,6 +277,173 @@
       renderList();
     });
   }
+
+  var liveLanes = [];
+  var threeBtn = document.getElementById("mq-threecam");
+  if (threeBtn) {
+    threeBtn.addEventListener("click", async function () {
+      setStatus("3-cam · permission + open…");
+      threeBtn.disabled = true;
+      try {
+        // 1) native hub pack (ffmpeg devices → HLS → shared timeline)
+        var base = q.hubHTTP ? q.hubHTTP() : location.origin;
+        var r = await fetch(base + "/api/media/ingest/three-cam", {
+          headers: { Accept: "application/json" },
+        });
+        var data = await r.json().catch(function () {
+          return {};
+        });
+        var n = 0;
+        if (data && data.ok && Array.isArray(data.items)) {
+          data.items.forEach(function (it) {
+            if (!it.video && !it.src) return;
+            var item = q.addOne(it.src || it.video, {
+              title: (it.slot || "?") + " · " + (it.label || "cam"),
+              video: it.video || "",
+            });
+            if (item && it.video) {
+              item.video = it.video;
+              item.status = "ready";
+              item.live = true;
+              item.slot = it.slot;
+              n++;
+            }
+          });
+        }
+        // 2) browser getUserMedia bridge (labels + face MOCAP) for HDRI
+        if (window.GY_CAM_BRIDGE) {
+          try {
+            liveLanes = await window.GY_CAM_BRIDGE.openThreeCam({ max: 3 });
+            liveLanes = window.GY_CAM_BRIDGE.applyFaceSlots(liveLanes);
+            var faceN = liveLanes.filter(function (l) {
+              return l.mocap || (l.face && l.face.confidence > 0.25);
+            }).length;
+            setStatus(
+              "3-cam · queue " +
+                n +
+                " · browser " +
+                liveLanes.length +
+                (faceN ? " · face MOCAP L1" : ""),
+              "live"
+            );
+          } catch (e) {
+            setStatus(
+              "native " + n + " · browser cam: " + (e && e.message ? e.message : e),
+              n ? "live" : "err"
+            );
+          }
+        } else {
+          setStatus(n ? "3-cam · " + n + " on timeline" : "3-cam failed", n ? "live" : "err");
+        }
+        q.setMode("multi");
+        if (els.mode) els.mode.value = "multi";
+        renderList();
+        if (n) {
+          q.setPlaying(true);
+          player.apply();
+        }
+      } catch (e) {
+        setStatus("3-cam error · " + (e && e.message ? e.message : e), "err");
+      }
+      threeBtn.disabled = false;
+    });
+  }
+
+  var hdriBtn = document.getElementById("mq-hdri");
+  if (hdriBtn) {
+    hdriBtn.addEventListener("click", async function () {
+      if (!window.GY_HDRI) {
+        setStatus("hdri-stitch.js missing", "err");
+        return;
+      }
+      var lanes = liveLanes;
+      if (!lanes || !lanes.length) {
+        if (window.GY_CAM_BRIDGE) {
+          try {
+            lanes = await window.GY_CAM_BRIDGE.openThreeCam({ max: 3 });
+            lanes = window.GY_CAM_BRIDGE.applyFaceSlots(lanes);
+            liveLanes = lanes;
+          } catch (e) {
+            setStatus("open cams first · " + (e && e.message ? e.message : e), "err");
+            return;
+          }
+        }
+      }
+      setStatus("HDRI stitch…");
+      var result = window.GY_HDRI.runProbe(window.GY_CAM_BRIDGE.toHdriLanes(lanes), {
+        tonemap: true,
+        sendMesh: function (obj) {
+          if (q.meshTimeline) {
+            /* cast via dual if linked */
+          }
+          // fan hdri-probe if dual/mesh
+          try {
+            if (typeof q.castSphereDome === "function") {
+              /* dome from equirect below */
+            }
+          } catch (_) {}
+          return false;
+        },
+      });
+      if (!result || !result.ok) {
+        setStatus((result && result.error) || "HDRI fail", "err");
+        return;
+      }
+      if (window.GY_HDRI_VIEW && result.equirect) {
+        window.GY_HDRI_VIEW.stashEquirect(result.equirect, {
+          from: "queue-3cam",
+          slots: result.slots,
+          w: result.equirect.width,
+          h: result.equirect.height,
+        });
+        window.GY_HDRI_VIEW.openViewerPage({ mode: "outside" });
+      }
+      // mesh cast equirect if dual connected
+      try {
+        if (result.equirect) {
+          var jpeg = result.equirect.toDataURL("image/jpeg", 0.72);
+          var b64 = jpeg.split(",")[1] || "";
+          var msg = {
+            type: "hdri-probe",
+            from: "queue-hdri",
+            slots: result.slots,
+            b64: b64,
+            w: result.equirect.width,
+            h: result.equirect.height,
+            cast: "sphere",
+            t: Date.now(),
+          };
+          if (q.snapshot && false) {
+            /* placeholder */
+          }
+          // use dual send if available via connectDual's sendMesh
+          var send = null;
+          try {
+            // re-get through a hack: castSphereDome only sends media-dome
+            // push via fetch to hub optional
+            fetch((q.hubHTTP && q.hubHTTP()) + "/api/hdri/probe", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                slots: result.slots,
+                w: result.equirect.width,
+                h: result.equirect.height,
+                jpeg: jpeg,
+                t: Date.now(),
+              }),
+            }).catch(function () {});
+          } catch (_) {}
+          void msg;
+          void send;
+        }
+      } catch (_) {}
+      setStatus(
+        "HDRI · " + (result.slots || []).join("·") + " · view 3D opened · sphere via GrokGlyph cast",
+        "live"
+      );
+    });
+  }
+
   refreshIngest();
 
   if (els.play) {

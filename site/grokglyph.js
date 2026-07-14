@@ -4205,6 +4205,94 @@
   if (hdriBtn) {
     hdriBtn.addEventListener("click", () => runHdriProbe({ cast: true }));
   }
+
+  // 3-cam pack: built-in + externals + face MOCAP → seats + optional queue
+  const threeCamBtn = document.getElementById("gg-threecam");
+  if (threeCamBtn) {
+    threeCamBtn.addEventListener("click", async () => {
+      setCastLabel("3-cam…");
+      const ok = await enableCam({ all: true, force: true });
+      if (!ok) return;
+      // face MOCAP → prefer L1 for face lane
+      if (window.GY_CAM_BRIDGE && camLanes.length) {
+        const pseudo = camLanes.map((l) => ({
+          video: l.video,
+          slot: l.slot,
+          kind: l.kind,
+          label: l.label,
+          short: l.short,
+          deviceId: l.deviceId,
+        }));
+        window.GY_CAM_BRIDGE.applyFaceSlots(pseudo);
+        pseudo.forEach((p, i) => {
+          if (camLanes[i]) {
+            camLanes[i].slot = p.slot;
+            camLanes[i].kind = p.kind;
+            camLanes[i].face = p.face;
+            camLanes[i].mocap = p.mocap;
+          }
+        });
+        assignSceneSlots(camLanes);
+        camLanes.forEach((lane, i) => ensureCamPeer(lane, i));
+        layoutAndPaint();
+        const face = camLanes.find((l) => l.mocap || (l.face && l.face.confidence > 0.25));
+        setCastLabel(
+          "3-cam · " +
+            camLanes.map((l) => l.slot).join("·") +
+            (face ? " · face→" + face.slot : "")
+        );
+        if (els.hubHint) {
+          els.hubHint.textContent =
+            "3-cam live · " +
+            camLanes.map((l) => l.slot + ":" + (l.short || l.kind)).join(" · ") +
+            (face && face.face
+              ? " · MOCAP conf " + face.face.confidence.toFixed(2) + (face.face.talking ? " talking" : "")
+              : "") +
+            ". HDRI or → queue for shared timeline.";
+        }
+      }
+      threeCamBtn.classList.add("is-on");
+    });
+  }
+
+  const toQueueBtn = document.getElementById("gg-to-queue");
+  if (toQueueBtn) {
+    toQueueBtn.addEventListener("click", async () => {
+      if (!window.GY_MEDIA_QUEUE) {
+        setCastLabel("media-queue.js missing");
+        return;
+      }
+      if (!camLanes.length) {
+        await enableCam({ all: true });
+      }
+      if (!camLanes.length) {
+        setCastLabel("cam first");
+        return;
+      }
+      const eng = window.GY_MEDIA_QUEUE.create({});
+      // push native three-cam HLS when possible
+      if (window.GY_CAM_BRIDGE) {
+        const pseudo = camLanes.map((l) => ({
+          video: l.video,
+          slot: l.slot,
+          kind: l.kind,
+          label: l.label,
+          deviceId: l.deviceId,
+        }));
+        await window.GY_CAM_BRIDGE.pushLanesToQueue(eng, pseudo, { native: true });
+      }
+      // also open queue page with share of current set
+      try {
+        const url = eng.shareURL(
+          (location.origin || "") + (location.pathname || "").replace(/[^/]+$/, "queue.html")
+        );
+        window.open(url + (url.indexOf("?") >= 0 ? "&" : "?") + "play=1&mode=multi", "_blank", "noopener");
+      } catch (_) {
+        window.open("queue.html", "_blank", "noopener");
+      }
+      setCastLabel("→ queue · " + eng.snapshot().items.length);
+    });
+  }
   const hdriClose = document.getElementById("gg-hdri-close");
   if (hdriClose) {
     hdriClose.addEventListener("click", () => {
