@@ -43,6 +43,15 @@
     view: document.getElementById("sp-view"),
     lights: document.getElementById("sp-lights"),
     lightPanel: document.getElementById("sp-light-panel"),
+    siriLog: document.getElementById("sp-siri-log"),
+    siriInput: document.getElementById("sp-siri-input"),
+    siriMic: document.getElementById("sp-siri-mic"),
+    siriSend: document.getElementById("sp-siri-send"),
+    siriOrb: document.getElementById("sp-siri-orb"),
+    siriVoice: document.getElementById("sp-siri-voice"),
+    siriCont: document.getElementById("sp-siri-cont"),
+    siriRoom: document.getElementById("sp-siri-room"),
+    siriClear: document.getElementById("sp-siri-clear"),
   };
 
   // ── venue blueprint ──
@@ -54,6 +63,11 @@
   const lightState = LIGHT ? LIGHT.createState() : null;
   /** free-cam from venue camera views (null = orbit) */
   let freeCam = null;
+  /** Siri mood: idle | listen | think | speak — drives dome colors */
+  let siriMood = "idle";
+  let siriMoodT0 = performance.now();
+  let siri = null;
+  let sphereNick = "sphere-" + Math.random().toString(36).slice(2, 6);
 
   // ── shell points (full dome LED sample) ──
   function buildShell() {
@@ -356,18 +370,45 @@
   function waveAt(i, t) {
     const elF = pEl[i];
     const azF = pAz[i];
-    const speed = waveSpeed;
+    // Siri moods accelerate / recolor the living dome
+    let speed = waveSpeed;
+    let hueBias = 0;
+    let satBoost = 0;
+    let glowBoost = 0;
+    if (siriMood === "listen") {
+      speed = waveSpeed * 1.35;
+      hueBias = 210; // cool blue
+      satBoost = 0.12;
+      glowBoost = 0.12 + 0.08 * Math.sin(t * 6 + azF * 8);
+    } else if (siriMood === "think") {
+      speed = waveSpeed * 2.1;
+      hueBias = 42; // amber
+      satBoost = 0.18;
+      glowBoost = 0.18 + 0.12 * Math.sin(t * 9 + elF * 12);
+    } else if (siriMood === "speak") {
+      speed = waveSpeed * 1.6;
+      hueBias = 150; // green/cyan
+      satBoost = 0.15;
+      glowBoost = 0.22 + 0.18 * Math.sin(t * 14 + azF * 20); // voice-like flicker
+    }
     let distW = 0;
-    if (waveMode === "azimuth") {
+    if (waveMode === "azimuth" || siriMood === "listen") {
       const head = (t * 0.12 * speed) % 1;
       distW = Math.abs(azF - head);
       if (distW > 0.5) distW = 1 - distW;
-    } else if (waveMode === "spiral") {
+    } else if (waveMode === "spiral" || siriMood === "think") {
       const phase = (azF + elF * 2.2 - t * 0.18 * speed + 10) % 1;
       distW = Math.min(phase, 1 - phase);
     } else if (waveMode === "lat") {
       const band = Math.sin(elF * Math.PI * 6 - t * 2.2 * speed) * 0.5 + 0.5;
-      return { glow: band * band, hue: (elF * 280 + t * 40 * speed) % 360, sat: 0.75, light: 0.28 + 0.35 * band };
+      let hue = (elF * 280 + t * 40 * speed) % 360;
+      if (hueBias) hue = (hue * 0.35 + hueBias) % 360;
+      return {
+        glow: Math.min(1, band * band + glowBoost),
+        hue: hue,
+        sat: 0.75 + satBoost,
+        light: 0.28 + 0.35 * band + glowBoost * 0.3,
+      };
     } else {
       const head = (1.0 - ((t * 0.15 * speed) % 1) + 1) % 1;
       let d = elF - head;
@@ -377,12 +418,162 @@
     const front = Math.max(0, 1 - distW * 5.5);
     const trail = Math.max(0, 1 - distW * 1.35) * 0.55;
     const side = 0.5 + 0.5 * Math.sin(azF * Math.PI * 4 + t * 1.8 * speed - elF * 3);
-    const glow = Math.min(1, front * 0.95 + trail * 0.7 + side * 0.12 * front);
-    const hue =
-      waveMode === "azimuth"
+    const glow = Math.min(1, front * 0.95 + trail * 0.7 + side * 0.12 * front + glowBoost);
+    let hue =
+      waveMode === "azimuth" || siriMood === "listen"
         ? (azF * 360 + t * 50 * speed) % 360
         : ((1 - elF) * 300 + azF * 80 + t * 35 * speed) % 360;
-    return { glow: glow, hue: hue, sat: 0.72 + 0.25 * front, light: 0.18 + 0.42 * glow };
+    if (hueBias) hue = (hue * 0.4 + hueBias + t * 20) % 360;
+    return {
+      glow: glow,
+      hue: hue,
+      sat: 0.72 + 0.25 * front + satBoost,
+      light: 0.18 + 0.42 * glow,
+    };
+  }
+
+  function setSiriMood(mood) {
+    siriMood = mood || "idle";
+    siriMoodT0 = performance.now();
+    document.body.classList.remove("mood-listen", "mood-think", "mood-speak");
+    if (siriMood === "listen" || siriMood === "think" || siriMood === "speak") {
+      document.body.classList.add("mood-" + siriMood);
+    }
+    if (el.siriOrb) {
+      el.siriOrb.className = "sp-siri-orb" + (siriMood !== "idle" ? " mood-" + siriMood : "");
+    }
+    if (el.siriMic) {
+      el.siriMic.classList.toggle("is-on", siriMood === "listen");
+    }
+    // force wave on while conversing so the dome "lives"
+    if (siriMood !== "idle" && !waveOn) {
+      waveOn = true;
+      if (el.wave) {
+        el.wave.classList.add("is-on");
+        el.wave.textContent = "Wave on";
+      }
+    }
+  }
+
+  function appendSiriLine(row) {
+    if (!el.siriLog || !row) return;
+    const div = document.createElement("div");
+    div.className = "sp-siri-line " + (row.role || "user");
+    const who = document.createElement("span");
+    who.className = "who";
+    who.textContent = row.from || row.role || "·";
+    const text = document.createElement("span");
+    text.textContent = row.text || "";
+    div.appendChild(who);
+    div.appendChild(text);
+    el.siriLog.appendChild(div);
+    el.siriLog.scrollTop = el.siriLog.scrollHeight;
+    while (el.siriLog.children.length > 80) {
+      el.siriLog.removeChild(el.siriLog.firstChild);
+    }
+  }
+
+  function sendMesh(obj) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+    try {
+      if (!obj.from) obj.from = sphereNick;
+      if (!obj.t) obj.t = Date.now();
+      ws.send(JSON.stringify(obj));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function initSiri() {
+    if (!window.GY_SPHERE_SIRI) {
+      console.warn("[sphere] sphere-siri.js missing");
+      return;
+    }
+    siri = window.GY_SPHERE_SIRI.create({
+      getNick: function () {
+        return sphereNick;
+      },
+      sendMesh: sendMesh,
+      onMood: function (mood) {
+        setSiriMood(mood);
+      },
+      onLine: function (row) {
+        appendSiriLine(row);
+      },
+      onStatus: function (t, kind) {
+        if (siriMood === "idle" || kind === "err") {
+          setStatus(t, kind);
+        } else {
+          setStatus("<strong>" + siriMood + "</strong> · " + (t || ""), kind || "live");
+        }
+      },
+    });
+    if (el.siriMic) {
+      el.siriMic.addEventListener("click", function () {
+        if (!siri) return;
+        siri.toggleListen();
+      });
+    }
+    if (el.siriSend) {
+      el.siriSend.addEventListener("click", function () {
+        if (!siri || !el.siriInput) return;
+        const t = el.siriInput.value.trim();
+        if (!t) return;
+        el.siriInput.value = "";
+        siri.ask(t);
+      });
+    }
+    if (el.siriInput) {
+      el.siriInput.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          if (el.siriSend) el.siriSend.click();
+        }
+      });
+    }
+    if (el.siriVoice) {
+      el.siriVoice.addEventListener("click", function () {
+        const on = !el.siriVoice.classList.contains("is-on");
+        el.siriVoice.classList.toggle("is-on", on);
+        el.siriVoice.textContent = on ? "Voice on" : "Voice off";
+        if (siri) siri.setVoice(on);
+      });
+    }
+    if (el.siriCont) {
+      el.siriCont.addEventListener("click", function () {
+        const on = !el.siriCont.classList.contains("is-on");
+        el.siriCont.classList.toggle("is-on", on);
+        if (siri) siri.setContinuous(on);
+      });
+    }
+    if (el.siriRoom) {
+      el.siriRoom.addEventListener("click", function () {
+        const on = !el.siriRoom.classList.contains("is-on");
+        el.siriRoom.classList.toggle("is-on", on);
+        if (siri) siri.setRoomListen(on);
+      });
+    }
+    if (el.siriClear) {
+      el.siriClear.addEventListener("click", function () {
+        if (siri) siri.clear();
+        if (el.siriLog) el.siriLog.innerHTML = "";
+      });
+    }
+    // keyboard shortcut: hold Space to talk when not typing
+    window.addEventListener("keydown", function (e) {
+      if (e.code !== "Space" || e.repeat) return;
+      const tag = (e.target && e.target.tagName) || "";
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      e.preventDefault();
+      if (siri && !siri.getState().listening) siri.startListen();
+    });
+    window.addEventListener("keyup", function (e) {
+      if (e.code !== "Space") return;
+      const tag = (e.target && e.target.tagName) || "";
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      // leave continuous recognition to finish (onend → ask)
+    });
   }
 
   function setStatus(t, kind) {
@@ -402,7 +593,13 @@
     let u = (el.hub && el.hub.value.trim()) || defaultHubWS();
     if (!/^wss?:\/\//i.test(u)) u = "ws://" + u.replace(/^\/\//, "");
     if (!u.endsWith("/") && !u.includes("?")) u += "/";
-    if (!/[?&]nick=/.test(u)) u += (u.includes("?") ? "&" : "?") + "nick=sphere&role=sphere";
+    if (!/[?&]nick=/.test(u)) {
+      u +=
+        (u.includes("?") ? "&" : "?") +
+        "nick=" +
+        encodeURIComponent(sphereNick) +
+        "&role=sphere&room=news";
+    }
     return u;
   }
 
@@ -1126,8 +1323,23 @@
         el.connect.textContent = "Connected";
       }
       try {
-        ws.send(JSON.stringify({ type: "join", nick: "sphere", role: "sphere" }));
+        ws.send(
+          JSON.stringify({
+            type: "join",
+            nick: sphereNick,
+            role: "sphere",
+            room: "news",
+          })
+        );
       } catch (_) {}
+      // greet once connected if conversation empty
+      if (siri && el.siriLog && !el.siriLog.children.length) {
+        appendSiriLine({
+          role: "system",
+          from: "Sphere",
+          text: "Connected — tap 🎙 or type. Mesh peers can say “@sphere …”.",
+        });
+      }
     };
     ws.onclose = function () {
       setStatus("hub closed", "err");
@@ -1151,6 +1363,8 @@
       if (msg.type === "vburst-frame" || msg.type === "news-frame") upsertFeed(msg);
       else if (msg.type === "gyst" && (msg.kind === "hexlum" || Array.isArray(msg.data))) upsertFeed(msg);
       if (msg.type === "camera-controls" || msg.type === "venue-light") refreshLightPanel();
+      // multi-person: Sphere hears the room
+      if (siri) siri.onMesh(msg);
     };
   }
 
@@ -1300,6 +1514,7 @@
         TOTAL.toLocaleString() +
         " pts";
 
+    initSiri();
     if (location.protocol !== "file:" && !(location.host || "").includes("github.io")) connect();
     requestAnimationFrame(frame);
   }

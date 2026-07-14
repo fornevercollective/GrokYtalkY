@@ -104,6 +104,93 @@
       margin-top: 0.35rem; appearance: none; border: 1px solid #444; background: #1a1a22;
       color: #ddd; border-radius: 6px; padding: 0.3rem 0.45rem; font-size: 0.62rem; cursor: pointer;
     }
+
+    /* Siri-like chat shell */
+    .sp-siri {
+      position: absolute; left: 50%; bottom: 5.5rem; transform: translateX(-50%);
+      z-index: 5; width: min(92vw, 420px); pointer-events: auto;
+      display: flex; flex-direction: column; align-items: stretch; gap: 0.4rem;
+    }
+    .sp-siri-log {
+      max-height: 28vh; overflow-y: auto;
+      background: rgba(8,8,14,0.88); border: 1px solid #2a2a38; border-radius: 14px;
+      padding: 0.5rem 0.65rem; font: 0.72rem/1.4 "Instrument Sans", system-ui, sans-serif;
+      color: #c8c8d4; backdrop-filter: blur(8px);
+    }
+    .sp-siri-log:empty { display: none; }
+    .sp-siri-line { margin: 0.28rem 0; word-break: break-word; }
+    .sp-siri-line .who {
+      font: 600 0.62rem/1 "IBM Plex Mono", ui-monospace, monospace;
+      color: #7dd3fc; margin-right: 0.35rem;
+    }
+    .sp-siri-line.assistant .who { color: #6ee7b7; }
+    .sp-siri-line.system .who { color: #6b6b7a; }
+    .sp-siri-compose {
+      display: flex; gap: 0.35rem; align-items: center;
+      background: rgba(12,12,18,0.92); border: 1px solid #2a2a36; border-radius: 999px;
+      padding: 0.28rem 0.35rem 0.28rem 0.55rem;
+    }
+    .sp-siri-compose input {
+      flex: 1; min-width: 0; border: 0; background: transparent; color: #eee;
+      font: 0.78rem/1.2 "Instrument Sans", system-ui, sans-serif; outline: none;
+    }
+    .sp-siri-compose button {
+      appearance: none; border: 0; border-radius: 999px; cursor: pointer;
+      font: 600 0.72rem/1 system-ui, sans-serif; padding: 0.45rem 0.7rem;
+      background: #1a1a24; color: #ddd;
+    }
+    .sp-siri-compose button.mic {
+      width: 2.4rem; height: 2.4rem; padding: 0; border-radius: 50%;
+      background: #222230; color: #eee; font-size: 1rem;
+    }
+    .sp-siri-compose button.mic.is-on {
+      background: #3b82f6; color: #fff;
+      box-shadow: 0 0 0 3px rgba(59,130,246,0.35), 0 0 24px rgba(59,130,246,0.45);
+      animation: sp-mic-pulse 1.1s ease-in-out infinite;
+    }
+    .sp-siri-compose button.send { background: #6ee7b7; color: #042; }
+    .sp-siri-compose button:disabled { opacity: 0.5; cursor: default; }
+    @keyframes sp-mic-pulse {
+      0%, 100% { box-shadow: 0 0 0 3px rgba(59,130,246,0.35), 0 0 18px rgba(59,130,246,0.4); }
+      50% { box-shadow: 0 0 0 8px rgba(59,130,246,0.15), 0 0 32px rgba(59,130,246,0.55); }
+    }
+    .sp-siri-orb {
+      align-self: center; width: 3.2rem; height: 3.2rem; border-radius: 50%;
+      background: radial-gradient(circle at 35% 30%, #c4b5fd, #6366f1 45%, #1e1b4b 80%);
+      box-shadow: 0 0 28px rgba(99,102,241,0.45);
+      pointer-events: none; transition: transform 0.2s, box-shadow 0.2s, background 0.3s;
+    }
+    .sp-siri-orb.mood-listen {
+      background: radial-gradient(circle at 35% 30%, #93c5fd, #3b82f6 50%, #1e3a5f 85%);
+      box-shadow: 0 0 36px rgba(59,130,246,0.7);
+      transform: scale(1.08);
+    }
+    .sp-siri-orb.mood-think {
+      background: radial-gradient(circle at 35% 30%, #fde68a, #f59e0b 50%, #78350f 85%);
+      box-shadow: 0 0 36px rgba(245,158,11,0.65);
+      animation: sp-think 0.9s ease-in-out infinite;
+    }
+    .sp-siri-orb.mood-speak {
+      background: radial-gradient(circle at 35% 30%, #a7f3d0, #34d399 50%, #064e3b 85%);
+      box-shadow: 0 0 40px rgba(52,211,153,0.7);
+      transform: scale(1.12);
+    }
+    @keyframes sp-think {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.14); }
+    }
+    .sp-siri-tools {
+      display: flex; flex-wrap: wrap; gap: 0.3rem; justify-content: center;
+    }
+    .sp-siri-tools button {
+      appearance: none; border: 1px solid #333; background: rgba(18,18,26,0.9);
+      color: #aaa; border-radius: 999px; padding: 0.25rem 0.55rem;
+      font: 0.6rem/1 "IBM Plex Mono", ui-monospace, monospace; cursor: pointer;
+    }
+    .sp-siri-tools button.is-on { border-color: #6ee7b7; color: #6ee7b7; }
+    body.sphere-body.mood-listen .sp-status strong { color: #93c5fd; }
+    body.sphere-body.mood-think .sp-status strong { color: #fbbf24; }
+    body.sphere-body.mood-speak .sp-status strong { color: #6ee7b7; }
   </style>
 </head>
 <body class="sphere-body">
@@ -113,11 +200,28 @@
   <div class="sp-wrap">
     <canvas id="sp-gl" aria-label="16K addressable Sphere venue"></canvas>
     <canvas id="sp-hud" aria-hidden="true"></canvas>
-    <div class="sp-status" id="sp-status">Venue 16K · blueprint + addressable cast</div>
-    <div class="sp-legend" id="sp-legend">click = pick LED / seat<br/>bulk = section · chunk · zone</div>
+    <div class="sp-status" id="sp-status">Venue 16K · talk to the Glyph Sphere</div>
+    <div class="sp-legend" id="sp-legend">mic · type · @sphere on mesh<br/>bulk · lights · seats</div>
     <div class="sp-pick" id="sp-pick"></div>
     <div class="sp-feeds" id="sp-feeds" hidden></div>
-    <p class="sp-hint">drag orbit · scroll zoom · click pick<br/>phone ?px=&amp;py= · ?seat= · ?target=</p>
+    <p class="sp-hint">drag orbit · scroll zoom · click pick<br/>phone ?px=&amp;py= · say “hey Sphere”</p>
+
+    <!-- Siri-like conversation shell -->
+    <div class="sp-siri" id="sp-siri" aria-label="Glyph Sphere conversation">
+      <div class="sp-siri-orb" id="sp-siri-orb" aria-hidden="true"></div>
+      <div class="sp-siri-log" id="sp-siri-log" role="log" aria-live="polite"></div>
+      <div class="sp-siri-compose">
+        <input type="text" id="sp-siri-input" placeholder="Talk to the Sphere…" autocomplete="off" />
+        <button type="button" class="mic" id="sp-siri-mic" title="Hold conversation — tap to listen">🎙</button>
+        <button type="button" class="send" id="sp-siri-send" title="Send">Send</button>
+      </div>
+      <div class="sp-siri-tools">
+        <button type="button" id="sp-siri-voice" class="is-on" title="Text-to-speech replies">Voice on</button>
+        <button type="button" id="sp-siri-cont" title="Listen again after each reply">Continuous</button>
+        <button type="button" id="sp-siri-room" class="is-on" title="Answer mesh @sphere / sphere-ask">Room listen</button>
+        <button type="button" id="sp-siri-clear" title="Clear conversation">Clear</button>
+      </div>
+    </div>
 
     <div class="sp-bar">
       <input type="text" id="sp-hub" placeholder="ws://HOST:9876/" autocomplete="off" spellcheck="false" />
@@ -153,6 +257,7 @@
   <script src="sphere-seating.js"></script>
   <script src="venue-canvas.js"></script>
   <script src="venue-lighting.js"></script>
+  <script src="sphere-siri.js"></script>
   <script src="sphere.js"></script>
 </body>
 </html>

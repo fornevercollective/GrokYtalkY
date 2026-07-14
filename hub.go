@@ -267,6 +267,9 @@ func NewHub(addr string, quiet bool, staticDir string) *Hub {
 	// Built-in blank-lite play + segment proxy (CORS for canvas / hls.js)
 	mux.HandleFunc("/api/media/play/", HandleMediaPlay)
 	mux.HandleFunc("/api/media/proxy", HandleMediaProxy)
+	// Glyph Sphere Siri-like chat (SpaceXAI / xAI — key stays on server)
+	mux.HandleFunc("/api/chat", HandleAPIChat)
+	mux.HandleFunc("/api/chat/clear", HandleAPIChat)
 	// Same-WiFi phone → terminal: join URLs + discovery metadata
 	mux.HandleFunc("/api/lan", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -622,6 +625,41 @@ func (h *Hub) route(from *websocket.Conn, meta *peerMeta, data []byte) {
 	case "chat":
 		out := map[string]any{
 			"type": "chat",
+			"text": msg["text"],
+			"from": coalesce(msg["from"], meta.Nick),
+			"id":   meta.ID,
+			"room": meta.Room,
+			"t":    time.Now().UnixMilli(),
+		}
+		h.broadcastRoom(meta.Room, from, mustJSON(out))
+	case "sphere-chat", "sphere-say":
+		// multi-person dialogue fan-out (user ↔ Glyph Sphere)
+		out := map[string]any{
+			"type":   "sphere-chat",
+			"text":   msg["text"],
+			"from":   coalesce(msg["from"], meta.Nick),
+			"role":   coalesce(msg["role"], "user"), // user | assistant | system
+			"mood":   msg["mood"],
+			"id":     meta.ID,
+			"room":   meta.Room,
+			"t":      time.Now().UnixMilli(),
+			"source": "sphere",
+		}
+		h.broadcastRoom(meta.Room, from, mustJSON(out))
+		// also surface as ordinary chat so DOJO / Space bridges see it
+		h.broadcastRoom(meta.Room, from, mustJSON(map[string]any{
+			"type": "chat",
+			"text": msg["text"],
+			"from": coalesce(msg["from"], meta.Nick),
+			"id":   meta.ID,
+			"room": meta.Room,
+			"t":    time.Now().UnixMilli(),
+			"meta": map[string]any{"sphere": true, "role": coalesce(msg["role"], "user")},
+		}))
+	case "sphere-ask":
+		// peer asks the sphere; sphere client answers (or anyone can answer)
+		out := map[string]any{
+			"type": "sphere-ask",
 			"text": msg["text"],
 			"from": coalesce(msg["from"], meta.Nick),
 			"id":   meta.ID,
