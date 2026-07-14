@@ -22,6 +22,9 @@ func TestBuildLanInfo(t *testing.T) {
 	if !strings.Contains(info.QR, "/api/lan/qr") {
 		t.Fatal(info.QR)
 	}
+	if !strings.Contains(info.Sphere, "sphere.html") {
+		t.Fatal(info.Sphere)
+	}
 	if !strings.HasPrefix(info.WS, "ws://") {
 		t.Fatal(info.WS)
 	}
@@ -36,6 +39,9 @@ func TestBuildLanInfo(t *testing.T) {
 		t.Fatal(b)
 	}
 	if !strings.Contains(b, "quick QR") || !strings.Contains(b, "scan tip") {
+		t.Fatal(b)
+	}
+	if !strings.Contains(b, "sphere") {
 		t.Fatal(b)
 	}
 }

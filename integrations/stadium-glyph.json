@@ -47,7 +47,7 @@
   ],
   "phases": [
     { "id": 0, "name": "contract", "status": "docs" },
-    { "id": 1, "name": "stadium-room-atom", "status": "next", "max_peers_hot": 32 },
+    { "id": 1, "name": "stadium-room-atom", "status": "partial", "shipped": ["sphere-seating", "sphere.html live viewer", "phone pos"], "max_peers_hot": 32 },
     { "id": 2, "name": "virtual-texture-pages", "status": "planned" },
     { "id": 3, "name": "interest-lod", "status": "planned" },
     { "id": 4, "name": "hybrid-1k-10k", "status": "planned" },

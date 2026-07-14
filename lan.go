@@ -46,6 +46,7 @@ type LanInfo struct {
 	HTTP    string   `json:"http"`  // preferred http://IP:port/
 	Phone   string   `json:"phone"` // cast page for mobile browsers
 	QR      string   `json:"qr,omitempty"` // scan page (HTML; client-side QR)
+	Sphere  string   `json:"sphere,omitempty"` // Sphere Glyph live seat viewer
 	Burst   string   `json:"burst,omitempty"`
 	Glyph   string   `json:"glyph,omitempty"`
 	Room    string   `json:"room"`
@@ -190,6 +191,7 @@ func BuildLanInfo(port int, room string) LanInfo {
 		HTTP:    httpBase + "/",
 		Phone:   httpBase + "/phone.html",
 		QR:      httpBase + "/api/lan/qr",
+		Sphere:  httpBase + "/sphere.html",
 		Burst:   httpBase + "/burst.html",
 		Glyph:   httpBase + "/grokglyph.html",
 		Room:    room,
@@ -305,8 +307,9 @@ func FormatLanBanner(info LanInfo) string {
 	var b strings.Builder
 	b.WriteString("same Wi‑Fi · phone → terminal\n")
 	b.WriteString(fmt.Sprintf("  phone cast  %s\n", info.Phone))
+	b.WriteString(fmt.Sprintf("  sphere      %s\n", info.Sphere))
 	b.WriteString(fmt.Sprintf("  quick QR    %s\n", info.QR))
-	b.WriteString("  scan tip    open QR on laptop · phone scans → Quick connect\n")
+	b.WriteString("  scan tip    open QR on laptop · phone scans → Sphere shows Glyphs\n")
 	b.WriteString(fmt.Sprintf("  mesh WS     %s?role=phone&nick=phone\n", strings.TrimRight(info.WS, "/")))
 	if len(info.IPs) > 1 {
 		b.WriteString("  also        ")
@@ -407,6 +410,7 @@ func (d *LanDiscoverer) reply(to *net.UDPAddr) {
 		info.HTTP = base + "/"
 		info.Phone = base + "/phone.html"
 		info.QR = base + "/api/lan/qr"
+		info.Sphere = base + "/sphere.html"
 		info.Burst = base + "/burst.html"
 		info.Glyph = base + "/grokglyph.html"
 	}

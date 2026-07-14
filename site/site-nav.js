@@ -9,7 +9,7 @@
  * Always rebuilds the header so every page gets the same menu
  * (Home · Burst · Live News · GrokGlyph · Chat · DOJO · Mid-lane · Docs · Install · GitHub).
  *
- * data-active: home|burst|livenews|grokglyph|chat|dojo|mid-lane|docs|install|phone
+ * data-active: home|burst|livenews|grokglyph|sphere|phone|chat|dojo|mid-lane|docs|install
  */
 (function () {
   'use strict';
@@ -19,6 +19,8 @@
     { id: 'burst', href: 'burst.html', label: 'Burst' },
     { id: 'livenews', href: 'livenews.html', label: 'Live News' },
     { id: 'grokglyph', href: 'grokglyph.html', label: 'GrokGlyph' },
+    { id: 'sphere', href: 'sphere.html', label: 'Sphere' },
+    { id: 'phone', href: 'phone.html', label: 'Phone' },
     { id: 'chat', href: 'chat.html', label: 'Chat' },
     { id: 'dojo', href: 'dojo.html', label: 'DOJO' },
     { id: 'mid-lane', href: 'mid-lane.html', label: 'Mid-lane' },
@@ -47,6 +49,8 @@
     if (path.indexOf('mid-lane') === 0 || path.indexOf('midlane') === 0) return 'mid-lane';
     if (path.indexOf('docs') === 0) return 'docs';
     if (path.indexOf('phone') === 0) return 'phone';
+    if (path.indexOf('sphere') === 0) return 'sphere';
+    if (path.indexOf('glyph-cast') === 0) return 'grokglyph';
     return '';
   }
 

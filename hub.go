@@ -289,6 +289,9 @@ func NewHub(addr string, quiet bool, staticDir string) *Hub {
 	mux.HandleFunc("/phone", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/phone.html", http.StatusFound)
 	})
+	mux.HandleFunc("/sphere", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/sphere.html", http.StatusFound)
+	})
 	h.server = &http.Server{Addr: addr, Handler: mux}
 	return h
 }

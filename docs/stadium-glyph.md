@@ -234,7 +234,25 @@ Server returns: **cold page list** (CDN URLs) + **hot track IDs** (SFU / mesh) +
 | [grokglyph.html](https://fornevercollective.github.io/GrokYtalkY/grokglyph.html) | Glyph LED / dual | Far–mid lattice + personal pointer |
 | [livenews.html](https://fornevercollective.github.io/GrokYtalkY/livenews.html) | Multi-feed wall | Section wall / theme cluster preview |
 | phone.html | Single cast source | Source + optional **controller** (ray into canvas) |
+| **sphere.html** | **Live Sphere Glyph viewer** | Seats + mesh `vburst`/`gyst` only (no qpu extras) |
 | qr.html | Quick connect | Seat/section QR → room + pos |
+
+### Sphere Glyph viewer (v1.80)
+
+Focused page: [`site/sphere.html`](../site/sphere.html) + [`site/sphere.js`](../site/sphere.js)
+
+- **In:** hub WS · `vburst-frame` / `gyst` hexlum · optional `pos` (Sphere Bloch³)
+- **Out:** WebGL seat cloud + HUD Glyph tiles at live seats
+- **Not included:** music, QPU patches, MOPA, VR Quest, kBatch, contrail language, laser export
+
+```bash
+gy serve
+# laptop
+open http://HOST:9876/sphere.html
+# phones
+open http://HOST:9876/phone.html?seat=200-R5-C12&quick=1
+# hold Cast → Glyphs light seats on the Sphere
+```
 
 ---
 
@@ -247,11 +265,12 @@ Server returns: **cold page list** (CDN URLs) + **hot track IDs** (SFU / mesh) +
 ### Phase 1 — Stadium room atom (first code PR)
 **Goal:** one phone contributes; cast player joins same room as **spatial mosaic of N≤32** (not 112k yet).
 
-1. `type:stadium-join` + room token on hub (reuse room tenancy).  
-2. `pos` optional on `vburst-frame` / `gyst` (x,y or section).  
-3. `glyph-cast` + `livenews`: layout feeds by `pos` or grid fallback.  
-4. LOD demote: if peers > budget, force glyph-only for cold slots.  
-5. Doctor: `gy doctor stadium` → room peers, lod histogram, bp.
+1. ~~`pos` on phone cast + Sphere seating map~~ (v1.79.2)  
+2. ~~`sphere.html` live Glyph viewer on seats~~ (v1.80)  
+3. `type:stadium-join` + room token on hub (reuse room tenancy).  
+4. `glyph-cast` + `livenews`: layout feeds by `pos` or grid fallback.  
+5. LOD demote: if peers > budget, force glyph-only for cold slots.  
+6. Doctor: `gy doctor stadium` → room peers, lod histogram, bp.
 
 ### Phase 2 — Virtual texture pages
 1. Tile server stub: multi-res JPEG pages from compositor snapshot.  
