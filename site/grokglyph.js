@@ -146,8 +146,20 @@
   /** @type {Array<{url:string,title:string,kind:string,platform?:string,mobile?:boolean}>} */
   let socialLazyQueue = [];
   let socialLazyTimer = 0;
-  /** @type {MediaStream | null} */
+  /** @type {MediaStream | null} primary stream (compat) */
   let mediaStream = null;
+  /**
+   * All active camera lanes (phone front + back + ultra-wide, etc.)
+   * @type {Array<{
+   *   deviceId: string,
+   *   label: string,
+   *   stream: MediaStream,
+   *   video: HTMLVideoElement,
+   *   peerId: string,
+   *   short: string
+   * }>}
+   */
+  let camLanes = [];
   /** @type {WebSocket | null} */
   let ws = null;
   /** @type {Map<string, HTMLCanvasElement>} */
@@ -745,62 +757,281 @@
     ctx.putImageData(img, 0, 0);
   }
 
-  // ── camera / file ────────────────────────────────────────
-  async function enableCam() {
-    if (camOn && mediaStream) return true;
+  // ── camera / file (multi-cam: all phone lenses simultaneously) ──
+
+  function shortCamLabel(label, index, deviceId) {
+    const L = String(label || "").toLowerCase();
+    if (/ultra|wide/.test(L) && !/tele/.test(L)) return "uw";
+    if (/tele|zoom/.test(L)) return "tele";
+    if (/back|rear|environment|world/.test(L)) return "back";
+    if (/front|user|face|selfie/.test(L)) return "front";
+    if (label && label !== "camera" && label.length < 14) {
+      return label.replace(/\s+/g, "-").slice(0, 10);
+    }
+    return "cam" + (index + 1);
+  }
+
+  function stopCamLanes() {
+    camLanes.forEach((lane) => {
+      try {
+        lane.stream.getTracks().forEach((t) => t.stop());
+      } catch {
+        /* ignore */
+      }
+      try {
+        lane.video.pause();
+        lane.video.srcObject = null;
+      } catch {
+        /* ignore */
+      }
+      // remove extra self-cam peers (keep primary self)
+      if (lane.peerId && lane.peerId !== "self") {
+        peers = peers.filter((p) => p.id !== lane.peerId);
+        canvasById.delete(lane.peerId);
+        lumBuf.delete(lane.peerId);
+      }
+    });
+    camLanes = [];
+  }
+
+  function ensureCamPeer(lane, index) {
+    if (index === 0) {
+      // primary self tile
+      let self = peers.find((p) => p.self || p.id === "self");
+      if (!self) {
+        self = defaultSelf();
+        peers.unshift(self);
+      }
+      self.source = "cam";
+      self.nick = myNick();
+      self.camLane = 0;
+      self.selfCam = true;
+      lane.peerId = self.id;
+      return self;
+    }
+    const id = "cam-" + (lane.deviceId || String(index)).replace(/\W/g, "").slice(0, 12);
+    let p = peers.find((x) => x.id === id);
+    if (!p) {
+      p = {
+        id: id,
+        nick: myNick() + "-" + lane.short,
+        dir: DIR_ORDER[index % DIR_ORDER.length],
+        on: true,
+        seed: hashStr(id) % 1e9,
+        self: false,
+        selfCam: true,
+        source: "cam",
+        room: meshRoom,
+        camLane: index,
+      };
+      peers.push(p);
+    } else {
+      p.source = "cam";
+      p.selfCam = true;
+      p.nick = myNick() + "-" + lane.short;
+      p.on = true;
+    }
+    lane.peerId = p.id;
+    return p;
+  }
+
+  async function openDeviceStream(deviceId) {
+    const tries = [
+      {
+        video: {
+          deviceId: deviceId ? { exact: deviceId } : undefined,
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+        },
+        audio: false,
+      },
+      { video: deviceId ? { deviceId: { exact: deviceId } } : true, audio: false },
+      { video: true, audio: false },
+    ];
+    let last = null;
+    for (let i = 0; i < tries.length; i++) {
+      try {
+        // strip undefined deviceId
+        const c = tries[i];
+        if (c.video && c.video.deviceId === undefined) c.video = true;
+        return await navigator.mediaDevices.getUserMedia(c);
+      } catch (e) {
+        last = e;
+        if (e && (e.name === "NotAllowedError" || e.name === "SecurityError")) throw e;
+      }
+    }
+    throw last || new Error("getUserMedia failed");
+  }
+
+  /**
+   * Open every videoinput on the phone at once (front + back + extras).
+   * Each lens becomes a glyph tile; cast ships all lanes to the mesh / sphere.
+   */
+  async function enableCam(opts) {
+    opts = opts || {};
+    const allCams = opts.all !== false; // default: all cameras simultaneously
+    if (camOn && camLanes.length && !opts.force) return true;
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setCastLabel("no cam API");
       return false;
     }
+    // Secure context tip (https GH Pages is fine; http LAN is not)
     try {
-      mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: "user",
-          width: { ideal: 320 },
-          height: { ideal: 320 },
-        },
+      if (!window.isSecureContext) {
+        setCastLabel("need https/localhost");
+        if (els.hubHint) {
+          els.hubHint.textContent =
+            "Camera needs HTTPS or localhost. Use https://fornevercollective.github.io/GrokYtalkY/grokglyph.html";
+        }
+        return false;
+      }
+    } catch {
+      /* ignore */
+    }
+
+    try {
+      // Permission probe (also unlocks device labels on iOS/Android)
+      let probe = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user" },
         audio: false,
       });
-      if (els.localVideo) {
-        els.localVideo.srcObject = mediaStream;
-        els.localVideo.muted = true;
-        els.localVideo.playsInline = true;
-        await els.localVideo.play();
+      let devices = [];
+      try {
+        devices = await navigator.mediaDevices.enumerateDevices();
+      } catch {
+        devices = [];
       }
+      const videoInputs = devices.filter((d) => d.kind === "videoinput");
+      // stop probe before opening named devices (some phones allow only one open at a time otherwise)
+      probe.getTracks().forEach((t) => t.stop());
+      probe = null;
+
+      stopCamLanes();
+      if (els.localVideo) els.localVideo.srcObject = null;
+
+      const list =
+        allCams && videoInputs.length
+          ? videoInputs
+          : videoInputs.length
+            ? [videoInputs[0]]
+            : [{ deviceId: "", label: "camera" }];
+
+      // Prefer opening user then environment if no labels yet
+      const ordered = list.slice().sort((a, b) => {
+        const la = (a.label || "").toLowerCase();
+        const lb = (b.label || "").toLowerCase();
+        const score = (L) =>
+          /front|user|face/.test(L) ? 0 : /back|rear|environment/.test(L) ? 1 : 2;
+        return score(la) - score(lb);
+      });
+
+      for (let i = 0; i < ordered.length; i++) {
+        const d = ordered[i];
+        try {
+          const stream = await openDeviceStream(d.deviceId);
+          const video = document.createElement("video");
+          video.setAttribute("playsinline", "");
+          video.playsInline = true;
+          video.muted = true;
+          video.autoplay = true;
+          video.srcObject = stream;
+          await video.play().catch(() => {});
+          const short = shortCamLabel(d.label, i, d.deviceId);
+          const lane = {
+            deviceId: d.deviceId || "default-" + i,
+            label: d.label || short,
+            stream: stream,
+            video: video,
+            peerId: "",
+            short: short,
+          };
+          ensureCamPeer(lane, i);
+          camLanes.push(lane);
+          if (i === 0) {
+            mediaStream = stream;
+            if (els.localVideo) {
+              els.localVideo.srcObject = stream;
+              els.localVideo.muted = true;
+              els.localVideo.playsInline = true;
+              await els.localVideo.play().catch(() => {});
+            }
+          }
+        } catch (e) {
+          console.warn("[grokglyph] cam lane skip", d.label || d.deviceId, e);
+        }
+      }
+
+      if (!camLanes.length) {
+        setCastLabel("cam failed");
+        return false;
+      }
+
       camOn = true;
       fileOn = false;
-      const self = peers.find((p) => p.self);
-      if (self) self.source = "cam";
       if (els.camBtn) {
         els.camBtn.setAttribute("aria-pressed", "true");
-        els.camBtn.textContent = "cam";
+        els.camBtn.textContent = camLanes.length > 1 ? "cams " + camLanes.length : "cam";
       }
-      setCastLabel(casting ? "casting" : "cam live");
+      setCastLabel(
+        casting
+          ? "casting " + camLanes.length + " cam"
+          : camLanes.length > 1
+            ? camLanes.length + " cams live"
+            : "cam live"
+      );
+      if (els.hubHint) {
+        els.hubHint.textContent =
+          camLanes.length > 1
+            ? "All cameras open (" +
+              camLanes.map((l) => l.short).join(" · ") +
+              "). Cast ships each lens as a glyph lane."
+            : "Cam live. Cast → mesh / sphere. Tip: multi-lens phones open all cameras at once.";
+      }
+      layoutAndPaint();
       return true;
     } catch (err) {
       camOn = false;
+      stopCamLanes();
       setCastLabel("cam blocked");
       if (els.hubHint) {
+        const n = err && err.name;
         els.hubHint.textContent =
-          "Camera blocked — allow permission or use a video file. " +
-          (err && err.message ? err.message : "");
+          n === "NotAllowedError"
+            ? "Camera permission denied — 🔒 in address bar → Allow, then cam again. Or use a video file."
+            : "Camera blocked — allow permission or use a video file. " +
+              (err && err.message ? err.message : "");
       }
       return false;
     }
   }
 
   function stopCam() {
+    stopCamLanes();
     if (mediaStream) {
-      mediaStream.getTracks().forEach((t) => t.stop());
+      try {
+        mediaStream.getTracks().forEach((t) => t.stop());
+      } catch {
+        /* ignore */
+      }
       mediaStream = null;
     }
     if (els.localVideo) els.localVideo.srcObject = null;
     camOn = false;
     if (els.camBtn) {
       els.camBtn.setAttribute("aria-pressed", "false");
+      els.camBtn.textContent = "cam";
     }
-    const self = peers.find((p) => p.self);
-    if (self && self.source === "cam") self.source = fileOn ? "file" : "sim";
+    peers.forEach((p) => {
+      if (p.selfCam || p.source === "cam") {
+        if (p.self || p.id === "self") {
+          p.source = fileOn ? "file" : "sim";
+          p.selfCam = false;
+        }
+      }
+    });
+    // drop non-primary cam peers
+    peers = peers.filter((p) => p.self || p.id === "self" || !String(p.id).startsWith("cam-"));
+    layoutAndPaint();
   }
 
   async function toggleCam() {
@@ -810,7 +1041,7 @@
       setCastLabel("idle");
       return;
     }
-    await enableCam();
+    await enableCam({ all: true });
   }
 
   async function loadVideoFile(file) {
@@ -1221,9 +1452,10 @@
     return dataUrl.split(",")[1] || "";
   }
 
-  function sendCastFrame(lum) {
+  function sendCastFrame(lum, fromNick, laneMeta) {
     if (!casting || !ws || ws.readyState !== WebSocket.OPEN) return;
     castSeq = (castSeq + 1) >>> 0;
+    const from = (fromNick || myNick()).slice(0, 32);
     const glyph = new Array(glyphN * glyphN);
     const raw = new Uint8Array(glyphN * glyphN);
     for (let i = 0; i < glyphN * glyphN; i++) {
@@ -1242,7 +1474,7 @@
     }
     sendJSON({
       type: "gyst",
-      from: myNick(),
+      from: from,
       kind: "hexlum",
       w: glyphN,
       h: glyphN,
@@ -1254,12 +1486,13 @@
       lane: "hex",
       room: meshRoom,
       via: "grokglyph-cast",
+      cam: laneMeta || null,
     });
-    // 2) walkie-compatible vburst (jpeg + glyph). hex_lane skips hub re-promote.
+    // 2) walkie / sphere-compatible vburst — project across dome when cast=sphere
     const b64jpeg = jpegB64FromLum(lum);
     sendJSON({
       type: "vburst-frame",
-      from: myNick(),
+      from: from,
       fmt: "jpeg",
       b64: b64jpeg,
       w: 100,
@@ -1270,6 +1503,9 @@
       t: t,
       room: meshRoom,
       hex_lane: true,
+      cast: "sphere",
+      project: true,
+      cam: laneMeta || null,
     });
   }
 
@@ -2102,10 +2338,22 @@
     setDrawer(!drawerOpen);
   }
 
+  function videoForPeer(p) {
+    if (!p) return null;
+    if (p.selfCam || p.source === "cam") {
+      const lane = camLanes.find((l) => l.peerId === p.id);
+      if (lane) return lane.video;
+      if ((p.self || p.id === "self") && els.localVideo) return els.localVideo;
+    }
+    return null;
+  }
+
   // ── animation: sample video every frame ──────────────────
   function tick(now) {
     const t = (now - t0) / 1000;
-    const self = peers.find((p) => p.self);
+    // throttle mesh cast across all lanes as a group
+    let castDue = casting && now - lastCastAt >= CAST_MS;
+    if (castDue) lastCastAt = now;
 
     for (const p of peers) {
       if (!isDrawn(p)) continue;
@@ -2114,16 +2362,17 @@
       const buf = ensureLum(p.id);
       let mode = "sim";
 
-      if (p.self) {
+      if (p.self || p.selfCam) {
         let sampled = false;
-        if (camOn && els.localVideo) {
-          sampled = sampleSourceToLum(els.localVideo, buf);
+        const vid = videoForPeer(p);
+        if (camOn && vid) {
+          sampled = sampleSourceToLum(vid, buf);
           if (sampled) {
             p.source = "cam";
             mode = casting ? "cast" : "self";
           }
         }
-        if (!sampled && fileOn && els.fileVideo) {
+        if (!sampled && p.self && fileOn && els.fileVideo) {
           sampled = sampleSourceToLum(els.fileVideo, buf);
           if (sampled) {
             p.source = "file";
@@ -2136,10 +2385,14 @@
         } else {
           p.lum = buf;
           p.lumAt = now;
-          // cast frames
-          if (casting && now - lastCastAt >= CAST_MS) {
-            lastCastAt = now;
-            sendCastFrame(buf);
+          // cast each camera lane (and file/self) to mesh + sphere
+          if (castDue) {
+            const lane = camLanes.find((l) => l.peerId === p.id);
+            const from =
+              lane && camLanes.length > 1
+                ? myNick() + "-" + lane.short
+                : myNick();
+            sendCastFrame(buf, from, lane ? { id: lane.short, label: lane.label } : null);
           }
         }
       } else if (

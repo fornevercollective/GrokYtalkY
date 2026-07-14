@@ -30,7 +30,7 @@
     </a>
 
     <div class="gg-header-main" role="toolbar" aria-label="Main controls">
-      <button type="button" class="gg-hbtn" id="gg-cam" title="Camera → your glyph" aria-pressed="false">cam</button>
+      <button type="button" class="gg-hbtn" id="gg-cam" title="Open all phone cameras → glyph tiles (tap again to stop)" aria-pressed="false">cam</button>
       <button type="button" class="gg-hbtn primary" id="gg-cast" title="Cast video as luminance to mesh" aria-pressed="false">cast</button>
       <button type="button" class="gg-hbtn" id="gg-screen" title="Cast Glyph player to screen / external display (full LED resolution)" aria-pressed="false">screen</button>
       <button type="button" class="gg-hbtn" id="gg-hub" title="Connect mesh hub" aria-pressed="false">hub</button>
@@ -105,7 +105,9 @@
               <input type="text" id="gg-room-id" placeholder="global" autocomplete="off" spellcheck="false" />
             </label>
             <p class="gg-hint" id="gg-hub-hint">
-              Cam → luminance. <strong>Cast</strong> ships hexlum + vburst. Room id scopes the mesh.
+              <strong>Cam</strong> opens every phone lens at once (front · back · ultra-wide when exposed).
+              Each becomes a glyph tile. <strong>Cast</strong> ships hexlum + vburst (<code>cast:sphere</code>) to hub / sphere.
+              Use HTTPS (this GitHub Pages site) for camera permission.
             </p>
             <div class="gg-btn-row">
               <button type="button" class="btn ghost danger" id="gg-clear-room-drawer">Delete / clear room</button>
