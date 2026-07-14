@@ -442,12 +442,18 @@
       if (!text) return;
       el.input.value = "";
       appendChat(nick, text, "self");
+      // BitChat dual-path when available
+      if (opts.bitchat && typeof opts.bitchat.sendChat === "function") {
+        opts.bitchat.sendChat(text, { from: nick });
+        return;
+      }
       sendMesh({
         type: "chat",
         text: text,
         from: nick,
         role: "peer",
         t: Date.now(),
+        meta: { via: "wifi", dual: true },
       });
     }
 
@@ -458,8 +464,23 @@
       if (from === nick) return;
       var typ = msg.type;
 
-      if (typ === "chat" && msg.text) {
-        appendChat(from, msg.text, "peer");
+      if (
+        (typ === "chat" || typ === "bitchat-chat") &&
+        msg.text
+      ) {
+        var via =
+          (msg.meta && msg.meta.via) ||
+          (typ === "bitchat-chat" ? "bitchat" : "");
+        var label = from + (via === "bitchat" ? "·bt" : "");
+        appendChat(label, msg.text, via === "bitchat" ? "system" : "peer");
+        return;
+      }
+      if (typ === "bitchat-presence") {
+        appendChat("system", "BLE presence · " + from, "system");
+        return;
+      }
+      if (typ === "bitchat-control" && msg.action) {
+        appendChat("system", "control " + msg.action + " · " + from, "system");
         return;
       }
       if (typ === "vburst-start" || (typ === "ptt" && msg.state === "down")) {

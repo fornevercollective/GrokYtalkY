@@ -148,6 +148,8 @@
   let socialLazyTimer = 0;
   /** @type {MediaStream | null} primary stream (compat) */
   let mediaStream = null;
+  /** BitChat dual-path helper (BLE/Nostr via hub bridge) */
+  let bitchat = null;
   /**
    * All active camera lanes (phone front + back + ultra-wide, etc.)
    * @type {Array<{
@@ -1518,7 +1520,27 @@
     }
     const typ = msg.type;
     const from = msg.from || msg.nick || "";
+    // BitChat dual-path (may be same nick with bt: prefix)
+    if (bitchat) bitchat.onMesh(msg);
     if (!from || from === myNick()) return;
+
+    if (typ === "bitchat-chat" || (typ === "chat" && msg.meta && msg.meta.via === "bitchat")) {
+      ensureRxPeer(from, true);
+      const p = findPeerByNick(from);
+      if (p) {
+        p.source = "rx";
+        p.via = "bitchat";
+      }
+      setCastLabel("bt " + from);
+      if (els.hubHint) {
+        els.hubHint.textContent =
+          "BitChat · " + from + " · " + String(msg.text || "").slice(0, 80);
+      }
+    }
+    if (typ === "bitchat-control" && msg.action) {
+      if (msg.action === "cast-start" && !casting) startCast();
+      if (msg.action === "cast-stop" && casting) stopCast();
+    }
 
     if (typ === "vburst-start" || (typ === "ptt" && msg.state === "down")) {
       ensureRxPeer(from);
@@ -2856,12 +2878,19 @@
     renderRegionList();
     // announce geo room
     if (ws && ws.readyState === WebSocket.OPEN) {
-      sendJSON({
-        type: "chat",
-        from: myNick(),
-        text: "joined mesh " + pick.id + " @ " + geoFix.lat.toFixed(3) + "," + geoFix.lon.toFixed(3),
-        t: Date.now(),
-      });
+      const line =
+        "joined mesh " + pick.id + " @ " + geoFix.lat.toFixed(3) + "," + geoFix.lon.toFixed(3);
+      if (bitchat) {
+        bitchat.sendChat(line);
+      } else {
+        sendJSON({
+          type: "chat",
+          from: myNick(),
+          text: line,
+          t: Date.now(),
+          meta: { via: "wifi", dual: true },
+        });
+      }
     }
   }
 
@@ -2906,6 +2935,27 @@
   initPeers();
   wire();
   wireExtra();
+  if (window.GY_BITCHAT) {
+    bitchat = window.GY_BITCHAT.create({
+      getNick: myNick,
+      getRoom: function () {
+        return meshRoom;
+      },
+      sendMesh: function (obj) {
+        return sendJSON(obj);
+      },
+      onChat: function (row) {
+        if (row && row.from) ensureRxPeer(row.from);
+        setCastLabel("bt " + (row && row.from ? row.from : ""));
+      },
+      onControl: function (c) {
+        if (!c) return;
+        if (c.action === "cast-start" && !casting) startCast();
+        if (c.action === "cast-stop" && casting) stopCast();
+      },
+    });
+    bitchat.startPoll(12000);
+  }
   setDrawer(false);
   switchTab("room");
   layoutAndPaint();

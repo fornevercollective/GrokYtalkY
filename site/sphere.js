@@ -477,11 +477,61 @@
     }
   }
 
+  let bitchat = null;
+
   function initWalkie() {
     if (!window.GY_SPHERE_WALKIE) {
       console.warn("[sphere] sphere-walkie.js missing");
       return;
     }
+    // BitChat dual-path (BLE/Nostr via hub bridge)
+    if (window.GY_BITCHAT) {
+      bitchat = window.GY_BITCHAT.create({
+        getNick: function () {
+          return sphereNick;
+        },
+        getRoom: function () {
+          return "news";
+        },
+        sendMesh: sendMesh,
+        onChat: function (row) {
+          if (walkie && row && row.text) {
+            /* walkie onMesh also paints; keep status */
+          }
+          setStatus(
+            "<strong>bt</strong> · " + (row.from || "?") + " · " + String(row.text || "").slice(0, 48),
+            "live"
+          );
+        },
+        onControl: function (c) {
+          if (!c || !c.action) return;
+          if (c.action === "cast-start" || c.action === "sphere-cast") {
+            castMode = "sphere";
+            setStatus("<strong>bt control</strong> · cast sphere", "live");
+          }
+          if (c.action === "cast-stop") {
+            setStatus("<strong>bt control</strong> · cast stop", "live");
+          }
+        },
+        onStatus: function (t) {
+          var el = document.getElementById("sp-bitchat-meta");
+          if (el) el.textContent = t || "bitchat";
+        },
+      });
+      bitchat.startPoll(10000);
+      bitchat.refresh().then(function (j) {
+        var el = document.getElementById("sp-bitchat-meta");
+        if (el && j) {
+          el.textContent =
+            "bitchat · bridges " +
+            (j.bridges || 0) +
+            " · peers " +
+            (j.peer_n || 0) +
+            " · dual chat";
+        }
+      });
+    }
+
     walkie = window.GY_SPHERE_WALKIE.create({
       getNick: function () {
         return sphereNick;
@@ -490,6 +540,7 @@
       getCastMode: function () {
         return castMode;
       },
+      bitchat: bitchat,
       onMood: function (m) {
         setBurstMood(m === "tx" || m === "rx" ? m : "idle");
       },
@@ -525,6 +576,29 @@
             : "<strong>cast</strong> · pin to seat",
           "live"
         );
+      });
+    }
+    const dualBtn = document.getElementById("sp-bitchat-dual");
+    if (dualBtn && bitchat) {
+      dualBtn.addEventListener("click", function () {
+        const st = bitchat.getState();
+        const on = !st.dualSend;
+        bitchat.setDual(on);
+        dualBtn.classList.toggle("is-on", on);
+        dualBtn.textContent = on ? "Dual chat" : "Wi‑Fi only";
+        setStatus(on ? "dual chat · hub + BLE egress queue" : "wifi chat only", "live");
+      });
+    }
+    const simBtn = document.getElementById("sp-bitchat-sim");
+    if (simBtn && window.GY_BITCHAT) {
+      simBtn.addEventListener("click", function () {
+        window.GY_BITCHAT.sim("sphere ping from BLE sim", "crew").then(function (j) {
+          setStatus(
+            j && j.ok ? "<strong>bt sim</strong> · offline peer injected" : "bt sim failed",
+            j && j.ok ? "live" : "err"
+          );
+          if (bitchat) bitchat.refresh();
+        });
       });
     }
   }
@@ -1364,8 +1438,9 @@
       if (msg.type === "vburst-frame" || msg.type === "news-frame") upsertFeed(msg);
       else if (msg.type === "gyst" && (msg.kind === "hexlum" || Array.isArray(msg.data))) upsertFeed(msg);
       if (msg.type === "camera-controls" || msg.type === "venue-light") refreshLightPanel();
-      // walkie burst + mesh chat
+      // walkie burst + mesh chat + bitchat dual-path
       if (walkie) walkie.onMesh(msg);
+      if (bitchat) bitchat.onMesh(msg);
       if (msg.type === "vburst-start" || (msg.type === "ptt" && msg.state === "down")) {
         if (msg.from && msg.from !== sphereNick) setBurstMood("rx");
       }

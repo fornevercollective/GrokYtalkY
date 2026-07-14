@@ -252,7 +252,10 @@
         <button type="button" class="primary" id="sp-walkie-hold">Hold burst</button>
         <button type="button" id="sp-walkie-cam">Enable cam</button>
         <button type="button" class="is-on" id="sp-walkie-cast-mode" title="Project glyph across the whole dome">Cast: sphere</button>
+        <button type="button" class="is-on" id="sp-bitchat-dual" title="Also queue chat for BitChat BLE/Nostr egress">Dual chat</button>
+        <button type="button" id="sp-bitchat-sim" title="Simulate offline BLE peer">Sim BLE</button>
       </div>
+      <p class="sp-walkie-meta" id="sp-bitchat-meta" style="opacity:0.85">bitchat · dual-path offline mesh</p>
       <div class="sp-cam-help" id="sp-cam-help" hidden>
         <div class="sp-cam-help-body"></div>
         <div class="sp-cam-help-actions">
@@ -304,6 +307,7 @@
   <script src="sphere-seating.js"></script>
   <script src="venue-canvas.js"></script>
   <script src="venue-lighting.js"></script>
+  <script src="bitchat-bridge.js"></script>
   <script src="sphere-walkie.js"></script>
   <script src="sphere.js"></script>
 </body>

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -270,6 +271,10 @@ func NewHub(addr string, quiet bool, staticDir string) *Hub {
 	// Glyph Sphere Siri-like chat (SpaceXAI / xAI — key stays on server)
 	mux.HandleFunc("/api/chat", HandleAPIChat)
 	mux.HandleFunc("/api/chat/clear", HandleAPIChat)
+	// BitChat dual-path (BLE mesh / Nostr via native adapter)
+	BitChat().AttachHub(h)
+	mux.HandleFunc("/api/bitchat", HandleBitChatAPI)
+	mux.HandleFunc("/api/bitchat/", HandleBitChatAPI)
 	// Same-WiFi phone → terminal: join URLs + discovery metadata
 	mux.HandleFunc("/api/lan", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -492,8 +497,9 @@ func (h *Hub) handleWS(w http.ResponseWriter, r *http.Request) {
 
 	// soft capacity — refuse join if room full (bridges exempt)
 	max := RoomMaxPeers()
+	isBridge := meta.Role == "bridge" || meta.Role == "bitchat-bridge" || meta.Role == "bitchat"
 	h.mu.Lock()
-	if max > 0 && meta.Role != "bridge" && h.roomPeerCount(meta.Room) >= max {
+	if max > 0 && !isBridge && h.roomPeerCount(meta.Room) >= max {
 		h.mu.Unlock()
 		_ = writeJSON(r.Context(), c, map[string]any{
 			"type": "error", "code": "room_full",
@@ -508,6 +514,9 @@ func (h *Hub) handleWS(w http.ResponseWriter, r *http.Request) {
 	nAll := len(h.peers)
 	pgm := h.programs[meta.Room]
 	h.mu.Unlock()
+	if isBridge {
+		BitChat().BridgeConnected(1)
+	}
 
 	if !h.quiet {
 		log.Printf("+ %s room=%s (%s) room_n=%d total=%d", meta.Nick, meta.Room, meta.ID, nRoom, nAll)
@@ -527,6 +536,9 @@ func (h *Hub) handleWS(w http.ResponseWriter, r *http.Request) {
 
 	defer func() {
 		room := meta.Room
+		if isBridge {
+			BitChat().BridgeConnected(-1)
+		}
 		h.mu.Lock()
 		delete(h.peers, c)
 		h.mu.Unlock()
@@ -631,7 +643,33 @@ func (h *Hub) route(from *websocket.Conn, meta *peerMeta, data []byte) {
 			"room": meta.Room,
 			"t":    time.Now().UnixMilli(),
 		}
+		// preserve dual-path meta when present
+		if m, ok := msg["meta"].(map[string]any); ok {
+			out["meta"] = m
+		}
 		h.broadcastRoom(meta.Room, from, mustJSON(out))
+		// queue for BitChat native egress (BLE/Nostr) unless already from bitchat
+		if !meshViaBitChat(msg) {
+			BitChat().EnqueueEgress(BitChatEnvelope{
+				Type:      "chat",
+				Text:      fmt.Sprint(msg["text"]),
+				From:      coalesce(msg["from"], meta.Nick),
+				Room:      meta.Room,
+				Transport: "wifi-hub",
+				T:         time.Now().UnixMilli(),
+			})
+		}
+	case "bitchat-chat", "bitchat-presence", "bitchat-control", "bitchat-dm":
+		// re-ingress mesh-originated bitchat (adapter connected as peer)
+		env := envelopeFromMesh(msg, meta)
+		if err := BitChat().Ingress(env); err != nil {
+			// still fan raw if ingress rejects (e.g. empty) — broadcast minimal
+			msg["room"] = meta.Room
+			if _, ok := msg["from"]; !ok {
+				msg["from"] = meta.Nick
+			}
+			h.broadcastRoom(meta.Room, from, mustJSON(msg))
+		}
 	case "sphere-chat", "sphere-say":
 		// multi-person dialogue fan-out (user ↔ Glyph Sphere)
 		out := map[string]any{
@@ -795,6 +833,70 @@ func (h *Hub) setPeerRoom(c *websocket.Conn, meta *peerMeta, newRoom string) {
 	if !h.quiet {
 		log.Printf("~ %s room %s → %s", meta.Nick, old, newRoom)
 	}
+}
+
+// FanoutBitChat broadcasts converted mesh messages for a BitChat envelope to a room.
+func (h *Hub) FanoutBitChat(env BitChatEnvelope) {
+	if h == nil {
+		return
+	}
+	room := env.Room
+	if room == "" {
+		room = "global"
+	}
+	for _, m := range MeshFromBitChat(env) {
+		h.broadcastRoom(room, nil, mustJSON(m))
+	}
+}
+
+func meshViaBitChat(msg map[string]any) bool {
+	if v, ok := msg["via"].(string); ok && strings.EqualFold(v, "bitchat") {
+		return true
+	}
+	if m, ok := msg["meta"].(map[string]any); ok {
+		if v, ok := m["via"].(string); ok && strings.EqualFold(v, "bitchat") {
+			return true
+		}
+	}
+	return false
+}
+
+func envelopeFromMesh(msg map[string]any, meta *peerMeta) BitChatEnvelope {
+	typ := "chat"
+	if t, _ := msg["type"].(string); strings.HasPrefix(t, "bitchat-") {
+		typ = strings.TrimPrefix(t, "bitchat-")
+	}
+	text, _ := msg["text"].(string)
+	from := coalesce(msg["from"], meta.Nick)
+	room := meta.Room
+	if r, ok := msg["room"].(string); ok && r != "" {
+		room = r
+	}
+	action, _ := msg["action"].(string)
+	to, _ := msg["to"].(string)
+	env := BitChatEnvelope{
+		Type:      typ,
+		Text:      text,
+		From:      from,
+		To:        to,
+		Room:      room,
+		Action:    action,
+		Transport: "bridge",
+		T:         time.Now().UnixMilli(),
+	}
+	if m, ok := msg["meta"].(map[string]any); ok {
+		env.Meta = m
+		if ch, ok := m["channel"].(string); ok {
+			env.Channel = ch
+		}
+		if tr, ok := m["transport"].(string); ok {
+			env.Transport = tr
+		}
+		if gh, ok := m["geohash"].(string); ok {
+			env.Geohash = gh
+		}
+	}
+	return env
 }
 
 // broadcastRoom sends to all peers in room except the sender.

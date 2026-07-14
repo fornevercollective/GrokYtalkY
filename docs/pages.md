@@ -7,6 +7,9 @@
 - **Home (sections · install · keypoints):** https://fornevercollective.github.io/GrokYtalkY/#conversation
 - **Burst orb / Spaces:** https://fornevercollective.github.io/GrokYtalkY/burst.html
 - **Live News glyph wall:** https://fornevercollective.github.io/GrokYtalkY/livenews.html
+- **GrokGlyph PWA (multi-cam):** https://fornevercollective.github.io/GrokYtalkY/grokglyph.html
+- **Sphere walkie:** https://fornevercollective.github.io/GrokYtalkY/sphere.html
+- **BitChat dual-path:** `docs/bitchat.md` · hub `/api/bitchat` · `site/bitchat-bridge.js`
 
 ## Source
 

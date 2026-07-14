@@ -241,6 +241,7 @@ func helpBodyCLI() string {
   gy serve               phone cast URL · GET /api/lan · /api/lan/qr
   gy stream-pub|colossus src
   gy agent · gy venue · gy sfu-bridge · gy chat-bridge
+  gy bitchat doctor|send|sim|bridge   BLE mesh dual-path
   gy mid-lane --room R --edge URL   edge mid-lane hook
   gy encode · gy decode · gy doctor
   gy update | upgrade [--check]
@@ -251,6 +252,7 @@ func helpBodyCLI() string {
 env
   XAI_API_KEY · GROK_MODEL · GROK_CLI_URL
   GY_CAP · GY_ROLE · GY_ROOM · GY_ROOM_MAX · PREFIX
+  GY_BITCHAT · GY_BITCHAT_CHANNEL · GY_HUB_HTTP
   GY_EDGE_URL · GY_EDGE_TOKEN
   GY_NO_AUTO_UPDATE=1 · GY_AUTO_UPDATE=0|check
   ZIPDEPTH_URL
@@ -277,6 +279,8 @@ func helpBodyDocs() string {
   hub rooms    ?room= · program-per-room · /api/rooms · GY_ROOM_MAX
   mid-lane     gy mid-lane → edge/mid-lane worker (public audience)
                site/mid-lane.html · wrangler dev --port 8788
+  bitchat      BLE/Nostr dual-path · gy bitchat · /api/bitchat
+               site/bitchat-bridge.js · docs/bitchat.md
   sfu          make sfu-media · GY_SFU_TOKEN · GY_SFU_TURN_URLS
                GET :9880/health · /metrics · outbox backpressure
   facility     gy doctor nmos · GY_PTP_LOCKED · GY_NMOS_REGISTRY

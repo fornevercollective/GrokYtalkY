@@ -134,6 +134,8 @@ func run(args []string) error {
 			fmt.Println("usage: gy blank [doctor|install|start]")
 			return nil
 		}
+	case "bitchat", "bit-chat", "ble-mesh", "offline-chat":
+		return runBitChatCmd(args)
 	case "mid-lane", "midlane", "edge-pub", "edge-hook":
 		return runMidLaneCmd(args)
 	case "agent", "glyph-agent", "iot":
@@ -279,6 +281,9 @@ TUI launches auto-update by default (check GitHub → install → re-exec).
 		case "blank", "social", "tiktok":
 			fmt.Print(FormatBlankDoctor())
 			return nil
+		case "bitchat", "ble", "offline-chat":
+			fmt.Print(FormatBitChatDoctor())
+			return nil
 		}
 		fmt.Print(StreamDoctor())
 		fmt.Print(FormatPackageManagersDoctor())
@@ -288,12 +293,13 @@ TUI launches auto-update by default (check GitHub → install → re-exec).
 		fmt.Print(FormatSfuDoctor())
 		fmt.Print(FormatPlatformDoctor(SamplePlatformReadiness()))
 		fmt.Print(FormatBlankDoctor())
+		fmt.Print(FormatBitChatDoctor())
 		fmt.Println(DepthDoctorLine())
 		fmt.Println(DepthModesList())
 		fmt.Printf("gy binary: %s\n", versionLine())
 		cap := DetectCapProfile(80, 24)
 		fmt.Println(cap.SummaryLine())
-		fmt.Println("doctor st2110 · sync · cameras · nmos · packages · reliability · plugins · space · vision · sfu · platform · camera · blank")
+		fmt.Println("doctor st2110 · sync · cameras · nmos · packages · reliability · plugins · space · vision · sfu · platform · camera · blank · bitchat")
 		fmt.Println("deps: gy install deps -y · gy install blank · gy install deps --list")
 		if p, err := os.Executable(); err == nil {
 			fmt.Printf("path: %s\n", p)
@@ -435,6 +441,7 @@ commands
   %s sfu-token            mint GY_SFU_TOKEN for dojo + bridge
   %s platform             FFmpeg/Grok streaming platform readiness
   %s chat-bridge          hub → Space captions
+  %s bitchat              BLE/Nostr dual-path (BitChat bridge)
   %s mid-lane             edge mid-lane hook (program/hex → HTTP)
   %s doctor [st2110|sync|…|platform]
   %s update | upgrade [--check]
@@ -460,10 +467,10 @@ docs  https://fornevercollective.github.io/GrokYtalkY/
   repo docs/streams-capacity.md · st2110-sync-cameras.md
 
 env   XAI_API_KEY · GROK_MODEL · GY_CAP · GY_ROLE · GY_ROOM
-      GY_ROOM_MAX · GY_EDGE_URL · GY_EDGE_TOKEN
+      GY_ROOM_MAX · GY_EDGE_URL · GY_EDGE_TOKEN · GY_BITCHAT · GY_BITCHAT_CHANNEL
       GY_PTP_LOCKED · GY_PTP_DOMAIN · GY_PTP_IFACE · GY_NMOS_REGISTRY
       GY_CALLS_WHIP_URL · GY_NO_AUTO_UPDATE=1 · --no-update
-hub   rooms: ?room= · GET /api/rooms · /api/social?q=@user
+hub   rooms: ?room= · GET /api/rooms · /api/social?q=@user · /api/bitchat
       gy mid-lane --room dojo --edge https://…/mid
 install
   gy install                  → ~/.local/bin/gy
@@ -472,7 +479,7 @@ install
   gy uninstall
   gy install dependencies     go · ffmpeg · yt-dlp (brew --yes)
   make install                same local channel
-`, Version, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd)
+`, Version, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd)
 }
 
 func runHubOnly(bind string, port int) error {
