@@ -219,12 +219,15 @@ func MobilePortraitHalfRows(cols, glyphN int) int {
 
 // ResolveSocial expands a handle to a playable stream: live/broadcast first, then other content.
 // Secondary items are attached as Lazy for staggered lab fill.
+// Prefers blank POST /api/ingest/resolve when blank is up (TikTok live parity).
 func ResolveSocial(q *SocialQuery) (*ResolvedStream, error) {
 	if q == nil || q.Handle == "" {
 		return nil, fmt.Errorf("empty social handle")
 	}
 	bin, err := lookYtDlp()
-	if err != nil {
+	// blank can resolve even if yt-dlp missing on gy PATH (blank has its own)
+	blankUp := BlankBaseURL() != "" && BlankReachable(BlankBaseURL())
+	if err != nil && !blankUp {
 		return nil, err
 	}
 
@@ -240,6 +243,41 @@ func ResolveSocial(q *SocialQuery) (*ResolvedStream, error) {
 		cands := socialLiveCandidates(plat, q.Handle)
 		for i, page := range cands {
 			liveBias := i == 0 // first candidate is live/broadcast page
+
+			// Prefer blank for TikTok live / social pages when server is up
+			if blankUp && (plat == SocialTikTok || liveBias || plat == SocialInstagram) {
+				if r, berr := ResolveViaBlank(page); berr == nil && r != nil && r.Video != "" {
+					r.Input = q.Raw
+					if r.Input == "" {
+						r.Input = page
+					}
+					r.Platform = plat
+					r.Handle = q.Handle
+					r.Mobile = IsMobileSocialPlatform(plat) || looksPortraitTitle(r.Title)
+					if r.Via == "" {
+						r.Via = "blank-social"
+					}
+					if r.Live || liveBias {
+						if bin != "" {
+							r.Lazy = socialLazyList(bin, plat, q.Handle, page, 6)
+						}
+						if r.Title == "" {
+							r.Title = plat + "/@" + q.Handle
+						}
+						return r, nil
+					}
+					if bestFallback == nil {
+						bestFallback = r
+					}
+					continue
+				} else if berr != nil {
+					lastErr = berr
+				}
+			}
+
+			if bin == "" {
+				continue
+			}
 			r, err := resolveYtDlpSocial(bin, page, liveBias)
 			if err != nil {
 				lastErr = err

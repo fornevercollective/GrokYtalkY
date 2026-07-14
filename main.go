@@ -19,6 +19,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strings"
@@ -102,6 +103,37 @@ func run(args []string) error {
 		return runSfuTokenCmd(args)
 	case "platform", "integrate", "handoff":
 		return runPlatformCmd(args)
+	case "blank":
+		// gy blank · gy blank doctor · gy blank install · gy blank start
+		sub := ""
+		if len(args) > 0 {
+			sub = strings.ToLower(args[0])
+		}
+		switch sub {
+		case "install", "setup":
+			fmt.Println("installing blank…")
+			if err := InstallBlank(); err != nil {
+				return err
+			}
+			fmt.Print(FormatBlankDoctor())
+			return nil
+		case "start", "up", "serve":
+			root := BlankRoot()
+			fmt.Printf("starting blank from %s\n", root)
+			cmd := exec.Command("bash", filepath.Join(root, "start.sh"))
+			cmd.Dir = root
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			cmd.Env = os.Environ()
+			return cmd.Run()
+		case "doctor", "status", "info", "":
+			fmt.Print(FormatBlankDoctor())
+			return nil
+		default:
+			fmt.Print(FormatBlankDoctor())
+			fmt.Println("usage: gy blank [doctor|install|start]")
+			return nil
+		}
 	case "mid-lane", "midlane", "edge-pub", "edge-hook":
 		return runMidLaneCmd(args)
 	case "agent", "glyph-agent", "iot":
@@ -244,6 +276,9 @@ TUI launches auto-update by default (check GitHub → install → re-exec).
 		case "look", "lighting", "camctrl", "camera-controls":
 			fmt.Print(FormatCameraDoctor())
 			return nil
+		case "blank", "social", "tiktok":
+			fmt.Print(FormatBlankDoctor())
+			return nil
 		}
 		fmt.Print(StreamDoctor())
 		fmt.Print(FormatPackageManagersDoctor())
@@ -252,13 +287,14 @@ TUI launches auto-update by default (check GitHub → install → re-exec).
 		fmt.Print(FormatSpaceDoctor(Spaces()))
 		fmt.Print(FormatSfuDoctor())
 		fmt.Print(FormatPlatformDoctor(SamplePlatformReadiness()))
+		fmt.Print(FormatBlankDoctor())
 		fmt.Println(DepthDoctorLine())
 		fmt.Println(DepthModesList())
 		fmt.Printf("gy binary: %s\n", versionLine())
 		cap := DetectCapProfile(80, 24)
 		fmt.Println(cap.SummaryLine())
-		fmt.Println("doctor st2110 · sync · cameras · nmos · packages · reliability · plugins · space · vision · sfu · platform · camera")
-		fmt.Println("deps: gy install deps -y · gy install deps --list")
+		fmt.Println("doctor st2110 · sync · cameras · nmos · packages · reliability · plugins · space · vision · sfu · platform · camera · blank")
+		fmt.Println("deps: gy install deps -y · gy install blank · gy install deps --list")
 		if p, err := os.Executable(); err == nil {
 			fmt.Printf("path: %s\n", p)
 		}

@@ -69,8 +69,18 @@ gy mid-lane --room dojo --edge http://127.0.0.1:8788/mid
 
 ### blank + StageForge (+ optional gy)
 ```bash
+# full install (node · yt-dlp · ffmpeg · habitat · TikTok resolve)
+gy install blank
+# or: ~/dev/blank/scripts/install-all.sh
+
+cd ~/dev/blank && ./start.sh          # http://127.0.0.1:5173
+# social resolve: POST /api/ingest/resolve {"url":"https://www.tiktok.com/@user/live"}
+# gy uses blank when up:  /social tiktok:user  ·  GY_BLANK_URL=http://127.0.0.1:5173
+
 cd ~/dev/blank && ./Launch-StageForge.command
 # with gy hub staged: STAGEFORGE_GY=1 ./Launch-StageForge.command
+
+gy doctor blank
 ```
 
 ### overview research + blank tools

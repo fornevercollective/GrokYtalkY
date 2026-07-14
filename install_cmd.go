@@ -30,6 +30,8 @@ func installHelp() string {
   gy install deps -y         install missing (auto-pick best manager)
   gy install deps --pm uv    force package manager (brew|uv|pipx|npm|cargo|apt|…)
   gy install deps --list     show catalog + available managers
+  gy install blank           install blank stack (yt-dlp · node · TikTok live resolve)
+  gy blank doctor            blank path · server · social resolve status
   gy clean install           uninstall then install (fresh local channel)
   gy clean-install           same as clean install
   gy uninstall               remove gy / grokytalky / gy-burst from local + /usr/local/bin
@@ -76,6 +78,13 @@ func runInstallCmd(verb string, args []string) error {
 	if verb == "install" && len(args) > 0 {
 		sub := strings.ToLower(args[0])
 		switch sub {
+		case "blank":
+			fmt.Println("installing blank (social · TikTok live resolve)…")
+			if err := InstallBlank(); err != nil {
+				return err
+			}
+			fmt.Print(FormatBlankDoctor())
+			return nil
 		case "dependencies", "dependency", "deps", "dep":
 			return runInstallDependencies(args[1:])
 		case "clean":

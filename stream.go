@@ -81,11 +81,20 @@ func ResolveMedia(src string) (*ResolvedStream, error) {
 		}, nil
 	}
 
-	// site page / share link → yt-dlp (YouTube, Twitch, X, TikTok, …)
-	// Prefer live formats when the path looks like a live/broadcast URL.
+	// site page / share link → blank (when up) then yt-dlp (YouTube, Twitch, X, TikTok, …)
 	if needsYtDlp(src) {
+		// blank first for TikTok /live and other live pages (cookies + proxy path)
+		if blankURLForPage(src) {
+			if r, err := ResolveViaBlank(src); err == nil && r != nil && r.Video != "" {
+				return r, nil
+			}
+		}
 		if isLivePageURL(src) {
 			if r, err := resolveYtDlpLiveFirst(src); err == nil {
+				return r, nil
+			}
+			// last chance blank if live-first yt-dlp failed
+			if r, err := ResolveViaBlank(src); err == nil && r != nil && r.Video != "" {
 				return r, nil
 			}
 		}
@@ -100,6 +109,18 @@ func ResolveMedia(src string) (*ResolvedStream, error) {
 		Input: src, Video: src, Via: "direct",
 		Title: shortURL(src),
 	}, nil
+}
+
+// blankURLForPage true when blank is the preferred resolve path (TikTok, live pages).
+func blankURLForPage(src string) bool {
+	if BlankBaseURL() == "" || !BlankReachable(BlankBaseURL()) {
+		return false
+	}
+	low := strings.ToLower(src)
+	if strings.Contains(low, "tiktok.com") {
+		return true
+	}
+	return isLivePageURL(src)
 }
 
 func isRawStreamURL(s string) bool {
