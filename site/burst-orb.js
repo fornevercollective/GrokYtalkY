@@ -190,28 +190,56 @@
   }
 
   async function enableCam() {
+    const host = (location.hostname || '');
+    const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
+    if (!window.isSecureContext && !isLocal) {
+      setMeta('cam needs localhost — open http://127.0.0.1:9876/burst.html (not LAN IP)');
+      return;
+    }
+    const tries = [
+      { video: { facingMode: 'user', width: { ideal: 320 }, height: { ideal: 320 } }, audio: true },
+      { video: true, audio: true },
+      { video: true, audio: false },
+    ];
+    let lastErr = null;
+    for (let i = 0; i < tries.length; i++) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(tries[i]);
+        lastErr = null;
+        break;
+      } catch (e) {
+        lastErr = e;
+        if (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) break;
+      }
+    }
+    if (lastErr || !stream) {
+      const n = lastErr && lastErr.name;
+      if (n === 'NotAllowedError') setMeta('cam permission denied — allow in address bar 🔒');
+      else if (n === 'NotFoundError') setMeta('no camera found — sim face');
+      else setMeta('cam blocked — sim face · ' + (n || ''));
+      return;
+    }
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: { ideal: 320 }, height: { ideal: 320 } },
-        audio: true,
-      });
       video = document.createElement('video');
       video.playsInline = true;
       video.muted = true;
       video.srcObject = stream;
       await video.play();
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 64;
-      micSource = audioCtx.createMediaStreamSource(stream);
-      micSource.connect(analyser);
-      if (window.__gySpaces && window.__gySpaces.setAnalyser) {
-        window.__gySpaces.setAnalyser(analyser);
+      if (stream.getAudioTracks && stream.getAudioTracks().length) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') await audioCtx.resume();
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 64;
+        micSource = audioCtx.createMediaStreamSource(stream);
+        micSource.connect(analyser);
+        if (window.__gySpaces && window.__gySpaces.setAnalyser) {
+          window.__gySpaces.setAnalyser(analyser);
+        }
       }
       setMeta('cam ready · hold orb to burst');
       el.btnCam && (el.btnCam.textContent = 'Cam on');
     } catch (e) {
-      setMeta('cam blocked — sim face');
+      setMeta('cam play failed — sim face');
     }
   }
 

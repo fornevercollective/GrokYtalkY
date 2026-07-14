@@ -234,28 +234,149 @@
       }
     }
 
-    async function enableCam() {
+    function camErrorHint(err) {
+      var name = (err && err.name) || "";
+      var msg = (err && err.message) || String(err || "");
+      var host = "";
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user", width: { ideal: 320 }, height: { ideal: 320 } },
-          audio: true,
-        });
+        host = location.hostname || "";
+      } catch (_) {}
+      var secure = false;
+      try {
+        secure = !!global.isSecureContext;
+      } catch (_) {}
+
+      // Browsers only allow getUserMedia on secure contexts (https or localhost)
+      if (!secure || (host && host !== "localhost" && host !== "127.0.0.1" && !/^\[::1\]$/.test(host))) {
+        return (
+          "cam needs localhost (not LAN IP). Open http://127.0.0.1:9876/sphere.html — " +
+          "browsers block camera on http://" +
+          (host || "LAN")
+        );
+      }
+      if (name === "NotAllowedError" || /Permission|NotAllowed|denied/i.test(msg)) {
+        return "cam permission denied — click 🔒 in the address bar → allow Camera & Mic, then retry";
+      }
+      if (name === "NotFoundError" || /NotFound|no device/i.test(msg)) {
+        return "no camera found — plug in a cam or use sim face";
+      }
+      if (name === "NotReadableError" || /in use|NotReadable|Could not start/i.test(msg)) {
+        return "cam in use by another app — close Zoom/Meet and retry";
+      }
+      if (name === "OverconstrainedError") {
+        return "cam constraints failed — retrying simpler…";
+      }
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        return "no mediaDevices API — use Chrome/Safari on https or localhost";
+      }
+      return "cam error: " + (name || msg || "unknown") + " — using sim face";
+    }
+
+    async function getCamStream() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw Object.assign(new Error("mediaDevices unavailable"), { name: "NotSupportedError" });
+      }
+      // Progressive constraints — strict ideal often fails; audio alone can also fail
+      var tries = [
+        { video: { facingMode: "user", width: { ideal: 320 }, height: { ideal: 320 } }, audio: true },
+        { video: { facingMode: "user" }, audio: true },
+        { video: true, audio: true },
+        { video: { facingMode: "user" }, audio: false },
+        { video: true, audio: false },
+      ];
+      var lastErr = null;
+      for (var i = 0; i < tries.length; i++) {
+        try {
+          return await navigator.mediaDevices.getUserMedia(tries[i]);
+        } catch (e) {
+          lastErr = e;
+          // hard stop on permission / insecure — no point retrying constraints
+          if (e && (e.name === "NotAllowedError" || e.name === "SecurityError" || e.name === "NotFoundError")) {
+            throw e;
+          }
+        }
+      }
+      throw lastErr || new Error("getUserMedia failed");
+    }
+
+    async function enableCam() {
+      // Preflight: insecure origin (LAN http://192.168…)
+      var host = "";
+      try {
+        host = location.hostname || "";
+      } catch (_) {}
+      var isLocalhost = host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host === "::1";
+      var secure = false;
+      try {
+        secure = !!global.isSecureContext;
+      } catch (_) {}
+      if (!secure && !isLocalhost) {
+        var hint =
+          "Camera blocked on http://" +
+          host +
+          " — open http://127.0.0.1:9876/sphere.html (localhost is secure)";
+        setMeta(hint);
+        appendChat("system", hint, "system");
+        if (el.btnCam) el.btnCam.textContent = "Use localhost";
+        return;
+      }
+
+      if (el.btnCam) {
+        el.btnCam.disabled = true;
+        el.btnCam.textContent = "Requesting…";
+      }
+      setMeta("requesting camera…");
+
+      try {
+        // stop previous
+        if (stream) {
+          try {
+            stream.getTracks().forEach(function (t) {
+              t.stop();
+            });
+          } catch (_) {}
+        }
+        stream = await getCamStream();
         video = document.createElement("video");
+        video.setAttribute("playsinline", "");
         video.playsInline = true;
         video.muted = true;
         video.srcObject = stream;
         await video.play();
-        audioCtx = new (global.AudioContext || global.webkitAudioContext)();
-        analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 64;
-        micSource = audioCtx.createMediaStreamSource(stream);
-        micSource.connect(analyser);
-        setMeta("cam ready · hold orb to burst");
-        if (el.btnCam) el.btnCam.textContent = "Cam on";
-        appendChat("system", "camera ready — hold the orb to walkie", "system");
+
+        var hasAudio = stream.getAudioTracks && stream.getAudioTracks().length > 0;
+        if (hasAudio) {
+          try {
+            audioCtx = new (global.AudioContext || global.webkitAudioContext)();
+            if (audioCtx.state === "suspended") await audioCtx.resume();
+            analyser = audioCtx.createAnalyser();
+            analyser.fftSize = 64;
+            micSource = audioCtx.createMediaStreamSource(stream);
+            micSource.connect(analyser);
+          } catch (_) {
+            /* ring still works without mic levels */
+          }
+        }
+
+        setMeta("cam ready · hold orb to burst" + (hasAudio ? "" : " (no mic)"));
+        if (el.btnCam) {
+          el.btnCam.disabled = false;
+          el.btnCam.textContent = "Cam on";
+        }
+        appendChat(
+          "system",
+          "camera ready — hold the orb to walkie" + (hasAudio ? "" : " (video only)"),
+          "system"
+        );
       } catch (e) {
-        setMeta("cam blocked — sim face");
-        appendChat("system", "cam blocked — using sim face", "system");
+        console.warn("[sphere-walkie] cam", e);
+        var hint = camErrorHint(e);
+        setMeta(hint);
+        appendChat("system", hint, "system");
+        if (el.btnCam) {
+          el.btnCam.disabled = false;
+          el.btnCam.textContent = isLocalhost ? "Retry cam" : "Use localhost";
+        }
       }
     }
 
@@ -375,6 +496,21 @@
     setMeta("enable cam · hold orb · space = PTT");
     setLabel("hold");
     appendChat("system", "Walkie burst · hold the ball orb · chat below", "system");
+    // Proactive tip when opened via LAN IP (most common cam block)
+    try {
+      var h0 = location.hostname || "";
+      var local0 = h0 === "localhost" || h0 === "127.0.0.1" || h0 === "[::1]";
+      if (!local0 && !global.isSecureContext) {
+        appendChat(
+          "system",
+          "Tip: camera needs localhost — open http://127.0.0.1:9876/sphere.html (not " +
+            h0 +
+            ")",
+          "system"
+        );
+        setMeta("cam needs http://127.0.0.1:9876/sphere.html");
+      }
+    } catch (_) {}
     paintSimFace(0);
     raf = requestAnimationFrame(loop);
 
