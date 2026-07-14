@@ -30,16 +30,31 @@
     return "http://127.0.0.1:9876";
   }
 
+  function fetchTimeout(url, opts, ms) {
+    opts = opts || {};
+    ms = ms || 45000;
+    var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    var t = setTimeout(function () {
+      if (ctrl) ctrl.abort();
+    }, ms);
+    var o = Object.assign({}, opts);
+    if (ctrl) o.signal = ctrl.signal;
+    return fetch(url, o).finally(function () {
+      clearTimeout(t);
+    });
+  }
+
   async function resolveStream(pageURL) {
     pageURL = String(pageURL || "").trim();
     if (!pageURL) throw new Error("empty url");
     var lastErr = "resolve failed";
 
-    // 1) Hub first (one server path, uses blank when up, returns blank-proxy URL)
+    // 1) Hub first (server blank/yt-dlp → blank-proxy play URL)
     try {
-      var res2 = await fetch(
+      var res2 = await fetchTimeout(
         hubBase() + "/api/media/resolve?url=" + encodeURIComponent(pageURL),
-        { headers: { Accept: "application/json" } }
+        { headers: { Accept: "application/json" } },
+        50000
       );
       var j2 = await res2.json();
       if (j2 && j2.ok && j2.video) {
@@ -53,16 +68,20 @@
       }
       if (j2 && j2.error) lastErr = j2.error;
     } catch (e) {
-      lastErr = e && e.message ? e.message : String(e);
+      lastErr = e && e.name === "AbortError" ? "hub resolve timeout" : e && e.message ? e.message : String(e);
     }
 
     // 2) Direct blank
     try {
-      var res = await fetch(blankBase() + "/api/ingest/resolve", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ url: pageURL }),
-      });
+      var res = await fetchTimeout(
+        blankBase() + "/api/ingest/resolve",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ url: pageURL }),
+        },
+        50000
+      );
       if (!res.ok) {
         lastErr = "blank HTTP " + res.status;
       } else {
@@ -81,7 +100,8 @@
         if (j && j.error) lastErr = j.error;
       }
     } catch (e2) {
-      lastErr = e2 && e2.message ? e2.message : String(e2);
+      lastErr =
+        e2 && e2.name === "AbortError" ? "blank resolve timeout" : e2 && e2.message ? e2.message : String(e2);
     }
 
     throw new Error(lastErr);

@@ -8,7 +8,15 @@
   const NS = window.GY_NEWS;
   const TH = window.GY_NEWS_THEME;
   const LIVE = window.GY_NEWS_LIVE;
-  if (!G || !NS) return;
+  if (!G || !NS) {
+    console.error('[livenews] missing GY_GLYPH or GY_NEWS — scripts failed to load');
+    // still wire buttons with error feedback
+    document.addEventListener('DOMContentLoaded', function () {
+      var m = document.getElementById('ln-meta');
+      if (m) m.textContent = 'JS load error · hard refresh (missing glyph/news modules)';
+    });
+    return;
+  }
 
   const MAIN_CAP = 24; // tiles in main column (speakers-style)
 
@@ -978,41 +986,97 @@
     }
   }
 
-  // wire
-  el.connect && el.connect.addEventListener('click', connect);
-  el.expand &&
-    el.expand.addEventListener('click', () => {
-      el.regions.querySelectorAll('details').forEach((d) => (d.open = true));
+  // wire — use onclick + addEventListener so sticky UI always responds
+  function bindClick(node, fn) {
+    if (!node || typeof fn !== 'function') return;
+    node.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        fn(e);
+      } catch (err) {
+        console.error('[livenews] click', err);
+        if (el.meta) el.meta.textContent = 'error · ' + (err && err.message ? err.message : err);
+      }
     });
-  el.collapse &&
-    el.collapse.addEventListener('click', () => {
-      el.regions.querySelectorAll('details').forEach((d) => (d.open = false));
-    });
-  el.refreshAll && el.refreshAll.addEventListener('click', refreshAll);
-  el.stress && el.stress.addEventListener('click', stressJoin);
+    // also native handler for stubborn UI layers
+    node.onclick = function (e) {
+      e.preventDefault();
+      try {
+        fn(e);
+      } catch (err) {
+        console.error('[livenews] onclick', err);
+      }
+      return false;
+    };
+  }
+
+  bindClick(el.connect, function () {
+    if (el.meta) el.meta.textContent = 'connecting hub…';
+    connect();
+  });
+  bindClick(el.expand, function () {
+    el.regions.querySelectorAll('details').forEach((d) => (d.open = true));
+  });
+  bindClick(el.collapse, function () {
+    el.regions.querySelectorAll('details').forEach((d) => (d.open = false));
+  });
+  bindClick(el.refreshAll, refreshAll);
+  bindClick(el.stress, stressJoin);
   el.sort &&
     el.sort.addEventListener('change', () => {
       buildSections();
       if (el.sort.value === 'theme') fillFromSort();
     });
-  el.themeDemo && el.themeDemo.addEventListener('click', demoThemes);
-  el.visionDemo && el.visionDemo.addEventListener('click', demoVision);
-  el.cluster && el.cluster.addEventListener('click', clusterNow);
-  el.cast && el.cast.addEventListener('click', () => startCast(false));
-  el.castTv && el.castTv.addEventListener('click', () => startCast(true));
-  el.castStop && el.castStop.addEventListener('click', stopCast);
+  bindClick(el.themeDemo, demoThemes);
+  bindClick(el.visionDemo, demoVision);
+  bindClick(el.cluster, clusterNow);
+  bindClick(el.cast, function () {
+    startCast(false);
+  });
+  bindClick(el.castTv, function () {
+    startCast(true);
+  });
+  bindClick(el.castStop, stopCast);
 
   let goLiveBusy = false;
+  let goLiveTimer = 0;
+
+  function setGoLiveUI(text, busy) {
+    [el.goLive, el.goLiveMain].forEach(function (b) {
+      if (!b) return;
+      b.classList.toggle('is-on', !!busy || (text && String(text).indexOf('Live') === 0));
+      b.textContent = text || 'Resolve live';
+      // never leave permanently disabled — only aria-busy for feedback
+      b.disabled = false;
+      b.setAttribute('aria-busy', busy ? 'true' : 'false');
+      b.style.opacity = busy ? '0.85' : '1';
+      b.style.pointerEvents = 'auto';
+      b.style.cursor = 'pointer';
+    });
+  }
+
   async function goLiveMain() {
-    if (goLiveBusy) return;
+    if (goLiveBusy) {
+      if (el.meta) el.meta.textContent = 'already resolving… wait or click Stop live';
+      return;
+    }
     if (!LIVE) {
       if (el.meta) el.meta.innerHTML = '<em class="err">news-live.js missing</em> — hard refresh';
+      alert('news-live.js failed to load — hard refresh (Cmd+Shift+R)');
       return;
     }
     goLiveBusy = true;
+    if (goLiveTimer) clearTimeout(goLiveTimer);
+    // hard unlock after 3 min so UI never sticks
+    goLiveTimer = setTimeout(function () {
+      goLiveBusy = false;
+      setGoLiveUI('Retry resolve', false);
+      if (el.meta) el.meta.textContent = 'resolve timed out — click Resolve live again';
+    }, 180000);
+
     try {
       if (!mainIds.length) fillFromSort();
-      // known-good live news defaults
       if (!mainIds.length) {
         mainIds = ['cnn', 'bbc', 'sky', 'aje', 'cnbc', 'cspan'].filter((id) => NS.findById(id));
         mainIds.forEach((id) => {
@@ -1021,19 +1085,10 @@
         });
         renderMain();
       }
-      // pin only first MAX for resolve budget
       const maxN = LIVE.MAX_LIVE || 4;
       if (mainIds.length > maxN) {
         mainIds = mainIds.slice(0, maxN);
         renderMain();
-      }
-      function setGoLiveUI(text, busy) {
-        [el.goLive, el.goLiveMain].forEach(function (b) {
-          if (!b) return;
-          b.classList.toggle('is-on', !!busy || (text && text.indexOf('Live') === 0));
-          b.textContent = text || 'Resolve live';
-          b.disabled = !!busy;
-        });
       }
       setGoLiveUI('Resolving…', true);
       if (el.stopLive) el.stopLive.hidden = false;
@@ -1056,6 +1111,7 @@
             const parent = rec.canvas.parentElement;
             if (parent) parent.classList.add('is-live');
           }
+          setMeta();
         },
       });
       setGoLiveUI(res.ok ? 'Live · ' + res.ok : 'Retry resolve', false);
@@ -1075,61 +1131,64 @@
         startCastLoop();
         if (el.castStop) el.castStop.hidden = false;
       }
+      setMeta();
     } catch (e) {
+      console.error('[livenews] goLiveMain', e);
       if (el.meta) el.meta.textContent = 'resolve error · ' + (e && e.message ? e.message : e);
-      [el.goLive, el.goLiveMain].forEach(function (b) {
-        if (!b) return;
-        b.textContent = 'Retry resolve';
-        b.disabled = false;
-        b.classList.remove('is-on');
-      });
+      setGoLiveUI('Retry resolve', false);
     } finally {
       goLiveBusy = false;
+      if (goLiveTimer) {
+        clearTimeout(goLiveTimer);
+        goLiveTimer = 0;
+      }
     }
   }
 
   function stopLiveMain() {
+    goLiveBusy = false;
+    if (goLiveTimer) {
+      clearTimeout(goLiveTimer);
+      goLiveTimer = 0;
+    }
     if (LIVE) LIVE.stopAllLive(tileMap);
-    [el.goLive, el.goLiveMain].forEach(function (b) {
-      if (!b) return;
-      b.classList.remove('is-on');
-      b.textContent = 'Resolve live';
-      b.disabled = false;
-    });
+    setGoLiveUI('Resolve live', false);
     if (el.stopLive) el.stopLive.hidden = true;
     if (el.mainSub) el.mainSub.textContent = 'sim · pin · theme clump';
     setMeta();
   }
 
-  el.goLive && el.goLive.addEventListener('click', () => goLiveMain());
-  el.goLiveMain && el.goLiveMain.addEventListener('click', () => goLiveMain());
-  el.stopLive && el.stopLive.addEventListener('click', () => stopLiveMain());
+  // global hooks for HTML onclick + console debug
+  window.LN_connect = function () {
+    connect();
+  };
+  window.LN_goLive = goLiveMain;
+  window.LN_stopLive = stopLiveMain;
 
-  // auto: ?live=1 · ?golive=1 · default auto-live for dev
+  bindClick(el.goLive, goLiveMain);
+  bindClick(el.goLiveMain, goLiveMain);
+  bindClick(el.stopLive, stopLiveMain);
+
+  // auto only when live=1 (not default — avoids stuck "Resolving…" on load)
   try {
     const q = new URLSearchParams(location.search);
-    const auto =
-      q.get('live') === '1' ||
-      q.get('golive') === '1' ||
-      q.get('live') !== '0'; // default on unless live=0
-    if (auto) {
+    if (q.get('live') === '1' || q.get('golive') === '1') {
       setTimeout(function () {
         if (!ws || ws.readyState !== WebSocket.OPEN) connect();
         setTimeout(function () {
           goLiveMain();
-        }, 700);
-      }, 500);
+        }, 800);
+      }, 400);
     }
   } catch (_) {}
-  el.shuffle && el.shuffle.addEventListener('click', shuffleMain);
-  el.cycle && el.cycle.addEventListener('click', cycleMain);
-  el.clear &&
-    el.clear.addEventListener('click', () => {
-      mainIds = [];
-      renderMain();
-      buildSections();
-    });
-  el.fill && el.fill.addEventListener('click', fillFromSort);
+  bindClick(el.shuffle, shuffleMain);
+  bindClick(el.cycle, cycleMain);
+  bindClick(el.clear, function () {
+    mainIds = [];
+    renderMain();
+    buildSections();
+  });
+  bindClick(el.fill, fillFromSort);
 
   // init
   allSources().forEach(ensureRec);
