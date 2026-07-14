@@ -69,15 +69,16 @@
           <button type="button" class="btn ghost" id="ln-main-cycle" title="Cycle next page of feeds">Cycle ▸</button>
           <button type="button" class="btn ghost" id="ln-main-clear">Clear pins</button>
           <button type="button" class="btn ghost" id="ln-main-fill" title="Fill main from current sort">Fill from sort</button>
+          <button type="button" class="btn primary" id="ln-go-live" title="Resolve YouTube live → sample real frames to glyphs (needs blank or yt-dlp via hub)">Go live</button>
+          <button type="button" class="btn ghost" id="ln-stop-live" title="Stop real streams · back to sim" hidden>Stop live</button>
         </div>
         <div class="speaker-grid ln-main-grid" id="ln-main-grid" role="list" aria-label="Main feed mosaic"></div>
         <div class="ln-theme-bar" id="ln-theme-bar" aria-label="Theme clusters"></div>
         <div class="ln-vision-bar" id="ln-vision-bar" aria-label="Vision SAM / pose feeds" hidden></div>
         <p class="ln-main-hint">
-          Click a section tile to <strong>pin → main</strong>. Hub
-          <code>news-caption</code> / <code>vision-take</code>
-          (<code>segment_top</code> · <code>pose_hands</code> → theme clump.
-          Terminal: <code>gy lab</code> · <code>/news</code> · <code>GY_VISION=1</code>
+          <strong>Go live</strong> resolves YouTube <code>/live</code> via blank/yt-dlp and samples real frames into 25² glyphs
+          (not color sim). Needs <code>blank</code> on :5173 or hub <code>/api/media/resolve</code>.
+          Pin tiles → main → Go live → Cast TV. Terminal: <code>gy lab</code> · <code>/news</code>.
         </p>
       </aside>
 
@@ -99,6 +100,7 @@
 
   <script src="news-sources.js"></script>
   <script src="news-theme.js"></script>
+  <script src="news-live.js"></script>
   <script src="glyph-shared.js"></script>
   <script src="glyph-cast-wire.js"></script>
   <script src="livenews.js"></script>

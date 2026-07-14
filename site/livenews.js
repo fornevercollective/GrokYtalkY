@@ -7,6 +7,7 @@
   const G = window.GY_GLYPH;
   const NS = window.GY_NEWS;
   const TH = window.GY_NEWS_THEME;
+  const LIVE = window.GY_NEWS_LIVE;
   if (!G || !NS) return;
 
   const MAIN_CAP = 24; // tiles in main column (speakers-style)
@@ -35,6 +36,8 @@
     cast: document.getElementById('ln-cast'),
     castTv: document.getElementById('ln-cast-tv'),
     castStop: document.getElementById('ln-cast-stop'),
+    goLive: document.getElementById('ln-go-live'),
+    stopLive: document.getElementById('ln-stop-live'),
   };
 
   // full-res screen cast of main mosaic (glyph-cast.html)
@@ -986,6 +989,75 @@
   el.cast && el.cast.addEventListener('click', () => startCast(false));
   el.castTv && el.castTv.addEventListener('click', () => startCast(true));
   el.castStop && el.castStop.addEventListener('click', stopCast);
+
+  async function goLiveMain() {
+    if (!LIVE) {
+      if (el.meta) el.meta.textContent = 'news-live.js missing';
+      return;
+    }
+    if (!mainIds.length) fillFromSort();
+    // ensure at least a few known-good US news if empty
+    if (!mainIds.length) {
+      mainIds = ['cnn', 'bbc', 'sky', 'aje', 'cnbc', 'cspan'].filter((id) => NS.findById(id));
+      mainIds.forEach((id) => {
+        const s = NS.findById(id);
+        if (s) ensureRec(s);
+      });
+      renderMain();
+    }
+    if (el.goLive) {
+      el.goLive.classList.add('is-on');
+      el.goLive.textContent = 'Going live…';
+    }
+    if (el.stopLive) el.stopLive.hidden = false;
+    if (!ws || ws.readyState !== WebSocket.OPEN) connect();
+    const res = await LIVE.startMainLive(tileMap, mainIds, {
+      max: LIVE.MAX_LIVE || 6,
+      onStatus: function (s) {
+        if (el.meta) el.meta.textContent = s;
+        if (el.mainSub) el.mainSub.textContent = s;
+      },
+      onSample: function (rec) {
+        // repaint this tile canvas if present
+        if (rec.canvas && rec.lum && G.paintGlyphCanvas) {
+          G.paintGlyphCanvas(rec.canvas, rec.lum, {
+            cell: rec.canvas.width <= 100 ? 3 : 5,
+            tint: 0,
+          });
+        }
+      },
+    });
+    if (el.goLive) {
+      el.goLive.textContent = 'Live · ' + res.ok + ' streams';
+    }
+    if (el.meta) {
+      el.meta.innerHTML =
+        '<em>live</em> ' +
+        res.ok +
+        ' · fail ' +
+        res.fail +
+        (res.errors.length ? ' · ' + escapeHtml(res.errors[0]) : '');
+    }
+    // start casting to hub so TV/glyph-cast see real frames
+    if (res.ok > 0) {
+      startCastLoop();
+      if (el.castStop) el.castStop.hidden = false;
+    }
+  }
+
+  function stopLiveMain() {
+    if (LIVE) LIVE.stopAllLive(tileMap);
+    if (el.goLive) {
+      el.goLive.classList.remove('is-on');
+      el.goLive.textContent = 'Go live';
+    }
+    if (el.stopLive) el.stopLive.hidden = true;
+    if (el.mainSub) el.mainSub.textContent = 'sim · pin · theme clump';
+    setMeta();
+  }
+
+  el.goLive && el.goLive.addEventListener('click', () => goLiveMain());
+  el.stopLive && el.stopLive.addEventListener('click', () => stopLiveMain());
   el.shuffle && el.shuffle.addEventListener('click', shuffleMain);
   el.cycle && el.cycle.addEventListener('click', cycleMain);
   el.clear &&

@@ -207,6 +207,58 @@ func NewHub(addr string, quiet bool, staticDir string) *Hub {
 			},
 		})
 	})
+	// Media resolve for browser Live News (YouTube live → stream URL via blank/yt-dlp).
+	// GET /api/media/resolve?url=https://www.youtube.com/@CNN/live
+	// POST /api/media/resolve  {"url":"…"}
+	mux.HandleFunc("/api/media/resolve", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		q := strings.TrimSpace(r.URL.Query().Get("url"))
+		if q == "" {
+			q = strings.TrimSpace(r.URL.Query().Get("q"))
+		}
+		if q == "" && r.Method == http.MethodPost {
+			body, _ := io.ReadAll(io.LimitReader(r.Body, 8<<10))
+			var j map[string]any
+			if json.Unmarshal(body, &j) == nil {
+				if v, ok := j["url"].(string); ok {
+					q = strings.TrimSpace(v)
+				} else if v, ok := j["q"].(string); ok {
+					q = strings.TrimSpace(v)
+				}
+			}
+		}
+		if q == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "missing url"})
+			return
+		}
+		src, err := ResolveMediaTimeout(q, 100*time.Second)
+		if err != nil {
+			w.WriteHeader(http.StatusBadGateway)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": err.Error(), "url": q})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":       true,
+			"url":      q,
+			"video":    src.Video,
+			"audio":    src.Audio,
+			"title":    src.Title,
+			"via":      src.Via,
+			"live":     src.Live,
+			"platform": src.Platform,
+			"handle":   src.Handle,
+			"mobile":   src.Mobile,
+			"blank":    BlankBaseURL(),
+		})
+	})
 	// Same-WiFi phone → terminal: join URLs + discovery metadata
 	mux.HandleFunc("/api/lan", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

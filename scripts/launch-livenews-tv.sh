@@ -21,6 +21,19 @@ if [[ -x "$ROOT/bin/gy" ]]; then
   echo "  gy    $(gy version 2>/dev/null | head -1 || echo installed)"
 fi
 
+# start blank for YouTube live resolve + HLS proxy (CORS)
+if ! curl -sf -o /dev/null --max-time 1 "http://127.0.0.1:5173/"; then
+  if [[ -x "${HOME}/dev/blank/start.sh" ]]; then
+    echo "  starting blank :5173 (yt-dlp resolve for YouTube live)…"
+    (cd "${HOME}/dev/blank" && BLANK_OPEN_BROWSER=0 BLANK_QUIET=1 nohup ./start.sh > /tmp/blank-livenews.log 2>&1 &)
+    sleep 1
+  else
+    echo "  blank missing — Go live uses hub yt-dlp only (may hit CORS on video sample)"
+  fi
+else
+  echo "  blank already up"
+fi
+
 # start hub if down
 if ! curl -sf -o /dev/null --max-time 1 "http://127.0.0.1:${PORT}/api/lan"; then
   echo "  starting hub on ${BIND}:${PORT}…"
