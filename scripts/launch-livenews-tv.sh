@@ -34,14 +34,22 @@ else
   echo "  blank already up"
 fi
 
-# start hub if down
-if ! curl -sf -o /dev/null --max-time 1 "http://127.0.0.1:${PORT}/api/lan"; then
-  echo "  starting hub on ${BIND}:${PORT}…"
-  nohup gy serve --bind "$BIND" --port "$PORT" > /tmp/gy-serve-livenews.log 2>&1 &
+# start hub from repo root so site/ static is always found
+# (global ~/.local/bin/gy may be started from $HOME and miss static)
+export GY_STATIC="${GY_STATIC:-$ROOT/site}"
+if ! curl -sf -o /dev/null --max-time 1 "http://127.0.0.1:${PORT}/livenews.html"; then
+  # wrong static or down — restart cleanly
+  for pid in $(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null); do
+    kill "$pid" 2>/dev/null || true
+  done
+  sleep 0.5
+  echo "  starting hub on ${BIND}:${PORT} (static=$GY_STATIC)…"
+  cd "$ROOT"
+  nohup env GY_STATIC="$GY_STATIC" "$ROOT/bin/gy" serve --bind "$BIND" --port "$PORT" > /tmp/gy-serve-livenews.log 2>&1 &
   echo $! > /tmp/gy-serve-livenews.pid
-  sleep 0.8
+  sleep 1
 else
-  echo "  hub already up"
+  echo "  hub already up with site static"
 fi
 
 NEWS_URL="http://${LAN_IP}:${PORT}/livenews.html"

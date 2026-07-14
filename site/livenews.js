@@ -1058,6 +1058,19 @@
 
   el.goLive && el.goLive.addEventListener('click', () => goLiveMain());
   el.stopLive && el.stopLive.addEventListener('click', () => stopLiveMain());
+
+  // auto: ?live=1 · ?golive=1
+  try {
+    const q = new URLSearchParams(location.search);
+    if (q.get('live') === '1' || q.get('golive') === '1') {
+      setTimeout(function () {
+        if (!ws || ws.readyState !== WebSocket.OPEN) connect();
+        setTimeout(function () {
+          goLiveMain();
+        }, 500);
+      }, 400);
+    }
+  } catch (_) {}
   el.shuffle && el.shuffle.addEventListener('click', shuffleMain);
   el.cycle && el.cycle.addEventListener('click', cycleMain);
   el.clear &&

@@ -545,8 +545,12 @@ func defaultNick() string {
 
 func findStatic() string {
 	candidates := []string{}
+	// explicit override
+	if p := strings.TrimSpace(os.Getenv("GY_STATIC")); p != "" {
+		candidates = append(candidates, p)
+	}
 	if wd, err := os.Getwd(); err == nil {
-		// site/ is the Pages tree (GrokGlyph PWA, docs, chat, dojo)
+		// site/ is the Pages tree (GrokGlyph PWA, docs, chat, dojo, livenews)
 		candidates = append(candidates,
 			filepath.Join(wd, "site"),
 			wd,
@@ -554,7 +558,7 @@ func findStatic() string {
 			filepath.Join(wd, "..", "site"),
 		)
 	}
-	// binary next to checkout: bin/gy → ../site
+	// binary next to checkout: bin/gy → ../site · ~/.local/bin/gy → known clones
 	if exe, err := os.Executable(); err == nil {
 		if r, err2 := filepath.EvalSymlinks(exe); err2 == nil {
 			exe = r
@@ -566,13 +570,21 @@ func findStatic() string {
 			dir,
 		)
 	}
-	candidates = append(candidates, filepath.Join(os.Getenv("HOME"), "dev/mueee"))
+	if home, err := os.UserHomeDir(); err == nil {
+		candidates = append(candidates,
+			filepath.Join(home, "Projects", "GrokYtalkY", "site"),
+			filepath.Join(home, "dev", "GrokYtalkY", "site"),
+			filepath.Join(home, "Projects", "grokytalky", "site"),
+			filepath.Join(home, "dev", "mueee"),
+		)
+	}
+	// prefer modern site shell
+	markers := []string{"livenews.html", "grokglyph.html", "index.html", "phone.html", "walkie.html"}
 	for _, c := range candidates {
 		if c == "" {
 			continue
 		}
-		// prefer modern site shell
-		for _, marker := range []string{"grokglyph.html", "index.html", "walkie.html", "hexcast-send.html"} {
+		for _, marker := range markers {
 			if _, err := os.Stat(filepath.Join(c, marker)); err == nil {
 				return c
 			}
