@@ -7,6 +7,72 @@ import (
 	"testing"
 )
 
+func TestMapHubMediaQueueToSfuChatMeta(t *testing.T) {
+	msg := map[string]any{
+		"type":      "media-queue",
+		"action":    "seek",
+		"from":      "director",
+		"mediaTime": float64(42.5),
+		"index":     float64(1),
+		"playing":   true,
+		"title":     "x clip",
+	}
+	outs := MapHubMsgToSfu(msg)
+	if len(outs) != 1 {
+		t.Fatalf("outs %d", len(outs))
+	}
+	if outs[0].Msg["type"] != "chat" {
+		t.Fatalf("%v", outs[0].Msg)
+	}
+	meta, ok := outs[0].Msg["meta"].(map[string]any)
+	if !ok || meta["lane"] != "media-queue" {
+		t.Fatalf("meta %v", outs[0].Msg["meta"])
+	}
+	mq, ok := meta["mq"].(map[string]any)
+	if !ok || mq["action"] != "seek" {
+		t.Fatalf("mq %v", meta["mq"])
+	}
+
+	// reverse unwrap
+	rev := MapSfuMsgToHub(map[string]any{
+		"type": "chat",
+		"from": "phone",
+		"nick": "phone",
+		"text": "◈ media-queue",
+		"meta": map[string]any{
+			"lane": "media-queue",
+			"mq": map[string]any{
+				"type":      "media-queue",
+				"action":    "seek",
+				"mediaTime": float64(10),
+				"from":      "phone",
+			},
+		},
+	})
+	if len(rev) != 1 || rev[0].Msg["type"] != "media-queue" {
+		t.Fatalf("rev %v", rev)
+	}
+	if rev[0].Msg["action"] != "seek" {
+		t.Fatalf("%v", rev[0].Msg)
+	}
+}
+
+func TestMapHubMediaDomeToSfu(t *testing.T) {
+	outs := MapHubMsgToSfu(map[string]any{
+		"type":  "media-dome",
+		"video": "http://127.0.0.1:9876/api/media/play/abc",
+		"from":  "queue",
+		"title": "dome",
+	})
+	if len(outs) != 1 {
+		t.Fatal(len(outs))
+	}
+	meta := outs[0].Msg["meta"].(map[string]any)
+	if meta["lane"] != "media-dome" {
+		t.Fatal(meta)
+	}
+}
+
 func TestMapHubVburstToSfuGlyph(t *testing.T) {
 	msg := map[string]any{
 		"type":    "vburst-frame",

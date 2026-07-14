@@ -142,6 +142,26 @@ gy venue --sink st2110 --profile lab
 
 Scaffold: [`sfu/`](../sfu/README.md) (`make sfu-media` for webrtc-rs track + DataChannel fan-out) · [`chat/`](../chat/README.md) · site: [docs.html#streams-scale](https://fornevercollective.github.io/GrokYtalkY/docs.html#streams-scale)
 
+### Dual-path media queue (LAN hub + SFU WebRTC)
+
+Play Queue timeline (`media-queue` seek/play/index) and Sphere `media-dome` ride **two planes**:
+
+| Path | When | Transport |
+|------|------|-----------|
+| **Hub WS** `room=media` | Same Wi‑Fi as `gy serve` | JSON mesh |
+| **gy-sfu** room `media` | Off-LAN phones / TURN | WS chat `meta.mq` · WebRTC **DC `chat`** when `make sfu-media` |
+
+```bash
+export GY_SFU_TOKEN=$(gy sfu-token)
+gy serve --bind 0.0.0.0
+make sfu-media && ./sfu/target/release/gy-sfu --token "$GY_SFU_TOKEN" --bind 0.0.0.0:9880
+gy sfu-bridge --token "$GY_SFU_TOKEN" --room media
+# queue.html → Dual SFU path · same token · room media
+```
+
+Bridge maps hub `media-queue` / `media-dome` ↔ SFU chat + `meta.lane` + `meta.mq` (bidi).
+A/V still resolves via hub `/api/media/play` (or public URL); SFU carries **timeline sync**, not the media bytes.
+
 ---
 
 ## Paths in this app

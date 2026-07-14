@@ -53,17 +53,20 @@ Forwards (hub→sfu):
   hub vburst-frame.glyph  →  SFU type:glyph  (DC label glyph)
   hub gyst hexlum         →  SFU type:glyph + type:hex
   hub gyst forge-mark     →  SFU type:chat + meta mark
+  hub media-queue|media-dome →  SFU chat + meta.mq (dual-path timeline)
 
 Reverse (sfu→hub, --bidi):
   SFU type:glyph  →  hub vburst-frame
   SFU type:hex    →  hub gyst hexlum
   SFU type:chat   →  hub chat
+  SFU chat meta.mq →  hub media-queue / media-dome
 
 Example:
   export GY_SFU_TOKEN=$(gy sfu-token)
   gy serve
   make sfu-media && ./sfu/target/release/gy-sfu --token "$GY_SFU_TOKEN"
-  gy sfu-bridge --token "$GY_SFU_TOKEN" --room dojo
+  gy sfu-bridge --token "$GY_SFU_TOKEN" --room media
+  # queue.html · Dual SFU path · same room=media
   # browser: site/dojo.html  token field = same secret
 `)
 	}
@@ -353,6 +356,7 @@ func countBridgeIn(msg map[string]any) {
 
 // MapHubMsgToSfu converts one hub mesh JSON object into zero or more SFU messages.
 // Pure / testable — lattice bytes pass through unchanged on glyph+hex lanes.
+// media-queue / media-dome ride SFU chat with meta.lane for dual-path off-LAN.
 func MapHubMsgToSfu(msg map[string]any) []sfuBridgeOut {
 	if msg == nil {
 		return nil
@@ -363,9 +367,47 @@ func MapHubMsgToSfu(msg map[string]any) []sfuBridgeOut {
 		return mapVburstToSfu(msg)
 	case MeshTypeGYST, "gyst-frame":
 		return mapGystToSfu(msg)
+	case "media-queue", "media-dome":
+		return mapMediaLaneToSfu(msg)
 	default:
 		return nil
 	}
+}
+
+// mapMediaLaneToSfu wraps timeline / dome control as SFU chat + meta (WS + DC chat fan-out).
+func mapMediaLaneToSfu(msg map[string]any) []sfuBridgeOut {
+	typ, _ := msg["type"].(string)
+	from, _ := msg["from"].(string)
+	if from == "" {
+		from = "hub"
+	}
+	// avoid echo from our reverse path
+	if strings.Contains(strings.ToLower(from), "sfu-bridge") {
+		return nil
+	}
+	title, _ := msg["title"].(string)
+	if title == "" {
+		title = typ
+	}
+	// shallow clone body for meta (drop huge fields if ever present)
+	body := map[string]any{}
+	for k, v := range msg {
+		body[k] = v
+	}
+	body["via"] = "sfu-bridge"
+	return []sfuBridgeOut{{
+		Msg: map[string]any{
+			"type": "chat",
+			"from": from,
+			"text": "◈ " + typ + " · " + truncate(title, 48),
+			"role": "media",
+			"meta": map[string]any{
+				"lane": typ,
+				"mq":   body,
+			},
+		},
+		Log: fmt.Sprintf("%s → sfu chat/meta from=%s", typ, from),
+	}}
 }
 
 // MapSfuMsgToHub converts SFU glyph/hex/chat (WS or mirrored DC) → hub mesh.
@@ -441,10 +483,6 @@ func mapSfuHexToHub(msg map[string]any) []sfuBridgeOut {
 }
 
 func mapSfuChatToHub(msg map[string]any) []sfuBridgeOut {
-	text, _ := msg["text"].(string)
-	if strings.TrimSpace(text) == "" {
-		return nil
-	}
 	from, _ := msg["from"].(string)
 	if from == "" {
 		if n, ok := msg["nick"].(string); ok {
@@ -455,6 +493,38 @@ func mapSfuChatToHub(msg map[string]any) []sfuBridgeOut {
 		from = "sfu"
 	}
 	if strings.Contains(strings.ToLower(from), "sfu-bridge") {
+		return nil
+	}
+
+	// Dual-path media timeline: unwrap meta.mq → hub media-queue / media-dome
+	if meta, ok := msg["meta"].(map[string]any); ok && meta != nil {
+		lane, _ := meta["lane"].(string)
+		if mq, ok := meta["mq"].(map[string]any); ok && mq != nil {
+			out := map[string]any{}
+			for k, v := range mq {
+				out[k] = v
+			}
+			if lane == "media-dome" || out["type"] == "media-dome" {
+				out["type"] = "media-dome"
+			} else {
+				out["type"] = "media-queue"
+			}
+			if _, ok := out["from"]; !ok {
+				out["from"] = from
+			}
+			out["via"] = "sfu-bridge"
+			if _, ok := out["t"]; !ok {
+				out["t"] = time.Now().UnixMilli()
+			}
+			return []sfuBridgeOut{{
+				Msg: out,
+				Log: fmt.Sprintf("%v dual-path from=%s", out["type"], from),
+			}}
+		}
+	}
+
+	text, _ := msg["text"].(string)
+	if strings.TrimSpace(text) == "" {
 		return nil
 	}
 	out := map[string]any{

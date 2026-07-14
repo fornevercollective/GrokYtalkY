@@ -144,6 +144,21 @@
         <button type="button" class="btn ghost" id="mq-hub-connect">Link mesh</button>
         <span class="mq-status" id="mq-hub-status">mesh off</span>
       </div>
+      <div class="mq-row mq-hub-row">
+        <label class="mq-label">SFU WS (off-LAN dual)
+          <input type="text" id="mq-sfu" placeholder="ws://HOST:9880/ws" autocomplete="off" spellcheck="false" />
+        </label>
+        <label class="mq-label">Token
+          <input type="text" id="mq-sfu-token" placeholder="GY_SFU_TOKEN" autocomplete="off" spellcheck="false" />
+        </label>
+        <button type="button" class="btn primary" id="mq-dual" title="Hub + SFU WebRTC DC timeline">Dual SFU path</button>
+        <span class="mq-status" id="mq-dual-status">dual off</span>
+      </div>
+      <p class="mq-hint">
+        <strong>Dual path:</strong> LAN hub for same Wi‑Fi · <code>gy-sfu</code> + <code>gy sfu-bridge --room media</code>
+        for phones off the hub network (WebRTC datachannel when media build; WS fallback).
+        Same <code>media-queue</code> seek/play JSON on both planes.
+      </p>
     </section>
 
     <section class="mq-panel mq-browse" aria-label="Browse helper">
@@ -166,6 +181,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js" defer></script>
   <script src="media-queue.js"></script>
+  <script src="media-sfu.js"></script>
   <script src="queue-app.js"></script>
 </body>
 </html>

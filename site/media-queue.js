@@ -690,7 +690,73 @@
       };
     }
 
+    var dual = null;
+    var meshNick = "queue";
+
+    function handleInboundMedia(msg, via) {
+      if (!msg) return;
+      if (msg.type === "media-dome") {
+        try {
+          listeners.forEach(function (fn) {
+            fn(Object.assign(snapshot(), { inboundDome: msg, via: via }));
+          });
+        } catch (_) {}
+        return;
+      }
+      if (msg.type !== "media-queue") return;
+      if (msg.action && msg.action !== "sync") {
+        if (msg.from && meshNick && String(msg.from) === String(meshNick)) return;
+        var now = Date.now();
+        if (msg.action === "seek" && now - lastMeshSeek < 80) return;
+        if (msg.action === "seek") lastMeshSeek = now;
+        applyRemoteTimeline(msg);
+      }
+    }
+
+    /**
+     * Dual-path: LAN hub + gy-sfu (WebRTC DC or WS) for off-LAN phones.
+     * Requires gy-sfu + gy sfu-bridge --room media.
+     */
+    function connectDual(cfg) {
+      cfg = cfg || {};
+      meshNick = cfg.nick || "queue-" + Math.random().toString(36).slice(2, 5);
+      connectMesh(meshNick);
+      if (typeof global.GY_MEDIA_SFU === "undefined") {
+        return { hubOnly: true, dual: null };
+      }
+      try {
+        if (dual) dual.disconnect();
+      } catch (_) {}
+      dual = global.GY_MEDIA_SFU.create({
+        hubWs: hubWs,
+        sfuWs: cfg.sfuWs,
+        room: cfg.room || "media",
+        nick: meshNick,
+        token: cfg.token || "",
+        webrtc: cfg.webrtc !== false,
+        onMessage: function (msg, via) {
+          handleInboundMedia(msg, via);
+        },
+        onStatus: cfg.onStatus || function () {},
+      });
+      opts.sendMesh = function (obj) {
+        if (dual) return dual.send(obj);
+        if (!ws || ws.readyState !== 1) return false;
+        try {
+          if (!obj.from) obj.from = meshNick;
+          if (!obj.room) obj.room = "media";
+          ws.send(JSON.stringify(obj));
+          return true;
+        } catch (_) {
+          return false;
+        }
+      };
+      dual.connect();
+      return { hubOnly: false, dual: dual };
+    }
+
     function connectMesh(nick) {
+      meshNick = nick || meshNick || "queue";
       if (!hubWs || hubWs === "ws://" || hubWs === "wss://") return null;
       try {
         if (ws) ws.close();
@@ -700,7 +766,7 @@
         url +=
           (url.includes("?") ? "&" : "?") +
           "nick=" +
-          encodeURIComponent(nick || "queue") +
+          encodeURIComponent(meshNick) +
           "&role=queue&room=media";
       }
       try {
@@ -713,7 +779,7 @@
           ws.send(
             JSON.stringify({
               type: "join",
-              nick: nick || "queue",
+              nick: meshNick,
               role: "queue",
               room: "media",
             })
@@ -728,20 +794,13 @@
         } catch (_) {
           return;
         }
-        if (msg.type === "media-queue" && msg.action && msg.action !== "sync") {
-          // avoid echo loops: only apply remote seeks from other nicks
-          if (msg.from && nick && msg.from === nick) return;
-          var now = Date.now();
-          if (msg.action === "seek" && now - lastMeshSeek < 80) return;
-          if (msg.action === "seek") lastMeshSeek = now;
-          applyRemoteTimeline(msg);
-        }
+        handleInboundMedia(msg, "hub");
       };
-      // expose for sendMesh path
       opts.sendMesh = function (obj) {
+        if (dual) return dual.send(obj);
         if (!ws || ws.readyState !== 1) return false;
         try {
-          if (!obj.from) obj.from = nick || "queue";
+          if (!obj.from) obj.from = meshNick;
           if (!obj.room) obj.room = "media";
           ws.send(JSON.stringify(obj));
           return true;
@@ -783,6 +842,7 @@
       shareURL: shareURL,
       loadFromLocation: loadFromLocation,
       connectMesh: connectMesh,
+      connectDual: connectDual,
       meshSync: meshSync,
       meshTimeline: meshTimeline,
       castSphereDome: castSphereDome,

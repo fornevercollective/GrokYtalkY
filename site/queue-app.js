@@ -407,6 +407,56 @@
     });
   }
 
+  // Dual SFU path (hub + WebRTC DC / SFU WS)
+  var dualStatus = document.getElementById("mq-dual-status");
+  var dualBtn = document.getElementById("mq-dual");
+  var sfuInput = document.getElementById("mq-sfu");
+  var sfuToken = document.getElementById("mq-sfu-token");
+  if (sfuInput && !sfuInput.value) {
+    try {
+      var h = location.hostname || "127.0.0.1";
+      sfuInput.value = "ws://" + h + ":9880/ws";
+    } catch (_) {
+      sfuInput.value = "ws://127.0.0.1:9880/ws";
+    }
+  }
+  if (sfuToken && !sfuToken.value) {
+    try {
+      sfuToken.value = localStorage.getItem("gy-sfu-token") || "";
+    } catch (_) {}
+  }
+  if (dualBtn) {
+    dualBtn.addEventListener("click", function () {
+      if (els.hub) q.setHub(els.hub.value.trim());
+      var tok = (sfuToken && sfuToken.value.trim()) || "";
+      try {
+        if (tok) localStorage.setItem("gy-sfu-token", tok);
+      } catch (_) {}
+      var res = q.connectDual({
+        nick: "queue-" + Math.random().toString(36).slice(2, 5),
+        sfuWs: (sfuInput && sfuInput.value.trim()) || undefined,
+        token: tok,
+        room: "media",
+        webrtc: true,
+        onStatus: function (t, c) {
+          if (!dualStatus) return;
+          dualStatus.textContent = t || "dual";
+          dualStatus.classList.toggle("is-live", !!(c && (c.hub || c.sfu)));
+          dualStatus.classList.toggle("is-err", false);
+        },
+      });
+      if (dualStatus) {
+        if (res && res.hubOnly) {
+          dualStatus.textContent = "hub only · media-sfu.js missing?";
+        } else {
+          dualStatus.textContent = "dual connecting…";
+          dualStatus.classList.add("is-live");
+        }
+      }
+      setStatus("dual path · hub + sfu room media", "live");
+    });
+  }
+
   // bookmarklet
   function buildBookmarklet() {
     var base = "";
