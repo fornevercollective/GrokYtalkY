@@ -623,7 +623,29 @@
       if (seat) t = v.index.byId.get("seat:" + seat.id);
     }
     if (!t && query.px != null && query.py != null) {
-      t = nearestInHash(v.index, +query.px, +query.py, query.maxDist || 600);
+      // Professional cast path: explicit px,py is an exact free LED address
+      // (unless snap:true to nearest seat/infra for director convenience).
+      if (query.snap) {
+        t = nearestInHash(v.index, +query.px, +query.py, query.maxDist || 600);
+      } else {
+        const w = pixelToWorld(+query.px, +query.py);
+        t = makeTarget({
+          id: "led:" + clampPx(+query.px) + "x" + clampPx(+query.py),
+          kind: "led",
+          zone: ZONE.screen,
+          label: "LED " + clampPx(+query.px) + "," + clampPx(+query.py),
+          section: "screen",
+          chunk: "chunk:screen:free",
+          x_m: w.x_m,
+          y_m: w.y_m,
+          z_m: w.z_m,
+          x: w.x,
+          y: w.y,
+          z: w.z,
+          px: clampPx(+query.px),
+          py: clampPx(+query.py),
+        });
+      }
       if (t && !v.index.byId.has(t.id)) {
         v.targets.push(t);
         v.index.byId.set(t.id, t);
