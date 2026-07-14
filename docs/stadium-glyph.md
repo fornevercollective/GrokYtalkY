@@ -237,12 +237,13 @@ Server returns: **cold page list** (CDN URLs) + **hot track IDs** (SFU / mesh) +
 | **sphere.html** | **Live Sphere Glyph viewer** | Seats + mesh `vburst`/`gyst` only (no qpu extras) |
 | qr.html | Quick connect | Seat/section QR → room + pos |
 
-### Sphere Glyph viewer (v1.80)
+### Sphere Glyph viewer (v1.80+)
 
 Focused page: [`site/sphere.html`](../site/sphere.html) + [`site/sphere.js`](../site/sphere.js)
 
 - **In:** hub WS · `vburst-frame` / `gyst` hexlum · optional `pos` (Sphere Bloch³)
-- **Out:** WebGL seat cloud + HUD Glyph tiles at live seats
+- **Out:** full dome (seats + interior shell points) · **color wave** across all points · HUD Glyph tiles on live seats
+- **Wave modes:** cascade ↓ · azimuth ○ · spiral · latitude bands (speed slider)
 - **Not included:** music, QPU patches, MOPA, VR Quest, kBatch, contrail language, laser export
 
 ```bash
@@ -251,7 +252,7 @@ gy serve
 open http://HOST:9876/sphere.html
 # phones
 open http://HOST:9876/phone.html?seat=200-R5-C12&quick=1
-# hold Cast → Glyphs light seats on the Sphere
+# hold Cast → Glyphs punch through the wave on those seats
 ```
 
 ---
