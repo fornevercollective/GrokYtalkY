@@ -151,17 +151,26 @@
   /** BitChat dual-path helper (BLE/Nostr via hub bridge) */
   let bitchat = null;
   /**
-   * All active camera lanes (phone front + back + ultra-wide, etc.)
+   * All active camera lanes (laptop webcam + phone front/back)
    * @type {Array<{
    *   deviceId: string,
    *   label: string,
    *   stream: MediaStream,
    *   video: HTMLVideoElement,
    *   peerId: string,
-   *   short: string
+   *   short: string,
+   *   kind?: string,
+   *   slot?: string,
+   *   sceneOrder?: number
    * }>}
    */
   let camLanes = [];
+  /** Filmmaker scene: L2 · L1 · C(laptop) · R1 · R2 */
+  let sceneMode = true;
+  /** URL ?slot=L1 forces this device into a scene seat */
+  let forcedSlot = "";
+  const SCENE_SLOTS = ["L2", "L1", "C", "R1", "R2"];
+  const SCENE_ORD = { L2: 0, L1: 1, C: 2, R1: 3, R2: 4 };
   /** @type {WebSocket | null} */
   let ws = null;
   /** @type {Map<string, HTMLCanvasElement>} */
@@ -759,18 +768,115 @@
     ctx.putImageData(img, 0, 0);
   }
 
-  // ── camera / file (multi-cam: all phone lenses simultaneously) ──
+  // ── camera / file (multi-cam simulcast · filmmaker scene L2 L1 C R1 R2) ──
+
+  function isMobileUA() {
+    try {
+      return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "");
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Classify a camera for filmmaker scene layout.
+   * Laptop/webcam → center (C); phone front → face (L1); back → scene (R1).
+   */
+  function classifyCam(label, index, facingHint) {
+    const L = String(label || "").toLowerCase();
+    const fh = String(facingHint || "").toLowerCase();
+    const mobile = isMobileUA();
+
+    // Built-in laptop / desktop webcam → center of the film scene
+    if (
+      /macbook|facetime|integrated|built-?in|logitech|webcam|hd pro|c920|c922|brio|obs|virtual|capture|elgato|cam link/i.test(
+        L
+      ) ||
+      (!mobile && L && !/back|rear|front|ultra|tele|environment|user/.test(L) && /camera|usb|hd/.test(L))
+    ) {
+      return { kind: "laptop", short: "laptop", slot: "C", order: 50, facing: "user" };
+    }
+    if (/ultra|wide/.test(L) && !/tele/.test(L)) {
+      return { kind: "uw", short: "uw", slot: "R2", order: 80, facing: "environment" };
+    }
+    if (/tele|zoom|×2|x2|×3|x3/.test(L)) {
+      return { kind: "tele", short: "tele", slot: "L2", order: 15, facing: "environment" };
+    }
+    if (/back|rear|environment|world|main camera/.test(L) || fh === "environment") {
+      return { kind: "back", short: "back", slot: "R1", order: 70, facing: "environment" };
+    }
+    if (/front|user|face|selfie|truedepth/.test(L) || fh === "user") {
+      return { kind: "front", short: "front", slot: "L1", order: 30, facing: "user" };
+    }
+    // Desktop unlabeled single cam → treat as laptop center
+    if (!mobile) {
+      return { kind: "laptop", short: "webcam", slot: "C", order: 50, facing: "user" };
+    }
+    // Mobile unlabeled: first = front, second = back
+    if (index === 0) {
+      return { kind: "front", short: "front", slot: "L1", order: 30, facing: "user" };
+    }
+    return { kind: "back", short: "back", slot: "R1", order: 70, facing: "environment" };
+  }
 
   function shortCamLabel(label, index, deviceId) {
-    const L = String(label || "").toLowerCase();
-    if (/ultra|wide/.test(L) && !/tele/.test(L)) return "uw";
-    if (/tele|zoom/.test(L)) return "tele";
-    if (/back|rear|environment|world/.test(L)) return "back";
-    if (/front|user|face|selfie/.test(L)) return "front";
-    if (label && label !== "camera" && label.length < 14) {
-      return label.replace(/\s+/g, "-").slice(0, 10);
+    return classifyCam(label, index, "").short;
+  }
+
+  function slotDir(slot) {
+    if (slot === "C") return "c";
+    if (slot === "L1" || slot === "L2") return "w";
+    if (slot === "R1" || slot === "R2") return "e";
+    return "e";
+  }
+
+  function sceneOrderOf(slotOrPeer) {
+    if (typeof slotOrPeer === "string") {
+      return SCENE_ORD[slotOrPeer] != null ? SCENE_ORD[slotOrPeer] : 50;
     }
-    return "cam" + (index + 1);
+    const p = slotOrPeer;
+    if (p && p.sceneSlot && SCENE_ORD[p.sceneSlot] != null) return SCENE_ORD[p.sceneSlot];
+    if (p && p.sceneOrder != null) return p.sceneOrder;
+    // parse nick-L1 / nick-C
+    const m = String((p && p.nick) || "").match(/-(L2|L1|C|R1|R2)$/i);
+    if (m) return SCENE_ORD[m[1].toUpperCase()];
+    if (p && (p.self || p.id === "self")) return SCENE_ORD.C;
+    return 50;
+  }
+
+  /**
+   * Assign unique scene slots L2·L1·C·R1·R2 for local lanes.
+   * Prefer laptop/webcam at C; phone front left; phone back right.
+   */
+  function assignSceneSlots(lanes) {
+    const used = new Set();
+    const prefer = {
+      laptop: "C",
+      webcam: "C",
+      front: "L1",
+      back: "R1",
+      uw: "R2",
+      tele: "L2",
+    };
+    // sort by preferred film order (kind priority)
+    const ranked = lanes.slice().sort((a, b) => {
+      const pa = a.kind === "laptop" ? 0 : a.kind === "front" ? 1 : a.kind === "back" ? 2 : 3;
+      const pb = b.kind === "laptop" ? 0 : b.kind === "front" ? 1 : b.kind === "back" ? 2 : 3;
+      return pa - pb || (a.order || 0) - (b.order || 0);
+    });
+    ranked.forEach((lane) => {
+      let slot = forcedSlot && SCENE_SLOTS.includes(forcedSlot) ? forcedSlot : prefer[lane.kind] || lane.slot || "R1";
+      if (used.has(slot)) {
+        slot = SCENE_SLOTS.find((s) => !used.has(s)) || slot;
+      }
+      used.add(slot);
+      lane.slot = slot;
+      lane.sceneOrder = SCENE_ORD[slot];
+      lane.short = slot === "C" ? lane.kind === "laptop" || lane.kind === "webcam" ? "laptop" : "C" : lane.kind || slot;
+    });
+    // re-sort lanes array left→right for stable peer indices
+    lanes.sort((a, b) => a.sceneOrder - b.sceneOrder);
+    return lanes;
   }
 
   function stopCamLanes() {
@@ -786,7 +892,6 @@
       } catch {
         /* ignore */
       }
-      // remove extra self-cam peers (keep primary self)
       if (lane.peerId && lane.peerId !== "self") {
         peers = peers.filter((p) => p.id !== lane.peerId);
         canvasById.delete(lane.peerId);
@@ -797,27 +902,41 @@
   }
 
   function ensureCamPeer(lane, index) {
-    if (index === 0) {
-      // primary self tile
+    const slot = lane.slot || "C";
+    const displayNick = sceneMode
+      ? myNick() + "-" + slot
+      : myNick() + (lane.short ? "-" + lane.short : "");
+    // Exactly one self tile — always the C / first lane; others are satellite selfCams
+    const isSelfTile = slot === "C" || !peers.some((p) => p.self || p.id === "self");
+
+    if (isSelfTile) {
       let self = peers.find((p) => p.self || p.id === "self");
       if (!self) {
         self = defaultSelf();
         peers.unshift(self);
       }
       self.source = "cam";
-      self.nick = myNick();
-      self.camLane = 0;
+      self.nick = displayNick;
+      self.camLane = index;
       self.selfCam = true;
+      self.sceneSlot = slot;
+      self.sceneOrder = SCENE_ORD[slot] != null ? SCENE_ORD[slot] : 2;
+      self.camKind = lane.kind || "cam";
+      self.dir = slotDir(slot);
       lane.peerId = self.id;
       return self;
     }
-    const id = "cam-" + (lane.deviceId || String(index)).replace(/\W/g, "").slice(0, 12);
+    const id =
+      "cam-" +
+      slot +
+      "-" +
+      (lane.deviceId || String(index)).replace(/\W/g, "").slice(0, 12);
     let p = peers.find((x) => x.id === id);
     if (!p) {
       p = {
         id: id,
-        nick: myNick() + "-" + lane.short,
-        dir: DIR_ORDER[index % DIR_ORDER.length],
+        nick: displayNick,
+        dir: slotDir(slot),
         on: true,
         seed: hashStr(id) % 1e9,
         self: false,
@@ -825,38 +944,54 @@
         source: "cam",
         room: meshRoom,
         camLane: index,
+        sceneSlot: slot,
+        sceneOrder: SCENE_ORD[slot] != null ? SCENE_ORD[slot] : 50,
+        camKind: lane.kind || "cam",
       };
       peers.push(p);
     } else {
       p.source = "cam";
       p.selfCam = true;
-      p.nick = myNick() + "-" + lane.short;
+      p.nick = displayNick;
       p.on = true;
+      p.sceneSlot = slot;
+      p.sceneOrder = SCENE_ORD[slot] != null ? SCENE_ORD[slot] : 50;
+      p.camKind = lane.kind || "cam";
+      p.dir = slotDir(slot);
     }
     lane.peerId = p.id;
     return p;
   }
 
-  async function openDeviceStream(deviceId) {
-    const tries = [
-      {
+  async function openDeviceStream(deviceId, facingMode) {
+    const tries = [];
+    if (deviceId) {
+      tries.push({
         video: {
-          deviceId: deviceId ? { exact: deviceId } : undefined,
-          width: { ideal: 640 },
-          height: { ideal: 480 },
+          deviceId: { exact: deviceId },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
         },
         audio: false,
-      },
-      { video: deviceId ? { deviceId: { exact: deviceId } } : true, audio: false },
-      { video: true, audio: false },
-    ];
+      });
+      tries.push({ video: { deviceId: { exact: deviceId } }, audio: false });
+    }
+    if (facingMode) {
+      tries.push({
+        video: {
+          facingMode: { exact: facingMode },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+        audio: false,
+      });
+      tries.push({ video: { facingMode: facingMode }, audio: false });
+    }
+    tries.push({ video: true, audio: false });
     let last = null;
     for (let i = 0; i < tries.length; i++) {
       try {
-        // strip undefined deviceId
-        const c = tries[i];
-        if (c.video && c.video.deviceId === undefined) c.video = true;
-        return await navigator.mediaDevices.getUserMedia(c);
+        return await navigator.mediaDevices.getUserMedia(tries[i]);
       } catch (e) {
         last = e;
         if (e && (e.name === "NotAllowedError" || e.name === "SecurityError")) throw e;
@@ -865,19 +1000,43 @@
     throw last || new Error("getUserMedia failed");
   }
 
+  async function attachLane(stream, label, deviceId, index, facingHint) {
+    const video = document.createElement("video");
+    video.setAttribute("playsinline", "");
+    video.playsInline = true;
+    video.muted = true;
+    video.autoplay = true;
+    video.srcObject = stream;
+    await video.play().catch(() => {});
+    const cls = classifyCam(label, index, facingHint);
+    const lane = {
+      deviceId: deviceId || "default-" + index,
+      label: label || cls.short,
+      stream: stream,
+      video: video,
+      peerId: "",
+      short: cls.short,
+      kind: cls.kind,
+      slot: cls.slot,
+      order: cls.order,
+      facing: cls.facing,
+      sceneOrder: SCENE_ORD[cls.slot] || 50,
+    };
+    return lane;
+  }
+
   /**
-   * Open every videoinput on the phone at once (front + back + extras).
-   * Each lens becomes a glyph tile; cast ships all lanes to the mesh / sphere.
+   * Open all local cameras (laptop webcam + phone front/back when OS allows)
+   * and place them in filmmaker scene order around center.
    */
   async function enableCam(opts) {
     opts = opts || {};
-    const allCams = opts.all !== false; // default: all cameras simultaneously
+    const allCams = opts.all !== false;
     if (camOn && camLanes.length && !opts.force) return true;
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setCastLabel("no cam API");
       return false;
     }
-    // Secure context tip (https GH Pages is fine; http LAN is not)
     try {
       if (!window.isSecureContext) {
         setCastLabel("need https/localhost");
@@ -892,9 +1051,10 @@
     }
 
     try {
-      // Permission probe (also unlocks device labels on iOS/Android)
+      setCastLabel("opening cams…");
+      // Permission probe unlocks labels; prefer user-facing first
       let probe = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user" },
+        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
         audio: false,
       });
       let devices = [];
@@ -904,90 +1064,127 @@
         devices = [];
       }
       const videoInputs = devices.filter((d) => d.kind === "videoinput");
-      // stop probe before opening named devices (some phones allow only one open at a time otherwise)
       probe.getTracks().forEach((t) => t.stop());
       probe = null;
 
       stopCamLanes();
       if (els.localVideo) els.localVideo.srcObject = null;
 
+      const opened = [];
+      const openIds = new Set();
+
+      // 1) Open each enumerated device (best path for multi-lens Android / multi-USB)
       const list =
         allCams && videoInputs.length
           ? videoInputs
           : videoInputs.length
             ? [videoInputs[0]]
-            : [{ deviceId: "", label: "camera" }];
+            : [];
 
-      // Prefer opening user then environment if no labels yet
-      const ordered = list.slice().sort((a, b) => {
-        const la = (a.label || "").toLowerCase();
-        const lb = (b.label || "").toLowerCase();
-        const score = (L) =>
-          /front|user|face/.test(L) ? 0 : /back|rear|environment/.test(L) ? 1 : 2;
-        return score(la) - score(lb);
-      });
-
-      for (let i = 0; i < ordered.length; i++) {
-        const d = ordered[i];
+      for (let i = 0; i < list.length; i++) {
+        const d = list[i];
         try {
-          const stream = await openDeviceStream(d.deviceId);
-          const video = document.createElement("video");
-          video.setAttribute("playsinline", "");
-          video.playsInline = true;
-          video.muted = true;
-          video.autoplay = true;
-          video.srcObject = stream;
-          await video.play().catch(() => {});
-          const short = shortCamLabel(d.label, i, d.deviceId);
-          const lane = {
-            deviceId: d.deviceId || "default-" + i,
-            label: d.label || short,
-            stream: stream,
-            video: video,
-            peerId: "",
-            short: short,
-          };
-          ensureCamPeer(lane, i);
-          camLanes.push(lane);
-          if (i === 0) {
-            mediaStream = stream;
-            if (els.localVideo) {
-              els.localVideo.srcObject = stream;
-              els.localVideo.muted = true;
-              els.localVideo.playsInline = true;
-              await els.localVideo.play().catch(() => {});
-            }
-          }
+          const stream = await openDeviceStream(d.deviceId, "");
+          const lane = await attachLane(stream, d.label, d.deviceId, opened.length, "");
+          opened.push(lane);
+          openIds.add(d.deviceId);
         } catch (e) {
-          console.warn("[grokglyph] cam lane skip", d.label || d.deviceId, e);
+          console.warn("[grokglyph] cam device skip", d.label || d.deviceId, e);
         }
       }
 
-      if (!camLanes.length) {
-        setCastLabel("cam failed");
-        return false;
+      // 2) Explicit front + back via facingMode (phones — often only one works at once)
+      if (allCams && isMobileUA()) {
+        for (const facing of ["user", "environment"]) {
+          const already = opened.some(
+            (l) =>
+              l.facing === facing ||
+              (facing === "user" && l.kind === "front") ||
+              (facing === "environment" && (l.kind === "back" || l.kind === "uw"))
+          );
+          if (already) continue;
+          try {
+            const stream = await openDeviceStream("", facing);
+            const track = stream.getVideoTracks()[0];
+            const settings = track && track.getSettings ? track.getSettings() : {};
+            const did = settings.deviceId || "";
+            if (did && openIds.has(did)) {
+              stream.getTracks().forEach((t) => t.stop());
+              continue;
+            }
+            if (did) openIds.add(did);
+            const label =
+              (track && track.label) || (facing === "user" ? "Front Camera" : "Back Camera");
+            const lane = await attachLane(stream, label, did, opened.length, facing);
+            opened.push(lane);
+          } catch (e) {
+            console.warn("[grokglyph] facingMode", facing, e && e.name);
+          }
+        }
+      }
+
+      // 3) Desktop fallback: single default webcam as center
+      if (!opened.length) {
+        try {
+          const stream = await openDeviceStream("", "user");
+          const track = stream.getVideoTracks()[0];
+          const lane = await attachLane(
+            stream,
+            (track && track.label) || "webcam",
+            "",
+            0,
+            "user"
+          );
+          opened.push(lane);
+        } catch (e) {
+          throw e;
+        }
+      }
+
+      assignSceneSlots(opened);
+      // rebuild peers in scene order
+      opened.forEach((lane, i) => {
+        ensureCamPeer(lane, i);
+        camLanes.push(lane);
+      });
+
+      // center stream → hidden local video for compat
+      const center = camLanes.find((l) => l.slot === "C") || camLanes[0];
+      if (center) {
+        mediaStream = center.stream;
+        if (els.localVideo) {
+          els.localVideo.srcObject = center.stream;
+          els.localVideo.muted = true;
+          els.localVideo.playsInline = true;
+          await els.localVideo.play().catch(() => {});
+        }
       }
 
       camOn = true;
       fileOn = false;
       if (els.camBtn) {
         els.camBtn.setAttribute("aria-pressed", "true");
-        els.camBtn.textContent = camLanes.length > 1 ? "cams " + camLanes.length : "cam";
+        els.camBtn.textContent =
+          camLanes.length > 1 ? "cams " + camLanes.length : "cam";
       }
+      const orderStr = camLanes.map((l) => l.slot + ":" + l.short).join(" · ");
       setCastLabel(
         casting
-          ? "casting " + camLanes.length + " cam"
+          ? "casting scene " + camLanes.length
           : camLanes.length > 1
-            ? camLanes.length + " cams live"
+            ? "scene " + camLanes.length + " cams"
             : "cam live"
       );
       if (els.hubHint) {
         els.hubHint.textContent =
-          camLanes.length > 1
-            ? "All cameras open (" +
-              camLanes.map((l) => l.short).join(" · ") +
-              "). Cast ships each lens as a glyph lane."
-            : "Cam live. Cast → mesh / sphere. Tip: multi-lens phones open all cameras at once.";
+          "Scene order " +
+          orderStr +
+          ". Filmmaker layout: L2·L1·[laptop C]·R1·R2. Phones: open this page with ?slot=L1 or ?slot=R1 and Cast. Cast ships every lens.";
+      }
+      const sceneBtn = document.getElementById("gg-scene");
+      if (sceneBtn) {
+        sceneBtn.setAttribute("aria-pressed", sceneMode ? "true" : "false");
+        sceneBtn.classList.toggle("is-on", sceneMode);
       }
       layoutAndPaint();
       return true;
@@ -999,9 +1196,8 @@
         const n = err && err.name;
         els.hubHint.textContent =
           n === "NotAllowedError"
-            ? "Camera permission denied — 🔒 in address bar → Allow, then cam again. Or use a video file."
-            : "Camera blocked — allow permission or use a video file. " +
-              (err && err.message ? err.message : "");
+            ? "Camera permission denied — 🔒 → Allow, then cam. Filmmaker tip: laptop cam = center; phones join hub with ?slot=L1 / R1."
+            : "Camera blocked — " + (err && err.message ? err.message : "");
       }
       return false;
     }
@@ -1546,6 +1742,28 @@
       ensureRxPeer(from);
       setCastLabel("rx " + from);
     }
+    // Tag RX peers with scene slot from cast meta or nick suffix (phone L1/R1 around laptop)
+    if (
+      (typ === "vburst-frame" || typ === "gyst") &&
+      from &&
+      from !== myNick()
+    ) {
+      const p = ensureRxPeer(from);
+      if (p) {
+        const cam = msg.cam || {};
+        let slot = cam.slot || "";
+        if (!slot) {
+          const m = String(from).match(/-(L2|L1|C|R1|R2)$/i);
+          if (m) slot = m[1].toUpperCase();
+        }
+        if (slot && SCENE_ORD[slot] != null) {
+          p.sceneSlot = slot;
+          p.sceneOrder = SCENE_ORD[slot];
+          p.dir = slotDir(slot);
+          p.camKind = cam.kind || p.camKind;
+        }
+      }
+    }
     if (typ === "vburst-end" || (typ === "ptt" && msg.state === "up")) {
       const p = findPeerByNick(from);
       if (p && p.source === "rx") {
@@ -1750,7 +1968,7 @@
     const H = Math.max(1, Math.floor(rect.height));
     const dpr = Math.min(window.devicePixelRatio || 1, 3);
     // capacity from filtered stage (search/filter shrinks crowded rooms)
-    const want = stageOrder().filter((p) => p.on || p.self);
+    const want = stageOrder().filter((p) => p.on || p.self || p.selfCam);
     const nWant = Math.max(1, want.length);
     const minCell = 25;
     let best = { cols: 1, rows: nWant, cell: 1 };
@@ -1785,7 +2003,7 @@
 
     const ordered = stageOrder();
     ordered.forEach((p, i) => {
-      if (p.self) {
+      if (p.self || p.selfCam) {
         p.on = true;
         p._capOff = false;
         return;
@@ -1833,7 +2051,7 @@
 
   function isLivePeer(p) {
     if (!p) return false;
-    if (p.self) return !!(camOn || fileOn || casting);
+    if (p.self || p.selfCam) return !!(camOn || fileOn || casting);
     return (
       p.source === "rx" &&
       !!p.lumAt &&
@@ -1929,22 +2147,44 @@
     return p.room === meshRoom;
   }
 
+  function peerSceneKey(p) {
+    if (!p) return 50;
+    if (p.sceneOrder != null) return p.sceneOrder;
+    if (p.sceneSlot && SCENE_ORD[p.sceneSlot] != null) return SCENE_ORD[p.sceneSlot];
+    const m = String(p.nick || "").match(/-(L2|L1|C|R1|R2)$/i);
+    if (m) return SCENE_ORD[m[1].toUpperCase()];
+    if (p.cam && p.cam.slot && SCENE_ORD[p.cam.slot] != null) return SCENE_ORD[p.cam.slot];
+    if (p.self || p.id === "self") return SCENE_ORD.C;
+    return 50 + (p.seed || 0) % 10;
+  }
+
   function visibleOrder() {
+    if (sceneMode) {
+      // Filmmaker scene: left → laptop center → right (all selfCams + live RX)
+      const list = peers.filter((p) => peerInRoom(p) || p.self || p.selfCam);
+      return list.slice().sort((a, b) => {
+        const d = peerSceneKey(a) - peerSceneKey(b);
+        if (d !== 0) return d;
+        if (a.self && !b.self) return -1;
+        if (!a.self && b.self) return 1;
+        return String(a.nick).localeCompare(String(b.nick));
+      });
+    }
     const self = peers.filter((p) => p.self);
     const rest = sortPeers(peers.filter((p) => !p.self && peerInRoom(p)));
     return self.concat(rest);
   }
 
-  /** Stage order: self first, then roster-filtered matches (crowded-area search). */
+  /** Stage order: scene L2·L1·C·R1·R2 or self-first roster. */
   function stageOrder() {
     const filtering = rosterFilter !== "all" || !!rosterQuery.trim();
     let list = visibleOrder();
     if (filtering) {
-      const matched = list.filter((p) => p.self || peerMatchesRoster(p));
+      const matched = list.filter((p) => p.self || p.selfCam || peerMatchesRoster(p));
       if (matched.length) list = matched;
     }
-    // focus to front (after self)
-    if (focusPeerId) {
+    // focus pin (still keep scene order among others)
+    if (focusPeerId && !sceneMode) {
       const self = list.filter((p) => p.self);
       const focus = list.filter((p) => !p.self && p.id === focusPeerId);
       const rest = list.filter((p) => !p.self && p.id !== focusPeerId);
@@ -1994,21 +2234,30 @@
       tile.className =
         "gg-tile" +
         (p.self ? " is-you" : "") +
-        (p.self && casting ? " is-casting" : "") +
+        (p.selfCam && !p.self ? " is-selfcam" : "") +
+        ((p.self || p.selfCam) && casting ? " is-casting" : "") +
         (p.source === "rx" ? " is-rx" : "") +
         (isVideo ? " is-video" : "") +
         (p.on ? "" : " is-off") +
+        (p.sceneSlot === "C" ? " is-scene-c" : "") +
         (focusPeerId && p.id === focusPeerId ? " is-focus" : "");
       tile.dataset.id = p.id;
+      if (p.sceneSlot) tile.dataset.slot = p.sceneSlot;
       tile.setAttribute("role", "listitem");
       tile.tabIndex = 0;
-      tile.title = p.nick + (p.self ? " (you)" : "") + (isVideo ? " · video" : "");
+      tile.title =
+        p.nick +
+        (p.sceneSlot ? " · slot " + p.sceneSlot : "") +
+        (p.camKind ? " · " + p.camKind : "") +
+        (p.self ? " (you)" : "") +
+        (isVideo ? " · video" : "");
 
       const badge = document.createElement("span");
       badge.className = "gg-dir-badge" + (isVideo ? " gg-live-badge" : "");
-      if (p.self && casting) badge.textContent = "TX";
+      if (sceneMode && p.sceneSlot) badge.textContent = p.sceneSlot;
+      else if ((p.self || p.selfCam) && casting) badge.textContent = "TX";
       else if (isVideo && p.source === "rx") badge.textContent = "RX";
-      else if (p.self && (camOn || fileOn)) badge.textContent = "CAM";
+      else if ((p.self || p.selfCam) && (camOn || fileOn)) badge.textContent = "CAM";
       else if (p.dir && p.dir !== "c") badge.textContent = p.dir.toUpperCase();
       if (badge.textContent) tile.appendChild(badge);
 
@@ -2410,11 +2659,18 @@
           // cast each camera lane (and file/self) to mesh + sphere
           if (castDue) {
             const lane = camLanes.find((l) => l.peerId === p.id);
+            const slot = (p.sceneSlot || (lane && lane.slot) || "C").toUpperCase();
             const from =
-              lane && camLanes.length > 1
-                ? myNick() + "-" + lane.short
+              sceneMode || (lane && camLanes.length > 1)
+                ? myNick() + "-" + slot
                 : myNick();
-            sendCastFrame(buf, from, lane ? { id: lane.short, label: lane.label } : null);
+            sendCastFrame(buf, from, {
+              id: lane ? lane.short : slot,
+              label: lane ? lane.label : p.nick,
+              slot: slot,
+              kind: p.camKind || (lane && lane.kind) || "cam",
+              sceneOrder: peerSceneKey(p),
+            });
           }
         }
       } else if (
@@ -2931,10 +3187,41 @@
   }
 
 
-  // boot
+  // boot — filmmaker scene params
+  try {
+    const q = new URLSearchParams(location.search);
+    if (q.get("scene") === "0" || q.get("scene") === "off") sceneMode = false;
+    if (q.get("scene") === "1" || q.get("scene") === "on") sceneMode = true;
+    const sl = (q.get("slot") || q.get("seat") || "").toUpperCase();
+    if (SCENE_SLOTS.indexOf(sl) >= 0) {
+      forcedSlot = sl;
+      sceneMode = true;
+    }
+  } catch {
+    /* ignore */
+  }
+
   initPeers();
   wire();
   wireExtra();
+  // Scene mode toggle (filmmaker L2·L1·C·R1·R2)
+  const sceneBtn = document.getElementById("gg-scene");
+  if (sceneBtn) {
+    sceneBtn.setAttribute("aria-pressed", sceneMode ? "true" : "false");
+    sceneBtn.classList.toggle("is-on", sceneMode);
+    sceneBtn.addEventListener("click", () => {
+      sceneMode = !sceneMode;
+      sceneBtn.setAttribute("aria-pressed", sceneMode ? "true" : "false");
+      sceneBtn.classList.toggle("is-on", sceneMode);
+      setCastLabel(sceneMode ? "scene order on" : "scene order off");
+      if (els.hubHint) {
+        els.hubHint.textContent = sceneMode
+          ? "Scene mode: tiles L2·L1·[laptop C]·R1·R2. Phones use ?slot=L1 or ?slot=R1 + Cast."
+          : "Free layout (self first).";
+      }
+      layoutAndPaint();
+    });
+  }
   if (window.GY_BITCHAT) {
     bitchat = window.GY_BITCHAT.create({
       getNick: myNick,

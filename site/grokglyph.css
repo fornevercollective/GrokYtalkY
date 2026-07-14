@@ -79,6 +79,19 @@ html, body.gg-body {
 .gg-brand .brand-mark { color: var(--accent); font-size: 1rem; }
 .gg-brand-name { white-space: nowrap; }
 
+/* filmmaker scene tiles */
+.gg-tile.is-scene-c {
+  box-shadow: inset 0 0 0 2px rgba(110, 231, 183, 0.55);
+}
+.gg-tile.is-selfcam .gg-name::before {
+  content: "◈ ";
+  color: var(--accent);
+}
+.gg-hbtn.is-on {
+  border-color: rgba(110, 231, 183, 0.55);
+  color: #6ee7b7;
+}
+
 .gg-header-main {
   display: flex;
   align-items: center;
