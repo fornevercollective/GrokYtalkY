@@ -38,9 +38,11 @@
   };
 
   // full-res screen cast of main mosaic (glyph-cast.html)
-  const WIRE = window.GY_GLYPH_CAST_WIRE;
+  // Smart TV: hub fan-out → glyph-cast.html?hub=ws://LAN:9876 (cross-device)
+  const WIRE = window.GY_GLYPH_CAST_WIRE || window.GY_CAST;
   let castSession = null;
   let castTimer = 0;
+  let tvBanner = null;
 
   /** @type {Map<string, TileRec>} */
   const tileMap = new Map();
@@ -710,12 +712,114 @@
     let url = (el.hub && el.hub.value.trim()) || '';
     if (!url) {
       const host = location.hostname || '127.0.0.1';
+      // Prefer page host so smart-TV same-LAN open works when served from 0.0.0.0 bind
       url =
         'ws://' +
-        (host === 'localhost' || host === '127.0.0.1' ? '127.0.0.1' : host) +
-        ':9876';
+        (host === 'localhost' ? '127.0.0.1' : host) +
+        (location.port && location.port !== '80' && location.port !== '443'
+          ? ':' + location.port
+          : ':9876');
     }
-    return url;
+    return url.replace(/\/$/, '');
+  }
+
+  /** Public http URL for glyph-cast on LAN (smart TV browser). */
+  function tvPlayerURL() {
+    const hub = hubUrlForCast();
+    const u = new URL('glyph-cast.html', location.href);
+    u.searchParams.set('source', 'livenews');
+    u.searchParams.set('cast', '1');
+    u.searchParams.set('tv', '1');
+    u.searchParams.set('fs', '1');
+    u.searchParams.set('hub', hub);
+    u.searchParams.set('room', 'news');
+    u.searchParams.set('layout', 'grid');
+    u.searchParams.set('n', '25');
+    // force non-localhost host when possible for TV
+    if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') {
+      // leave as-is if only loopback; banner will note LAN
+    }
+    return u.href;
+  }
+
+  function showTvBanner(url) {
+    if (!tvBanner) {
+      tvBanner = document.createElement('div');
+      tvBanner.id = 'ln-tv-banner';
+      tvBanner.setAttribute('role', 'status');
+      tvBanner.style.cssText =
+        'position:fixed;bottom:12px;left:12px;right:12px;z-index:50;' +
+        'background:rgba(10,12,18,0.94);border:1px solid #34d399;border-radius:12px;' +
+        'padding:10px 14px;font:12px/1.45 ui-monospace,monospace;color:#d1fae5;' +
+        'box-shadow:0 8px 28px rgba(0,0,0,0.45);max-width:720px;margin:0 auto;';
+      document.body.appendChild(tvBanner);
+    }
+    tvBanner.innerHTML =
+      '<strong style="color:#6ee7b7">Smart TV / cast device</strong> · same Wi‑Fi · open this URL on the TV browser' +
+      '<div style="margin-top:6px;word-break:break-all;color:#a7f3d0">' +
+      url +
+      '</div>' +
+      '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">' +
+      '<button type="button" id="ln-tv-copy" style="appearance:none;border:0;background:#6ee7b7;color:#042;border-radius:8px;padding:6px 10px;font-weight:700;cursor:pointer">Copy URL</button>' +
+      '<button type="button" id="ln-tv-open" style="appearance:none;border:1px solid #333;background:#15151c;color:#ddd;border-radius:8px;padding:6px 10px;cursor:pointer">Open cast player</button>' +
+      '<button type="button" id="ln-tv-hide" style="appearance:none;border:1px solid #333;background:transparent;color:#9ca3af;border-radius:8px;padding:6px 10px;cursor:pointer">Hide</button>' +
+      '</div>' +
+      '<div style="margin-top:6px;color:#6b7280;font-size:11px">Hub fans mosaic as vburst-frame · TV joins room=news · Cast TV = Presentation API when available</div>';
+    const copy = document.getElementById('ln-tv-copy');
+    const openB = document.getElementById('ln-tv-open');
+    const hide = document.getElementById('ln-tv-hide');
+    if (copy)
+      copy.onclick = function () {
+        if (navigator.clipboard) navigator.clipboard.writeText(url);
+        copy.textContent = 'Copied';
+      };
+    if (openB)
+      openB.onclick = function () {
+        window.open(url, 'gy-glyph-cast-tv');
+      };
+    if (hide)
+      hide.onclick = function () {
+        tvBanner.remove();
+        tvBanner = null;
+      };
+  }
+
+  function lumToGlyphArr(lum) {
+    if (!lum || !lum.length) return null;
+    const out = new Array(lum.length);
+    for (let i = 0; i < lum.length; i++) {
+      let v = lum[i];
+      if (v <= 1) v = Math.round(v * 255);
+      out[i] = Math.max(0, Math.min(255, v | 0));
+    }
+    return out;
+  }
+
+  /** Cross-device: publish main mosaic to hub so smart TV glyph-cast can ingest. */
+  function publishCastToHub() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const peers = buildCastPeers();
+    const t = Date.now();
+    peers.forEach(function (p, i) {
+      const glyph = lumToGlyphArr(p.lum);
+      if (!glyph) return;
+      try {
+        ws.send(
+          JSON.stringify({
+            type: 'vburst-frame',
+            from: 'livenews',
+            feed: p.id,
+            label: p.nick,
+            glyph: glyph,
+            glyphN: p.glyphN || 25,
+            t: t,
+            seq: t + i,
+            via: 'livenews-cast',
+            room: 'news',
+          })
+        );
+      } catch (_) {}
+    });
   }
 
   function buildCastPeers() {
@@ -793,13 +897,14 @@
   function startCastLoop() {
     stopCastLoop();
     castTimer = window.setInterval(function () {
-      if (!castSession || !castSession.isOn()) {
-        stopCastLoop();
-        return;
+      if (castSession && castSession.isOn()) {
+        castSession.push(castPayload, false);
       }
-      castSession.push(castPayload, false);
-    }, 110);
+      // always fan mosaic to hub while casting (smart TV path)
+      publishCastToHub();
+    }, 120);
     if (castSession) castSession.push(castPayload, true);
+    publishCastToHub();
   }
 
   function stopCastLoop() {
@@ -811,30 +916,51 @@
 
   function startCast(presentation) {
     if (!mainIds.length) fillFromSort();
+    // ensure hub so TV clients get frames
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      connect();
+    }
+    const tvUrl = tvPlayerURL();
+    if (presentation) {
+      showTvBanner(tvUrl);
+      try {
+        if (navigator.clipboard) navigator.clipboard.writeText(tvUrl);
+      } catch (_) {}
+    }
+
     const s = ensureCastSession();
     if (!s) {
-      // fallback: open player with hub query only
-      const u = new URL('glyph-cast.html', location.href);
-      u.searchParams.set('source', 'livenews');
-      u.searchParams.set('cast', '1');
-      u.searchParams.set('hub', hubUrlForCast());
-      u.searchParams.set('room', 'news');
-      window.open(u.href, 'gy-glyph-cast');
+      window.open(tvUrl, 'gy-glyph-cast');
+      startCastLoop();
+      if (el.cast) el.cast.textContent = 'Casting…';
+      if (el.castStop) el.castStop.hidden = false;
       return;
     }
     s.setDefaults({ hub: hubUrlForCast(), room: 'news', source: 'livenews' });
-    if (presentation) s.open({ presentation: true, fullscreen: true });
-    else s.open({ fullscreen: false });
+    if (presentation) {
+      // Presentation API (Chromecast / second display) + open LAN player
+      s.open({ presentation: true, fullscreen: true });
+      window.open(tvUrl, 'gy-glyph-cast-tv');
+    } else {
+      s.open({ fullscreen: false });
+    }
     startCastLoop();
     if (el.cast) el.cast.textContent = 'Casting…';
+    if (el.castTv && presentation) el.castTv.textContent = 'TV live…';
     if (el.castStop) el.castStop.hidden = false;
+    setMeta();
   }
 
   function stopCast() {
     stopCastLoop();
     if (castSession) castSession.close();
     if (el.cast) el.cast.textContent = 'Cast screen';
+    if (el.castTv) el.castTv.textContent = 'Cast TV';
     if (el.castStop) el.castStop.hidden = true;
+    if (tvBanner) {
+      tvBanner.remove();
+      tvBanner = null;
+    }
   }
 
   // wire
