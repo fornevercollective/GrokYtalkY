@@ -4,151 +4,87 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0a0a0c" />
-  <title>GrokYtalkY · Sphere Glyph</title>
+  <title>GrokYtalkY · Sphere Glyph · 16K venue</title>
   <link rel="stylesheet" href="styles.css" />
   <style>
     html, body { height: 100%; overflow: hidden; }
     body.sphere-body {
-      margin: 0;
-      background: #07070a;
-      color: #eee;
+      margin: 0; background: #07070a; color: #eee;
       font-family: "Instrument Sans", system-ui, sans-serif;
-      display: flex;
-      flex-direction: column;
-      height: 100dvh;
+      display: flex; flex-direction: column; height: 100dvh;
     }
-    .sp-wrap {
-      position: relative;
-      flex: 1;
-      min-height: 0;
-    }
+    .sp-wrap { position: relative; flex: 1; min-height: 0; }
     #sp-gl, #sp-hud {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      display: block;
+      position: absolute; inset: 0; width: 100%; height: 100%; display: block;
     }
-    #sp-hud {
-      pointer-events: none;
-      z-index: 2;
-    }
+    #sp-hud { pointer-events: none; z-index: 2; }
     .sp-bar {
-      position: absolute;
-      left: 0; right: 0; bottom: 0;
-      z-index: 3;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.4rem;
-      align-items: center;
-      padding: 0.55rem 0.75rem max(0.55rem, env(safe-area-inset-bottom));
-      background: linear-gradient(transparent, rgba(7,7,10,0.92) 28%);
+      position: absolute; left: 0; right: 0; bottom: 0; z-index: 3;
+      display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center;
+      padding: 0.5rem 0.65rem max(0.5rem, env(safe-area-inset-bottom));
+      background: linear-gradient(transparent, rgba(7,7,10,0.94) 22%);
       pointer-events: auto;
     }
-    .sp-bar input {
-      flex: 1 1 12rem;
-      min-width: 8rem;
-      background: #12121a;
-      border: 1px solid #2a2a36;
-      border-radius: 8px;
-      color: #eee;
-      padding: 0.45rem 0.6rem;
-      font: 0.75rem/1.2 "IBM Plex Mono", ui-monospace, monospace;
+    .sp-bar input[type=text] {
+      flex: 1 1 10rem; min-width: 7rem;
+      background: #12121a; border: 1px solid #2a2a36; border-radius: 8px;
+      color: #eee; padding: 0.4rem 0.55rem;
+      font: 0.72rem/1.2 "IBM Plex Mono", ui-monospace, monospace;
     }
-    .sp-bar button {
-      appearance: none;
-      border: 1px solid #333;
-      background: #15151c;
-      color: #ddd;
-      border-radius: 8px;
-      padding: 0.45rem 0.7rem;
-      font: 600 0.78rem/1 system-ui, sans-serif;
-      cursor: pointer;
+    .sp-bar button, .sp-bar select {
+      appearance: none; border: 1px solid #333; background: #15151c; color: #ddd;
+      border-radius: 8px; padding: 0.4rem 0.55rem;
+      font: 600 0.72rem/1 system-ui, sans-serif; cursor: pointer;
     }
-    .sp-bar button.primary {
-      background: #6ee7b7;
-      color: #042;
-      border-color: transparent;
-    }
-    .sp-bar button.is-on {
-      outline: 2px solid #6ee7b7;
-    }
-    .sp-bar select, .sp-bar input[type=range] {
-      background: #12121a;
-      border: 1px solid #2a2a36;
-      border-radius: 8px;
-      color: #ddd;
-      padding: 0.35rem 0.45rem;
-      font: 0.7rem/1.2 "IBM Plex Mono", ui-monospace, monospace;
-    }
-    .sp-bar input[type=range] {
-      width: 5.5rem;
-      padding: 0;
-      vertical-align: middle;
+    .sp-bar button.primary { background: #6ee7b7; color: #042; border-color: transparent; }
+    .sp-bar button.is-on { outline: 2px solid #6ee7b7; }
+    .sp-bar select {
+      font: 0.68rem/1.2 "IBM Plex Mono", ui-monospace, monospace; max-width: 9rem;
     }
     .sp-bar label {
-      font: 0.65rem/1 "IBM Plex Mono", ui-monospace, monospace;
-      color: #6b6b7a;
-      display: flex;
-      align-items: center;
-      gap: 0.3rem;
+      font: 0.62rem/1 "IBM Plex Mono", ui-monospace, monospace; color: #6b6b7a;
+      display: flex; align-items: center; gap: 0.25rem;
     }
+    .sp-bar input[type=range] { width: 4.5rem; padding: 0; }
     .sp-status {
-      position: absolute;
-      top: 0.5rem;
-      left: 0.75rem;
-      right: 0.75rem;
-      z-index: 3;
-      font: 0.7rem/1.4 "IBM Plex Mono", ui-monospace, monospace;
-      color: #8b8b9a;
-      pointer-events: none;
-      text-shadow: 0 1px 4px #000;
+      position: absolute; top: 0.45rem; left: 0.65rem; right: 12rem; z-index: 3;
+      font: 0.68rem/1.4 "IBM Plex Mono", ui-monospace, monospace; color: #8b8b9a;
+      pointer-events: none; text-shadow: 0 1px 4px #000;
     }
     .sp-status strong { color: #a7f3d0; font-weight: 600; }
     .sp-status.is-live strong { color: #6ee7b7; }
     .sp-status.is-err { color: #f87171; }
     .sp-legend {
-      position: absolute;
-      top: 0.5rem;
-      right: 0.75rem;
-      z-index: 3;
-      font: 0.65rem/1.45 "IBM Plex Mono", ui-monospace, monospace;
-      color: #6b6b7a;
-      text-align: right;
-      pointer-events: none;
+      position: absolute; top: 0.45rem; right: 0.65rem; z-index: 3;
+      font: 0.62rem/1.4 "IBM Plex Mono", ui-monospace, monospace; color: #6b6b7a;
+      text-align: right; pointer-events: none;
     }
     .sp-feeds {
-      position: absolute;
-      left: 0.6rem;
-      bottom: 3.4rem;
-      z-index: 3;
-      max-width: min(42vw, 220px);
-      max-height: 28vh;
-      overflow: auto;
-      font: 0.62rem/1.35 "IBM Plex Mono", ui-monospace, monospace;
-      color: #9ca3af;
-      background: rgba(10,10,14,0.55);
-      border: 1px solid #222;
-      border-radius: 8px;
-      padding: 0.35rem 0.45rem;
-      pointer-events: none;
+      position: absolute; left: 0.55rem; bottom: 5.6rem; z-index: 3;
+      max-width: min(44vw, 240px); max-height: 22vh; overflow: auto;
+      font: 0.6rem/1.35 "IBM Plex Mono", ui-monospace, monospace; color: #9ca3af;
+      background: rgba(10,10,14,0.6); border: 1px solid #222; border-radius: 8px;
+      padding: 0.35rem 0.45rem; pointer-events: none;
     }
     .sp-feeds .live { color: #6ee7b7; }
-    .sp-hint {
-      position: absolute;
-      bottom: 3.5rem;
-      right: 0.75rem;
-      z-index: 3;
+    .sp-pick {
+      position: absolute; left: 0.55rem; top: 2.6rem; z-index: 3;
       font: 0.62rem/1.4 "IBM Plex Mono", ui-monospace, monospace;
-      color: #555;
-      text-align: right;
-      pointer-events: none;
+      color: #c4b5fd; background: rgba(10,10,14,0.75); border: 1px solid #3b2f5c;
+      border-radius: 8px; padding: 0.4rem 0.5rem; max-width: min(90vw, 320px);
+      pointer-events: auto; display: none;
     }
-    body.sphere-body .nav {
-      flex-shrink: 0;
-      position: relative;
-      z-index: 4;
+    .sp-pick.is-show { display: block; }
+    .sp-pick button {
+      margin-top: 0.3rem; appearance: none; border: 1px solid #555; background: #1a1528;
+      color: #ddd; border-radius: 6px; padding: 0.25rem 0.45rem; font-size: 0.62rem; cursor: pointer;
     }
+    .sp-hint {
+      position: absolute; bottom: 5.7rem; right: 0.65rem; z-index: 3;
+      font: 0.6rem/1.35 "IBM Plex Mono", ui-monospace, monospace; color: #555;
+      text-align: right; pointer-events: none;
+    }
+    body.sphere-body .nav { flex-shrink: 0; position: relative; z-index: 4; }
   </style>
 </head>
 <body class="sphere-body">
@@ -156,29 +92,42 @@
   <script src="site-nav.js"></script>
 
   <div class="sp-wrap">
-    <canvas id="sp-gl" aria-label="Sphere seating with live Glyphs"></canvas>
+    <canvas id="sp-gl" aria-label="16K addressable Sphere venue"></canvas>
     <canvas id="sp-hud" aria-hidden="true"></canvas>
-    <div class="sp-status" id="sp-status">Sphere Glyph · full dome + color wave</div>
-    <div class="sp-legend" id="sp-legend">wave sweeps all seats + shell<br/>mint = live Glyph</div>
+    <div class="sp-status" id="sp-status">Venue 16K · blueprint + addressable cast</div>
+    <div class="sp-legend" id="sp-legend">click = pick LED / seat<br/>bulk = section · chunk · zone</div>
+    <div class="sp-pick" id="sp-pick"></div>
     <div class="sp-feeds" id="sp-feeds" hidden></div>
-    <p class="sp-hint">drag orbit · scroll zoom<br/>phone ?seat=200-R5-C12</p>
+    <p class="sp-hint">drag orbit · scroll zoom · click pick<br/>phone ?px=&amp;py= · ?seat= · ?target=</p>
+
     <div class="sp-bar">
-      <input type="text" id="sp-hub" placeholder="ws://192.168.x.x:9876/" autocomplete="off" spellcheck="false" />
+      <input type="text" id="sp-hub" placeholder="ws://HOST:9876/" autocomplete="off" spellcheck="false" />
       <button type="button" class="primary" id="sp-connect">Connect</button>
       <button type="button" id="sp-wave" class="is-on">Wave on</button>
-      <select id="sp-wave-mode" title="Wave mode" aria-label="Wave mode">
+      <select id="sp-wave-mode" aria-label="Wave mode">
         <option value="cascade" selected>cascade ↓</option>
         <option value="azimuth">azimuth ○</option>
         <option value="spiral">spiral</option>
         <option value="lat">latitude</option>
       </select>
       <label>spd <input type="range" id="sp-wave-speed" min="0.25" max="3" step="0.25" value="1" /></label>
-      <button type="button" id="sp-demo">Demo seats</button>
+      <select id="sp-bulk-kind" aria-label="Bulk kind" title="Bulk activate kind">
+        <option value="section">section</option>
+        <option value="chunk">chunk</option>
+        <option value="zone">zone</option>
+        <option value="rect">LED rect</option>
+      </select>
+      <select id="sp-bulk-val" aria-label="Bulk value" title="Bulk target"></select>
+      <button type="button" id="sp-bulk">Bulk activate</button>
+      <button type="button" id="sp-bulk-cast">Bulk cast demo</button>
+      <button type="button" id="sp-bulk-clear">Clear bulk</button>
+      <button type="button" id="sp-demo">Demo</button>
       <button type="button" id="sp-clear">Clear live</button>
     </div>
   </div>
 
   <script src="sphere-seating.js"></script>
+  <script src="venue-canvas.js"></script>
   <script src="sphere.js"></script>
 </body>
 </html>

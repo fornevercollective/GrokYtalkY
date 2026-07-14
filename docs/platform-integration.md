@@ -51,6 +51,7 @@ GrokYtalkY is the **terminal + mesh authority**: vision takes drive style, theme
 | **concept** | **Stadium Glyph** — phone atom → infinite canvas LOD (Sphere / 112k / drones) · [`stadium-glyph.md`](stadium-glyph.md) |
 | **1.79.2** | **Sphere Vegas Bloch³ seating** — `site/sphere-seating.js` + phone `?seat=` → cast `pos` |
 | **1.80** | **Sphere Glyph viewer** — `sphere.html` live mesh Glyphs on seats (no qpu extras) |
+| **1.81** | **16K addressable venue** — blueprint zones, bulk section/chunk, free LED cast |
 
 Three bullets for external recaps:
 

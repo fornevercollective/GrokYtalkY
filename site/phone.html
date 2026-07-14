@@ -240,19 +240,20 @@
     <input type="text" id="ph-hub-url" placeholder="ws://192.168.x.x:9876/" autocomplete="off" spellcheck="false" />
   </div>
   <div class="ph-row">
-    <input type="text" id="ph-seat" maxlength="24" placeholder="seat 200-R5-C12 · Sphere Bloch³" autocomplete="off" spellcheck="false" title="Sphere Vegas seat id or index" />
+    <input type="text" id="ph-seat" maxlength="48" placeholder="seat · target · or px,py (16K)" autocomplete="off" spellcheck="false" title="200-R5-C12 | seat:… | 8000,4000 | target id" />
   </div>
   <div id="ph-cam-panel" class="ph-cam-panel" hidden></div>
   <p class="ph-hint">
     Laptop: <code>gy serve</code> → open <strong>quick QR</strong> (<code>/qr.html</code> or <code>/api/lan/qr</code>)
     and scan. <strong>Quick connect</strong> = hub + camera, then hold <strong>Cast</strong>.
-    Optional <strong>Sphere seat</strong> <code>?seat=200-R5-C12</code> attaches Bloch³ map pos
-    (from <a href="https://mueee.qbitos.ai/qpu-pointcloud.html" rel="noopener">qpu-pointcloud</a>)
-    onto cast frames for stadium canvas. Streams <code>vburst-frame</code> + <code>gyst</code> hexlum.
+    Cast target: <code>?seat=200-R5-C12</code> · <code>?px=8000&amp;py=4000</code> (any 16K LED) ·
+    <code>?target=stage:…</code> · bulk on <a href="sphere.html">sphere.html</a>.
+    Streams <code>vburst-frame</code> + <code>gyst</code> with addressable <code>pos</code>.
   </p>
 
   <script src="qrcode-generator.js"></script>
   <script src="sphere-seating.js"></script>
+  <script src="venue-canvas.js"></script>
   <script src="camera-controls.js"></script>
   <script src="phone.js"></script>
   <style>

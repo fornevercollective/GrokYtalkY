@@ -59,6 +59,7 @@ func SamplePlatformReadiness() PlatformReadiness {
 			"v1.79.1 QR client-side MIT encoder (no Go QR dep)",
 			"v1.79.2 Sphere Vegas Bloch³ seating map → phone cast pos",
 			"v1.80 Sphere Glyph viewer (live seats, no qpu bells)",
+			"v1.81 16K addressable venue + bulk section/chunk/zone cast",
 		},
 		OutOfScope: []string{
 			"auto-cast every livenews feed (manual pin/shuffle only)",

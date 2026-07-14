@@ -9,6 +9,9 @@
     "wire": "site/glyph-cast-wire.js",
     "surfaces": ["grokglyph.html", "livenews.html", "qr.html"],
     "sphere_seating": "site/sphere-seating.js",
+    "venue_canvas": "site/venue-canvas.js",
+    "sphere_viewer": "site/sphere.html",
+    "addressable_doc": "docs/sphere-addressable.md",
     "sphere_source": "https://mueee.qbitos.ai/qpu-pointcloud.html"
   },
   "sphere_vegas_bloch3": {

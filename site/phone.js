@@ -33,9 +33,10 @@
 
   let phonePageURL = "";
   let lanInfo = null;
-  /** Sphere Vegas Bloch³ seat mesh pos (from ?seat= or input). */
+  /** Addressable venue pos (seat · LED px,py · target id). */
   let seatPos = null;
   const SPHERE = window.GY_SPHERE;
+  const VENUE = window.GY_VENUE;
 
   const CAM = window.GY_CAMERA;
   let look = CAM ? CAM.clone(CAM.DEFAULTS) : {};
@@ -109,34 +110,87 @@
     }
   }
 
-  function resolveSeat(raw) {
+  function resolveTarget(raw) {
     seatPos = null;
-    if (!SPHERE || !raw) return null;
-    const seat = SPHERE.findSeat(raw);
-    if (!seat) return null;
-    seatPos = SPHERE.seatToMeshPos(seat);
-    return seatPos;
+    if (!raw) return null;
+    raw = String(raw).trim();
+
+    // px,py free LED (16K addressable)
+    const pxpy = raw.match(/^(\d+)\s*[,xX]\s*(\d+)$/);
+    if (pxpy && VENUE) {
+      if (!VENUE.venue || !VENUE.venue()) {
+        try {
+          VENUE.buildVenue();
+        } catch (_) {}
+      }
+      const pos = VENUE.resolvePos({ px: +pxpy[1], py: +pxpy[2] });
+      if (pos) {
+        seatPos = pos;
+        return pos;
+      }
+    }
+
+    // explicit target id
+    if (VENUE && (raw.indexOf(":") >= 0 || raw.indexOf("seat:") === 0)) {
+      try {
+        VENUE.buildVenue();
+      } catch (_) {}
+      const t = VENUE.findTarget(raw);
+      if (t) {
+        seatPos = VENUE.targetToMeshPos(t);
+        return seatPos;
+      }
+      const pos2 = VENUE.resolvePos({ target: raw, seat: raw });
+      if (pos2) {
+        seatPos = pos2;
+        return pos2;
+      }
+    }
+
+    // seat id / idx via sphere map
+    if (SPHERE) {
+      const seat = SPHERE.findSeat(raw);
+      if (seat) {
+        if (VENUE) {
+          try {
+            VENUE.buildVenue();
+          } catch (_) {}
+          const t = VENUE.findTarget("seat:" + seat.id);
+          if (t) {
+            seatPos = VENUE.targetToMeshPos(t);
+            return seatPos;
+          }
+        }
+        seatPos = SPHERE.seatToMeshPos(seat);
+        return seatPos;
+      }
+    }
+    return null;
   }
 
   function applySeatFromUI() {
     const raw = (els.seat && els.seat.value.trim()) || "";
-    const pos = resolveSeat(raw);
+    const pos = resolveTarget(raw);
     if (pos && els.seat) {
-      els.seat.value = pos.id || raw;
+      const label = pos.seatId || pos.target || pos.id || raw;
+      els.seat.value =
+        pos.px != null && pos.py != null && !pos.seatId
+          ? pos.px + "," + pos.py
+          : pos.seatId || raw;
       setStatus(
-        "seat " +
-          pos.id +
-          " · Bloch θ=" +
-          ((pos.theta * 180) / Math.PI).toFixed(1) +
-          "° · px(" +
+        (pos.zone || "cast") +
+          " · " +
+          label +
+          " · LED " +
           pos.px +
           "," +
           pos.py +
-          ")/16K",
+          "/16K" +
+          (pos.target ? " · " + pos.target : ""),
         "is-live"
       );
     } else if (raw) {
-      setStatus("seat not found · try 200-R5-C12 or idx", "is-err");
+      setStatus("target not found · seat id · px,py · or target:", "is-err");
     }
     saveState();
     return pos;
@@ -640,15 +694,18 @@
       els.nick.value = "phone";
     }
     phonePageURL = location.protocol === "file:" ? "" : location.href.split("#")[0];
-    // Sphere Vegas Bloch³ seat from ?seat=200-R5-C12 or ?seat=1234
+    // Addressable: ?seat=200-R5-C12 | ?px=8000&py=4000 | ?target=…
     const params = new URLSearchParams(location.search);
-    const seatQ = params.get("seat") || params.get("sphere") || "";
-    if (seatQ && els.seat) els.seat.value = seatQ;
+    const seatQ = params.get("seat") || params.get("sphere") || params.get("target") || "";
+    const pxQ = params.get("px");
+    const pyQ = params.get("py");
+    if (pxQ != null && pyQ != null && els.seat) els.seat.value = pxQ + "," + pyQ;
+    else if (seatQ && els.seat) els.seat.value = seatQ;
     if (els.seat) {
       els.seat.addEventListener("change", () => applySeatFromUI());
       els.seat.addEventListener("blur", () => applySeatFromUI());
     }
-    if ((els.seat && els.seat.value) || seatQ) applySeatFromUI();
+    if ((els.seat && els.seat.value) || seatQ || (pxQ != null && pyQ != null)) applySeatFromUI();
     fetchLanHint();
     if (els.quick) els.quick.addEventListener("click", () => quickConnect());
     if (els.showQr) {

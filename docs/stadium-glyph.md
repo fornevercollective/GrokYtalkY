@@ -241,18 +241,16 @@ Server returns: **cold page list** (CDN URLs) + **hot track IDs** (SFU / mesh) +
 
 Focused page: [`site/sphere.html`](../site/sphere.html) + [`site/sphere.js`](../site/sphere.js)
 
-- **In:** hub WS · `vburst-frame` / `gyst` hexlum · optional `pos` (Sphere Bloch³)
-- **Out:** full dome (seats + interior shell points) · **color wave** across all points · HUD Glyph tiles on live seats
-- **Wave modes:** cascade ↓ · azimuth ○ · spiral · latitude bands (speed slider)
-- **Not included:** music, QPU patches, MOPA, VR Quest, kBatch, contrail language, laser export
+- **In:** hub WS · `vburst-frame` / `gyst` hexlum · addressable `pos` (seat / 16K px,py / target)
+- **Out:** full dome · color wave · blueprint zones · **click-pick LED** · **bulk section/chunk/zone**
+- **Addressable canvas:** [`docs/sphere-addressable.md`](sphere-addressable.md) · `site/venue-canvas.js`
+- **Not included:** music, QPU patches, MOPA, VR Quest, kBatch
 
 ```bash
 gy serve
-# laptop
-open http://HOST:9876/sphere.html
-# phones
+open http://HOST:9876/sphere.html          # click any LED / bulk activate
+open http://HOST:9876/phone.html?px=8000&py=4000&quick=1
 open http://HOST:9876/phone.html?seat=200-R5-C12&quick=1
-# hold Cast → Glyphs punch through the wave on those seats
 ```
 
 ---
