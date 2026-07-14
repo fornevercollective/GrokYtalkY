@@ -30,9 +30,9 @@
     </p>
 
     <div class="ln-toolbar" role="toolbar" aria-label="News wall controls">
-      <button type="button" class="btn primary" id="ln-connect" onclick="window.LN_connect&&window.LN_connect()">Connect hub</button>
-      <button type="button" class="btn primary" id="ln-go-live" title="Resolve YouTube /live → real glyph frames (blank + yt-dlp)" onclick="window.LN_goLive&&window.LN_goLive()">Resolve live</button>
-      <button type="button" class="btn ghost" id="ln-stop-live" title="Stop real streams · back to sim" hidden onclick="window.LN_stopLive&&window.LN_stopLive()">Stop live</button>
+      <button type="button" class="btn primary" id="ln-connect" title="Connect WebSocket to mesh hub">Connect hub</button>
+      <button type="button" class="btn primary" id="ln-go-live" title="Resolve YouTube /live → real glyph frames (blank + yt-dlp)">Resolve live</button>
+      <button type="button" class="btn ghost" id="ln-stop-live" title="Stop real streams · back to sim" hidden>Stop live</button>
       <button type="button" class="btn ghost" id="ln-expand">Expand all</button>
       <button type="button" class="btn ghost" id="ln-collapse">Collapse all</button>
       <button type="button" class="btn ghost" id="ln-refresh-all" title="Refresh all sections">↻ All</button>
@@ -99,11 +99,12 @@
     </p>
   </main>
 
-  <script src="news-sources.js"></script>
-  <script src="news-theme.js"></script>
-  <script src="news-live.js"></script>
-  <script src="glyph-shared.js"></script>
-  <script src="glyph-cast-wire.js"></script>
-  <script src="livenews.js"></script>
+  <!-- cache-bust so hard-refresh isn't required for connect/resolve fixes -->
+  <script src="news-sources.js?v=1841"></script>
+  <script src="news-theme.js?v=1841"></script>
+  <script src="news-live.js?v=1841"></script>
+  <script src="glyph-shared.js?v=1841"></script>
+  <script src="glyph-cast-wire.js?v=1841"></script>
+  <script src="livenews.js?v=1841"></script>
 </body>
 </html>

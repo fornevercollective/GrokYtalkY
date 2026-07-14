@@ -44,6 +44,49 @@
     });
   }
 
+  /** Quick health: blank up + not concurrent-capped. Hub optional. */
+  async function preflight() {
+    var blank = blankBase();
+    var hub = hubBase();
+    try {
+      var br = await fetchTimeout(blank + "/", {}, 2500);
+      if (br.status === 503) {
+        return {
+          ok: false,
+          error:
+            "blank concurrent cap (503) — restart blank: cd ~/dev/blank && ./start.sh",
+          via: "blank",
+        };
+      }
+      if (!br.ok && br.status >= 500) {
+        return { ok: false, error: "blank HTTP " + br.status + " at " + blank, via: "blank" };
+      }
+      return { ok: true, via: "blank", blank: blank, hub: hub };
+    } catch (e) {
+      // blank down — hub may still proxy resolve if it can reach blank itself
+      try {
+        var hr = await fetchTimeout(hub + "/api/lan", { headers: { Accept: "application/json" } }, 2500);
+        if (hr.ok) {
+          return {
+            ok: true,
+            via: "hub-only",
+            warning: "blank not reachable from browser (" + blank + ") — trying hub resolve",
+            blank: blank,
+            hub: hub,
+          };
+        }
+      } catch (_) {}
+      return {
+        ok: false,
+        error:
+          "blank not reachable at " +
+          blank +
+          " — start: cd ~/dev/blank && ./start.sh",
+        via: "none",
+      };
+    }
+  }
+
   async function resolveStream(pageURL) {
     pageURL = String(pageURL || "").trim();
     if (!pageURL) throw new Error("empty url");
@@ -54,19 +97,26 @@
       var res2 = await fetchTimeout(
         hubBase() + "/api/media/resolve?url=" + encodeURIComponent(pageURL),
         { headers: { Accept: "application/json" } },
-        50000
+        45000
       );
-      var j2 = await res2.json();
-      if (j2 && j2.ok && j2.video) {
-        return {
-          video: j2.video,
-          title: j2.title || "",
-          via: j2.via || "hub",
-          live: !!j2.live,
-          streamKind: /m3u8|hls|play\//i.test(j2.video) ? "hls" : "",
-        };
+      if (res2.status === 503) {
+        lastErr = "hub/blank concurrent cap (503) — restart blank";
+      } else {
+        var j2 = await res2.json().catch(function () {
+          return null;
+        });
+        if (j2 && j2.ok && j2.video) {
+          return {
+            video: j2.video,
+            title: j2.title || "",
+            via: j2.via || "hub",
+            live: !!j2.live,
+            streamKind: /m3u8|hls|play\//i.test(j2.video) ? "hls" : "",
+          };
+        }
+        if (j2 && j2.error) lastErr = j2.error;
+        else if (!res2.ok) lastErr = "hub resolve HTTP " + res2.status;
       }
-      if (j2 && j2.error) lastErr = j2.error;
     } catch (e) {
       lastErr = e && e.name === "AbortError" ? "hub resolve timeout" : e && e.message ? e.message : String(e);
     }
@@ -80,9 +130,11 @@
           headers: { "Content-Type": "application/json", Accept: "application/json" },
           body: JSON.stringify({ url: pageURL }),
         },
-        50000
+        45000
       );
-      if (!res.ok) {
+      if (res.status === 503) {
+        lastErr = "blank concurrent cap (503) — restart blank: cd ~/dev/blank && ./start.sh";
+      } else if (!res.ok) {
         lastErr = "blank HTTP " + res.status;
       } else {
         var j = await res.json();
@@ -308,7 +360,12 @@
     var max = opts.max != null ? opts.max : MAX_LIVE;
     var ids = (mainIds || []).slice(0, max);
     var results = { ok: 0, fail: 0, errors: [] };
+    var consecutiveHardFail = 0;
     for (var i = 0; i < ids.length; i++) {
+      if (typeof opts.isCancelled === "function" && opts.isCancelled()) {
+        results.errors.push("cancelled");
+        break;
+      }
       var id = ids[i];
       var rec = tileMap.get(id);
       if (!rec) continue;
@@ -316,6 +373,7 @@
         if (opts.onStatus) opts.onStatus("resolving " + (rec.src.label || id) + "…");
         await startTileLive(rec, opts);
         results.ok++;
+        consecutiveHardFail = 0;
         if (opts.onStatus)
           opts.onStatus(
             "live " +
@@ -332,6 +390,14 @@
         rec.liveError = e && e.message ? e.message : String(e);
         results.errors.push(id + ": " + rec.liveError);
         if (opts.onStatus) opts.onStatus("fail · " + id + " · " + rec.liveError);
+        // stop early on blank/hub systemic failures
+        if (/concurrent cap|not reachable|503|blank disabled/i.test(rec.liveError)) {
+          consecutiveHardFail++;
+          if (consecutiveHardFail >= 1) {
+            results.errors.push("aborted remaining: " + rec.liveError);
+            break;
+          }
+        }
       }
       if (i + 1 < ids.length) {
         await new Promise(function (r) {
@@ -361,6 +427,7 @@
 
   global.GY_NEWS_LIVE = {
     resolveStream: resolveStream,
+    preflight: preflight,
     startTileLive: startTileLive,
     stopTileLive: stopTileLive,
     startMainLive: startMainLive,

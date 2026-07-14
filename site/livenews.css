@@ -31,14 +31,48 @@
   top: 0.25rem;
   z-index: 30;
 }
-.ln-toolbar #ln-go-live {
+/* Action buttons must never look like dead blue status chips */
+.ln-toolbar #ln-connect,
+.ln-toolbar #ln-go-live,
+.ln-main-tools #ln-go-live-main {
+  font-weight: 700;
+  pointer-events: auto !important;
+  cursor: pointer !important;
+  opacity: 1 !important;
+}
+.ln-toolbar #ln-connect {
+  background: #7dd3fc !important;
+  color: #0c0c0f !important;
+  border-color: transparent !important;
+}
+.ln-toolbar #ln-connect.is-connected {
+  background: #34d399 !important;
+  color: #042 !important;
+}
+.ln-toolbar #ln-connect.is-busy {
+  background: #fbbf24 !important;
+  color: #1c1400 !important;
+}
+.ln-toolbar #ln-go-live,
+.ln-main-tools #ln-go-live-main {
   background: #6ee7b7 !important;
   color: #042 !important;
   border-color: transparent !important;
-  font-weight: 700;
 }
-.ln-toolbar #ln-go-live.is-on {
+.ln-toolbar #ln-go-live.is-on,
+.ln-main-tools #ln-go-live-main.is-on {
   outline: 2px solid #a7f3d0;
+}
+.ln-toolbar #ln-go-live.is-busy,
+.ln-main-tools #ln-go-live-main.is-busy {
+  background: #fbbf24 !important;
+  color: #1c1400 !important;
+  outline: 2px solid #fcd34d;
+}
+.ln-toolbar #ln-stop-live:not([hidden]) {
+  display: inline-flex !important;
+  border-color: rgba(248, 113, 113, 0.55);
+  color: #fca5a5;
 }
 .ln-toolbar .ln-meta {
   font-family: var(--mono);

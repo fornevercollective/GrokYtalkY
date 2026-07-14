@@ -554,6 +554,32 @@
     });
   }
 
+  function setConnectUI(state) {
+    // state: idle | connecting | open | closed | error
+    if (!el.connect) return;
+    el.connect.disabled = false;
+    el.connect.style.pointerEvents = 'auto';
+    el.connect.style.cursor = 'pointer';
+    el.connect.removeAttribute('aria-disabled');
+    el.connect.classList.remove('is-connected', 'is-busy');
+    if (state === 'connecting') {
+      el.connect.textContent = 'Connecting…';
+      el.connect.classList.add('is-busy');
+      el.connect.title = 'Connecting to hub WebSocket — click again to retry';
+    } else if (state === 'open') {
+      // keep an ACTION label so it never looks like a dead blue status chip
+      el.connect.textContent = 'Reconnect hub';
+      el.connect.classList.add('is-connected');
+      el.connect.title = 'Hub connected — click to reconnect';
+    } else if (state === 'error') {
+      el.connect.textContent = 'Connect hub · retry';
+      el.connect.title = 'Hub connect failed — click to retry';
+    } else {
+      el.connect.textContent = 'Connect hub';
+      el.connect.title = 'Connect WebSocket to mesh hub (room=news)';
+    }
+  }
+
   function connect() {
     let url = (el.hub && el.hub.value.trim()) || '';
     if (!url) {
@@ -567,20 +593,42 @@
     } else if (!url.includes('nick=')) {
       url += (url.includes('?') ? '&' : '?') + 'role=peer&nick=' + encodeURIComponent(nick) + '&room=news';
     }
+    if (el.meta) el.meta.textContent = 'connecting hub…';
+    setConnectUI('connecting');
     if (ws) try { ws.close(); } catch (_) {}
     try {
       ws = new WebSocket(url);
     } catch (e) {
+      setConnectUI('error');
+      if (el.meta) el.meta.textContent = 'hub connect error · ' + (e && e.message ? e.message : e);
       setMeta();
       return;
     }
+    const sock = ws;
+    const failT = setTimeout(function () {
+      if (sock && sock.readyState !== WebSocket.OPEN) {
+        try { sock.close(); } catch (_) {}
+        setConnectUI('error');
+        if (el.meta) el.meta.textContent = 'hub connect timeout — click Connect hub again';
+      }
+    }, 8000);
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'join', nick: nick, role: 'news-wall', room: 'news' }));
+      clearTimeout(failT);
+      try {
+        ws.send(JSON.stringify({ type: 'join', nick: nick, role: 'news-wall', room: 'news' }));
+      } catch (_) {}
+      setConnectUI('open');
+      if (el.meta) el.meta.textContent = 'hub connected · ' + nick;
       setMeta();
-      if (el.connect) el.connect.textContent = 'Connected';
+    };
+    ws.onerror = () => {
+      clearTimeout(failT);
+      setConnectUI('error');
+      if (el.meta) el.meta.textContent = 'hub error — click Connect hub to retry';
     };
     ws.onclose = () => {
-      if (el.connect) el.connect.textContent = 'Connect hub';
+      clearTimeout(failT);
+      setConnectUI('closed');
       setMeta();
     };
     ws.onmessage = (ev) => {
@@ -986,33 +1034,26 @@
     }
   }
 
-  // wire — use onclick + addEventListener so sticky UI always responds
+  // Single click path only (HTML onclick + addEventListener double-fire
+  // used to set goLiveBusy then immediately hit "already resolving").
   function bindClick(node, fn) {
     if (!node || typeof fn !== 'function') return;
-    node.addEventListener('click', function (e) {
-      e.preventDefault();
-      e.stopPropagation();
+    node.onclick = function (e) {
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
       try {
         fn(e);
       } catch (err) {
         console.error('[livenews] click', err);
         if (el.meta) el.meta.textContent = 'error · ' + (err && err.message ? err.message : err);
       }
-    });
-    // also native handler for stubborn UI layers
-    node.onclick = function (e) {
-      e.preventDefault();
-      try {
-        fn(e);
-      } catch (err) {
-        console.error('[livenews] onclick', err);
-      }
       return false;
     };
   }
 
   bindClick(el.connect, function () {
-    if (el.meta) el.meta.textContent = 'connecting hub…';
     connect();
   });
   bindClick(el.expand, function () {
@@ -1041,24 +1082,49 @@
 
   let goLiveBusy = false;
   let goLiveTimer = 0;
+  let goLiveGen = 0; // cancel token for in-flight resolve
 
   function setGoLiveUI(text, busy) {
     [el.goLive, el.goLiveMain].forEach(function (b) {
       if (!b) return;
-      b.classList.toggle('is-on', !!busy || (text && String(text).indexOf('Live') === 0));
-      b.textContent = text || 'Resolve live';
-      // never leave permanently disabled — only aria-busy for feedback
+      const liveOk = text && /^Live\b/i.test(String(text));
+      b.classList.toggle('is-on', !!liveOk);
+      b.classList.toggle('is-busy', !!busy);
+      // Always keep an actionable verb — never a passive blue status chip
+      if (busy) {
+        b.textContent = 'Cancel resolve';
+        b.title = 'Resolve in progress — click to cancel and retry';
+      } else {
+        b.textContent = text || 'Resolve live';
+        b.title =
+          liveOk
+            ? 'Live streams active — click to re-resolve'
+            : 'Resolve YouTube /live → real glyph frames (blank + yt-dlp)';
+      }
       b.disabled = false;
+      b.removeAttribute('disabled');
       b.setAttribute('aria-busy', busy ? 'true' : 'false');
-      b.style.opacity = busy ? '0.85' : '1';
+      b.style.opacity = '1';
       b.style.pointerEvents = 'auto';
       b.style.cursor = 'pointer';
+      b.style.userSelect = 'none';
     });
+    if (el.stopLive) el.stopLive.hidden = !(busy || (text && /^Live\b/i.test(String(text))));
   }
 
   async function goLiveMain() {
+    // While busy the button reads "Cancel resolve" — click cancels (never a dead blue chip)
     if (goLiveBusy) {
-      if (el.meta) el.meta.textContent = 'already resolving… wait or click Stop live';
+      goLiveGen++;
+      goLiveBusy = false;
+      if (goLiveTimer) {
+        clearTimeout(goLiveTimer);
+        goLiveTimer = 0;
+      }
+      if (LIVE) LIVE.stopAllLive(tileMap);
+      setGoLiveUI('Resolve live', false);
+      if (el.meta) el.meta.textContent = 'resolve cancelled — click Resolve live to start again';
+      if (el.mainSub) el.mainSub.textContent = 'cancelled · click Resolve live';
       return;
     }
     if (!LIVE) {
@@ -1066,14 +1132,17 @@
       alert('news-live.js failed to load — hard refresh (Cmd+Shift+R)');
       return;
     }
+    const myGen = ++goLiveGen;
     goLiveBusy = true;
     if (goLiveTimer) clearTimeout(goLiveTimer);
-    // hard unlock after 3 min so UI never sticks
+    // hard unlock after 75s so UI never sticks on blue "Resolving…"
     goLiveTimer = setTimeout(function () {
+      if (goLiveGen !== myGen) return;
       goLiveBusy = false;
       setGoLiveUI('Retry resolve', false);
       if (el.meta) el.meta.textContent = 'resolve timed out — click Resolve live again';
-    }, 180000);
+      if (el.mainSub) el.mainSub.textContent = 'timeout · retry';
+    }, 75000);
 
     try {
       if (!mainIds.length) fillFromSort();
@@ -1091,18 +1160,35 @@
         renderMain();
       }
       setGoLiveUI('Resolving…', true);
-      if (el.stopLive) el.stopLive.hidden = false;
       if (!ws || ws.readyState !== WebSocket.OPEN) connect();
-      if (el.meta) el.meta.textContent = 'resolving YouTube live via blank/hub…';
+      if (el.meta) el.meta.textContent = 'checking blank/hub…';
       if (el.mainSub) el.mainSub.textContent = 'resolving…';
+
+      // Fail-fast: blank concurrent cap / down → clear error, not infinite hang
+      if (LIVE.preflight) {
+        const pre = await LIVE.preflight();
+        if (goLiveGen !== myGen) return;
+        if (!pre.ok) {
+          setGoLiveUI('Retry resolve', false);
+          if (el.meta) el.meta.textContent = pre.error || 'blank/hub unavailable';
+          if (el.mainSub) el.mainSub.textContent = 'sim · ' + (pre.error || 'preflight fail');
+          return;
+        }
+        if (el.meta) el.meta.textContent = 'resolving YouTube live via ' + (pre.via || 'blank/hub') + '…';
+      }
 
       const res = await LIVE.startMainLive(tileMap, mainIds, {
         max: maxN,
+        isCancelled: function () {
+          return goLiveGen !== myGen;
+        },
         onStatus: function (s) {
+          if (goLiveGen !== myGen) return;
           if (el.meta) el.meta.textContent = s;
           if (el.mainSub) el.mainSub.textContent = s;
         },
         onSample: function (rec) {
+          if (goLiveGen !== myGen) return;
           if (rec.canvas && rec.lum && G.paintGlyphCanvas) {
             G.paintGlyphCanvas(rec.canvas, rec.lum, {
               cell: rec.canvas.width <= 100 ? 3 : 5,
@@ -1114,6 +1200,7 @@
           setMeta();
         },
       });
+      if (goLiveGen !== myGen) return;
       setGoLiveUI(res.ok ? 'Live · ' + res.ok : 'Retry resolve', false);
       if (el.meta) {
         el.meta.innerHTML =
@@ -1133,19 +1220,23 @@
       }
       setMeta();
     } catch (e) {
+      if (goLiveGen !== myGen) return;
       console.error('[livenews] goLiveMain', e);
       if (el.meta) el.meta.textContent = 'resolve error · ' + (e && e.message ? e.message : e);
       setGoLiveUI('Retry resolve', false);
     } finally {
-      goLiveBusy = false;
-      if (goLiveTimer) {
-        clearTimeout(goLiveTimer);
-        goLiveTimer = 0;
+      if (goLiveGen === myGen) {
+        goLiveBusy = false;
+        if (goLiveTimer) {
+          clearTimeout(goLiveTimer);
+          goLiveTimer = 0;
+        }
       }
     }
   }
 
   function stopLiveMain() {
+    goLiveGen++;
     goLiveBusy = false;
     if (goLiveTimer) {
       clearTimeout(goLiveTimer);
@@ -1155,6 +1246,7 @@
     setGoLiveUI('Resolve live', false);
     if (el.stopLive) el.stopLive.hidden = true;
     if (el.mainSub) el.mainSub.textContent = 'sim · pin · theme clump';
+    if (el.meta) el.meta.textContent = 'stopped live · back to sim';
     setMeta();
   }
 
