@@ -3222,6 +3222,156 @@
       layoutAndPaint();
     });
   }
+
+  // HDRI hurdle hop
+  let lastHdri = null;
+  function showHdriPanel(result) {
+    const panel = document.getElementById("gg-hdri-panel");
+    if (!panel || !result || !result.ok) return;
+    panel.hidden = false;
+    const meta = document.getElementById("gg-hdri-meta");
+    if (meta) {
+      meta.textContent =
+        (result.slots || []).join("·") +
+        (result.equirect
+          ? " · " + result.equirect.width + "×" + result.equirect.height
+          : "");
+    }
+    const stripC = document.getElementById("gg-hdri-strip");
+    const eqC = document.getElementById("gg-hdri-eq");
+    if (stripC && result.strip) {
+      stripC.width = result.strip.width;
+      stripC.height = result.strip.height;
+      stripC.getContext("2d").drawImage(result.strip, 0, 0);
+    }
+    if (eqC && result.equirect) {
+      eqC.width = result.equirect.width;
+      eqC.height = result.equirect.height;
+      eqC.getContext("2d").drawImage(result.equirect, 0, 0);
+    }
+  }
+  function runHdriProbe(opts) {
+    opts = opts || {};
+    if (!window.GY_HDRI) {
+      setCastLabel("hdri js missing");
+      return;
+    }
+    if (!camLanes.length) {
+      setCastLabel("cam first");
+      if (els.hubHint) {
+        els.hubHint.textContent =
+          "Open cam (laptop C + phones L/R), then HDRI. Multi-device: phones ?slot=L1 / R1 + Cast so RX fills strip.";
+      }
+      return;
+    }
+    // Build lanes from local cams + live RX peers with scene slots
+    const lanes = camLanes.map((l) => ({
+      slot: l.slot,
+      video: l.video,
+      short: l.short,
+      kind: l.kind,
+      label: l.label,
+    }));
+    peers.forEach((p) => {
+      if (p.selfCam || p.self) return;
+      if (p.source !== "rx" || !p.sceneSlot) return;
+      // RX peers: use last glyph canvas if present
+      const c = canvasById.get(p.id);
+      if (!c) return;
+      lanes.push({
+        slot: p.sceneSlot,
+        canvas: c,
+        short: p.sceneSlot,
+        kind: p.camKind || "rx",
+        label: p.nick,
+      });
+    });
+    setCastLabel("HDRI stitch…");
+    const result = window.GY_HDRI.runProbe(lanes, {
+      download: !!opts.download,
+      postHub: true,
+      sendMesh: opts.cast !== false ? sendJSON : null,
+      from: myNick() + "-hdri",
+      glyphN: glyphN,
+      tonemap: true,
+    });
+    lastHdri = result;
+    if (!result.ok) {
+      setCastLabel(result.error || "hdri fail");
+      return;
+    }
+    showHdriPanel(result);
+    setCastLabel("HDRI · " + (result.slots || []).join("·"));
+    if (els.hubHint) {
+      els.hubHint.textContent =
+        "HDRI probe ready — subject strip + equirect. Download or cast sphere. Not multi-bracket VFX HDRI.";
+    }
+  }
+  const hdriBtn = document.getElementById("gg-hdri");
+  if (hdriBtn) {
+    hdriBtn.addEventListener("click", () => runHdriProbe({ cast: true }));
+  }
+  const hdriClose = document.getElementById("gg-hdri-close");
+  if (hdriClose) {
+    hdriClose.addEventListener("click", () => {
+      const panel = document.getElementById("gg-hdri-panel");
+      if (panel) panel.hidden = true;
+    });
+  }
+  const hdriDlEq = document.getElementById("gg-hdri-dl-eq");
+  if (hdriDlEq) {
+    hdriDlEq.addEventListener("click", () => {
+      if (lastHdri && lastHdri.equirect && window.GY_HDRI) {
+        window.GY_HDRI.downloadCanvas(lastHdri.equirect, "gy-hdri-probe.png");
+      }
+    });
+  }
+  const hdriDlStrip = document.getElementById("gg-hdri-dl-strip");
+  if (hdriDlStrip) {
+    hdriDlStrip.addEventListener("click", () => {
+      if (lastHdri && lastHdri.strip && window.GY_HDRI) {
+        window.GY_HDRI.downloadCanvas(lastHdri.strip, "gy-subject-strip.png");
+      }
+    });
+  }
+  const hdriCast = document.getElementById("gg-hdri-cast");
+  if (hdriCast) {
+    hdriCast.addEventListener("click", () => {
+      if (!lastHdri || !lastHdri.ok) {
+        runHdriProbe({ cast: true });
+        return;
+      }
+      if (lastHdri.glyph) {
+        sendJSON({
+          type: "vburst-frame",
+          from: myNick() + "-hdri",
+          glyph: lastHdri.glyph,
+          glyphN: glyphN,
+          cast: "sphere",
+          project: true,
+          t: Date.now(),
+          cam: { kind: "hdri", slot: "EQ" },
+        });
+      }
+      if (lastHdri.equirect) {
+        const jpeg = lastHdri.equirect.toDataURL("image/jpeg", 0.72);
+        sendJSON({
+          type: "hdri-probe",
+          from: myNick() + "-hdri",
+          slots: lastHdri.slots,
+          w: lastHdri.equirect.width,
+          h: lastHdri.equirect.height,
+          b64: jpeg.split(",")[1] || "",
+          fmt: "jpeg",
+          glyph: lastHdri.glyph,
+          glyphN: glyphN,
+          cast: "sphere",
+          t: Date.now(),
+        });
+      }
+      setCastLabel("HDRI → sphere");
+    });
+  }
   if (window.GY_BITCHAT) {
     bitchat = window.GY_BITCHAT.create({
       getNick: myNick,

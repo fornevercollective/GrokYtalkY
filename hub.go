@@ -275,6 +275,9 @@ func NewHub(addr string, quiet bool, staticDir string) *Hub {
 	BitChat().AttachHub(h)
 	mux.HandleFunc("/api/bitchat", HandleBitChatAPI)
 	mux.HandleFunc("/api/bitchat/", HandleBitChatAPI)
+	// Filmmaker HDRI quick probe
+	mux.HandleFunc("/api/hdri", HandleHDRIAPI)
+	mux.HandleFunc("/api/hdri/", HandleHDRIAPI)
 	// Same-WiFi phone → terminal: join URLs + discovery metadata
 	mux.HandleFunc("/api/lan", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

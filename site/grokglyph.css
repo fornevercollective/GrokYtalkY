@@ -92,6 +92,60 @@ html, body.gg-body {
   color: #6ee7b7;
 }
 
+/* HDRI probe overlay */
+.gg-hdri-panel {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--gg-footer-h) + var(--gg-safe-b) + 12px);
+  transform: translateX(-50%);
+  z-index: 50;
+  width: min(96vw, 920px);
+  max-height: min(42vh, 360px);
+  display: flex;
+  flex-direction: column;
+  background: rgba(8, 8, 14, 0.94);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+.gg-hdri-panel[hidden] { display: none !important; }
+.gg-hdri-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.55rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.75rem;
+}
+.gg-hdri-meta {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  color: var(--faint);
+  margin-right: auto;
+}
+.gg-hdri-body {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  overflow: auto;
+  min-height: 0;
+}
+@media (max-width: 700px) {
+  .gg-hdri-body { grid-template-columns: 1fr; }
+}
+.gg-hdri-canvas {
+  width: 100%;
+  height: auto;
+  max-height: 28vh;
+  object-fit: contain;
+  background: #050508;
+  border-radius: 6px;
+  image-rendering: auto;
+}
+
 .gg-header-main {
   display: flex;
   align-items: center;

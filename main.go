@@ -136,6 +136,8 @@ func run(args []string) error {
 		}
 	case "bitchat", "bit-chat", "ble-mesh", "offline-chat":
 		return runBitChatCmd(args)
+	case "hdri", "hdr", "probe-hdri", "envmap":
+		return runHDRICmd(args)
 	case "mid-lane", "midlane", "edge-pub", "edge-hook":
 		return runMidLaneCmd(args)
 	case "agent", "glyph-agent", "iot":
@@ -284,6 +286,9 @@ TUI launches auto-update by default (check GitHub → install → re-exec).
 		case "bitchat", "ble", "offline-chat":
 			fmt.Print(FormatBitChatDoctor())
 			return nil
+		case "hdri", "hdr", "probe":
+			fmt.Print(FormatHDRIDoctor())
+			return nil
 		}
 		fmt.Print(StreamDoctor())
 		fmt.Print(FormatPackageManagersDoctor())
@@ -294,12 +299,13 @@ TUI launches auto-update by default (check GitHub → install → re-exec).
 		fmt.Print(FormatPlatformDoctor(SamplePlatformReadiness()))
 		fmt.Print(FormatBlankDoctor())
 		fmt.Print(FormatBitChatDoctor())
+		fmt.Print(FormatHDRIDoctor())
 		fmt.Println(DepthDoctorLine())
 		fmt.Println(DepthModesList())
 		fmt.Printf("gy binary: %s\n", versionLine())
 		cap := DetectCapProfile(80, 24)
 		fmt.Println(cap.SummaryLine())
-		fmt.Println("doctor st2110 · sync · cameras · nmos · packages · reliability · plugins · space · vision · sfu · platform · camera · blank · bitchat")
+		fmt.Println("doctor st2110 · sync · cameras · nmos · packages · reliability · plugins · space · vision · sfu · platform · camera · blank · bitchat · hdri")
 		fmt.Println("deps: gy install deps -y · gy install blank · gy install deps --list")
 		if p, err := os.Executable(); err == nil {
 			fmt.Printf("path: %s\n", p)
@@ -442,6 +448,7 @@ commands
   %s platform             FFmpeg/Grok streaming platform readiness
   %s chat-bridge          hub → Space captions
   %s bitchat              BLE/Nostr dual-path (BitChat bridge)
+  %s hdri                 filmmaker quick HDRI probe / scene strip
   %s mid-lane             edge mid-lane hook (program/hex → HTTP)
   %s doctor [st2110|sync|…|platform]
   %s update | upgrade [--check]
@@ -479,7 +486,7 @@ install
   gy uninstall
   gy install dependencies     go · ffmpeg · yt-dlp (brew --yes)
   make install                same local channel
-`, Version, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd)
+`, Version, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd)
 }
 
 func runHubOnly(bind string, port int) error {

@@ -32,6 +32,7 @@
     <div class="gg-header-main" role="toolbar" aria-label="Main controls">
       <button type="button" class="gg-hbtn" id="gg-cam" title="Open all cameras (laptop + phone front/back) as ordered scene · tap again to stop" aria-pressed="false">cam</button>
       <button type="button" class="gg-hbtn is-on" id="gg-scene" title="Filmmaker scene order: L2 · L1 · laptop C · R1 · R2" aria-pressed="true">scene</button>
+      <button type="button" class="gg-hbtn" id="gg-hdri" title="HDRI hurdle hop: freeze cams → subject strip + equirect probe · export · cast sphere" aria-pressed="false">HDRI</button>
       <button type="button" class="gg-hbtn primary" id="gg-cast" title="Simulcast every open cam lane to mesh / sphere" aria-pressed="false">cast</button>
       <button type="button" class="gg-hbtn" id="gg-screen" title="Cast Glyph player to screen / external display (full LED resolution)" aria-pressed="false">screen</button>
       <button type="button" class="gg-hbtn" id="gg-hub" title="Connect mesh hub" aria-pressed="false">hub</button>
@@ -60,6 +61,21 @@
   <video id="gg-local-video" class="gg-hidden-media" playsinline muted autoplay></video>
   <video id="gg-file-video" class="gg-hidden-media" playsinline muted loop></video>
   <canvas id="gg-sample" class="gg-hidden-media" width="25" height="25" aria-hidden="true"></canvas>
+  <!-- filmmaker HDRI probe preview -->
+  <div id="gg-hdri-panel" class="gg-hdri-panel" hidden>
+    <div class="gg-hdri-head">
+      <strong>HDRI probe</strong>
+      <span id="gg-hdri-meta" class="gg-hdri-meta"></span>
+      <button type="button" class="gg-hbtn" id="gg-hdri-dl-eq">↓ equirect</button>
+      <button type="button" class="gg-hbtn" id="gg-hdri-dl-strip">↓ strip</button>
+      <button type="button" class="gg-hbtn" id="gg-hdri-cast">cast sphere</button>
+      <button type="button" class="gg-hbtn" id="gg-hdri-close">close</button>
+    </div>
+    <div class="gg-hdri-body">
+      <canvas id="gg-hdri-strip" class="gg-hdri-canvas"></canvas>
+      <canvas id="gg-hdri-eq" class="gg-hdri-canvas gg-hdri-eq"></canvas>
+    </div>
+  </div>
 
   <main class="gg-stage-wrap" id="gg-stage-wrap">
     <div class="gg-stage" id="gg-stage" role="list" aria-label="Glyph Matrix video cast"></div>
@@ -309,6 +325,7 @@
   </div>
 
   <script src="bitchat-bridge.js"></script>
+  <script src="hdri-stitch.js"></script>
   <script src="grokglyph-presets.js"></script>
   <script src="grokglyph.js"></script>
 </body>

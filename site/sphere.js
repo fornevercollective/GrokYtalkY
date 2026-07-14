@@ -181,8 +181,13 @@
   const targetLive = new Map(); // targetId → feed
   /** Full-dome UV cast — glyph projected across shell + seats via az/el */
   let domeCast = null; // { nick, glyph, n, t, avg }
+  /** HDRI equirect probe on dome (filmmaker hurdle hop) */
+  let envMap = null; // { img, w, h, t, nick, slots }
+  let envSampleCanvas = null;
+  let envSampleCtx = null;
   let castMode = "sphere"; // sphere | pin
   const DOME_TTL_MS = 900; // keep live while frames stream (~6 fps)
+  const ENV_TTL_MS = 120000; // HDRI probe holds 2 min
   let ws = null;
   let demoTimer = 0;
   let bulkDemoTimer = 0;
@@ -698,6 +703,58 @@
     return typeof L === "number" ? L / 255 : 0.5;
   }
 
+  /** Sample HDRI equirect → RGB 0..1 at az/el fractions */
+  function sampleEnvMap(u, v) {
+    if (!envMap || !envMap.img || !envMap.img.complete) return null;
+    if (!envSampleCanvas) {
+      envSampleCanvas = document.createElement("canvas");
+      envSampleCanvas.width = 1;
+      envSampleCanvas.height = 1;
+      envSampleCtx = envSampleCanvas.getContext("2d", { willReadFrequently: true });
+    }
+    if (!envSampleCtx) return null;
+    const iw = envMap.img.naturalWidth || envMap.w || 1;
+    const ih = envMap.img.naturalHeight || envMap.h || 1;
+    const sx = Math.max(0, Math.min(iw - 1, Math.floor(u * iw)));
+    const sy = Math.max(0, Math.min(ih - 1, Math.floor(v * ih)));
+    try {
+      envSampleCtx.drawImage(envMap.img, sx, sy, 1, 1, 0, 0, 1, 1);
+      const d = envSampleCtx.getImageData(0, 0, 1, 1).data;
+      return { r: d[0] / 255, g: d[1] / 255, b: d[2] / 255, L: (0.299 * d[0] + 0.587 * d[1] + 0.114 * d[2]) / 255 };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function setEnvMapFromB64(b64, meta) {
+    meta = meta || {};
+    if (!b64) return;
+    const img = new Image();
+    img.onload = function () {
+      envMap = {
+        img: img,
+        w: img.naturalWidth,
+        h: img.naturalHeight,
+        t: Date.now(),
+        nick: meta.from || "hdri",
+        slots: meta.slots || [],
+      };
+      setStatus(
+        "<strong>HDRI</strong> · dome map · " +
+          envMap.w +
+          "×" +
+          envMap.h +
+          (meta.slots && meta.slots.length ? " · " + meta.slots.join("·") : ""),
+        "live"
+      );
+    };
+    img.onerror = function () {
+      setStatus("HDRI decode failed", "err");
+    };
+    if (b64.indexOf("data:") === 0) img.src = b64;
+    else img.src = "data:image/jpeg;base64," + b64;
+  }
+
   function setDomeCast(nick, glyph, gn, avg) {
     domeCast = {
       nick: nick,
@@ -767,6 +824,10 @@
     });
     if (domeCast && now - domeCast.t > DOME_TTL_MS) {
       domeCast = null;
+      ch = true;
+    }
+    if (envMap && now - envMap.t > ENV_TTL_MS) {
+      envMap = null;
       ch = true;
     }
     if (ch) rebuildLiveMaps();
@@ -849,6 +910,20 @@
         }
       }
 
+      // HDRI equirect probe on dome (filmmaker hurdle hop)
+      if (envMap && nowMs - envMap.t < ENV_TTL_MS) {
+        const age = 1 - Math.min(1, (nowMs - envMap.t) / ENV_TTL_MS);
+        const rgb = sampleEnvMap(pAz[i], pEl[i]);
+        if (rgb) {
+          const mix =
+            kind === 1 ? 0.88 + 0.1 * age : kind === 2 ? 0.65 : 0.5 + 0.25 * age;
+          r = r * (1 - mix) + rgb.r * mix;
+          g = g * (1 - mix) + rgb.g * mix;
+          b = b * (1 - mix) + rgb.b * mix;
+          brightness = Math.min(1.25, brightness * (1 - mix * 0.6) + (0.45 + 0.55 * rgb.L) * mix);
+        }
+      }
+
       // full-dome walkie / cast projection (UV on shell + seats + screen)
       if (domeCast && nowMs - domeCast.t < DOME_TTL_MS) {
         const age = 1 - Math.min(1, (nowMs - domeCast.t) / DOME_TTL_MS);
@@ -860,10 +935,12 @@
               ? 0.55 + 0.25 * age
               : 0.48 + 0.3 * age;
         const pulse = 0.85 + 0.15 * Math.sin(nowMs / 90 + pAz[i] * 12);
-        r = r * (1 - mix) + (0.12 + 0.55 * L + 0.15 * pulse) * mix;
-        g = g * (1 - mix) + (0.2 + 0.75 * L) * mix;
-        b = b * (1 - mix) + (0.35 + 0.55 * (1 - L * 0.4)) * mix;
-        brightness = Math.min(1.2, brightness * (1 - mix * 0.7) + (0.55 + 0.55 * L * age) * mix);
+        // if envMap active, blend glyph lightly on top
+        const gMix = envMap ? mix * 0.45 : mix;
+        r = r * (1 - gMix) + (0.12 + 0.55 * L + 0.15 * pulse) * gMix;
+        g = g * (1 - gMix) + (0.2 + 0.75 * L) * gMix;
+        b = b * (1 - gMix) + (0.35 + 0.55 * (1 - L * 0.4)) * gMix;
+        brightness = Math.min(1.2, brightness * (1 - gMix * 0.7) + (0.55 + 0.55 * L * age) * gMix);
       }
 
       // per-seat pin live glyph (multi-person identity)
@@ -975,6 +1052,7 @@
     el.feeds.hidden = false;
     let html = "";
     if (bulkHot.size) html += "<div class='live'>bulk " + bulkHot.size + " targets</div>";
+    if (envMap) html += "<div class='live'>HDRI · " + (envMap.w || "?") + "×" + (envMap.h || "?") + "</div>";
     if (domeCast) html += "<div class='live'>dome cast · " + domeCast.nick + "</div>";
     if (feeds.size) html += "<div class='live'>" + feeds.size + " live Glyph</div>";
     const arr = [];
@@ -1437,6 +1515,19 @@
       if (LIGHT && lightState) LIGHT.applyMeshMessage(lightState, msg);
       if (msg.type === "vburst-frame" || msg.type === "news-frame") upsertFeed(msg);
       else if (msg.type === "gyst" && (msg.kind === "hexlum" || Array.isArray(msg.data))) upsertFeed(msg);
+      if (msg.type === "hdri-probe" && (msg.b64 || msg.jpeg)) {
+        setEnvMapFromB64(msg.b64 || msg.jpeg, msg);
+        if (msg.glyph) {
+          upsertFeed({
+            type: "vburst-frame",
+            from: (msg.from || "hdri") + "-eq",
+            glyph: msg.glyph,
+            glyphN: msg.glyphN || 25,
+            cast: "sphere",
+            project: true,
+          });
+        }
+      }
       if (msg.type === "camera-controls" || msg.type === "venue-light") refreshLightPanel();
       // walkie burst + mesh chat + bitchat dual-path
       if (walkie) walkie.onMesh(msg);
