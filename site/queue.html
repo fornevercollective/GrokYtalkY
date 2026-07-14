@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0c0c0f" />
+  <title>GrokYtalkY · Play Queue · multi-link</title>
+  <meta name="description" content="Queue many web links and social streams, play sequential or multi, cast to TV / speakers / other devices." />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="queue.css" />
+</head>
+<body class="mq-body">
+  <div class="noise" aria-hidden="true"></div>
+  <header class="nav" id="site-nav" data-active="queue" data-site-nav data-brand="GrokYtalkY"></header>
+  <script src="site-nav.js"></script>
+
+  <main class="mq-page">
+    <header class="mq-hero">
+      <p class="eyebrow">multi-link · social · cast out</p>
+      <h1>Play Queue</h1>
+      <p class="mq-lede">
+        Drop <strong>many links</strong> while you browse, pull <strong>social</strong> lives through the hub
+        (<code>yt-dlp</code>), then play here or send to <strong>TV / speakers / phone / sphere</strong>.
+        Simple link sets — share one URL for the whole queue.
+      </p>
+    </header>
+
+    <section class="mq-panel mq-add" aria-label="Add links">
+      <label class="mq-label" for="mq-input">Add links or @handles (one per line)</label>
+      <textarea id="mq-input" rows="3" placeholder="https://youtube.com/watch?v=…&#10;https://twitch.tv/…&#10;@somechannel&#10;twitch:shroud&#10;yt:@CNN"></textarea>
+      <div class="mq-row">
+        <button type="button" class="btn primary" id="mq-add">Add to queue</button>
+        <button type="button" class="btn ghost" id="mq-add-page" title="Add current page if opened via bookmarklet">Add clipboard URL</button>
+        <button type="button" class="btn ghost" id="mq-resolve">Resolve all</button>
+        <button type="button" class="btn ghost danger" id="mq-clear">Clear</button>
+      </div>
+      <p class="mq-hint" id="mq-add-hint">
+        Hub resolves via <code>/api/media/resolve</code> + <code>/api/social</code>. Needs
+        <code>gy serve</code> + <code>yt-dlp</code> for most sites.
+      </p>
+    </section>
+
+    <div class="mq-grid">
+      <section class="mq-panel mq-player-wrap" aria-label="Player">
+        <div class="mq-player-head">
+          <h2>Now playing</h2>
+          <span class="mq-status" id="mq-status">idle</span>
+        </div>
+        <div class="mq-stage" id="mq-stage">
+          <video id="mq-video" class="mq-video" playsinline controls></video>
+          <div id="mq-multi" class="mq-multi" hidden></div>
+          <audio id="mq-audio" class="mq-audio" controls></audio>
+        </div>
+        <div class="mq-transport" role="toolbar" aria-label="Transport">
+          <button type="button" class="btn ghost" id="mq-prev" title="Previous">⏮</button>
+          <button type="button" class="btn primary" id="mq-play">Play</button>
+          <button type="button" class="btn ghost" id="mq-pause">Pause</button>
+          <button type="button" class="btn ghost" id="mq-next" title="Next">⏭</button>
+          <label class="mq-mode">
+            Mode
+            <select id="mq-mode">
+              <option value="seq" selected>Sequential</option>
+              <option value="multi">Multi (up to 4)</option>
+              <option value="audio">Speakers (audio)</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section class="mq-panel mq-list-wrap" aria-label="Queue list">
+        <div class="mq-player-head">
+          <h2>Queue <span class="mq-count" id="mq-count">0</span></h2>
+          <button type="button" class="btn ghost" id="mq-share">Copy share link</button>
+        </div>
+        <ol class="mq-list" id="mq-list"></ol>
+        <p class="mq-hint" id="mq-empty" hidden>Queue is empty — paste links above.</p>
+      </section>
+    </div>
+
+    <section class="mq-panel mq-out" aria-label="Output devices">
+      <h2>Out · TV · speakers · other devices</h2>
+      <p class="mq-hint">
+        Same Wi‑Fi as <code>gy serve</code>. TV opens a full-screen player with this link set.
+        Glyph cast uses the mesh wall. Speakers mode plays audio on this machine (or Bluetooth/AirPlay from the OS).
+      </p>
+      <div class="mq-out-grid">
+        <button type="button" class="mq-out-card" id="mq-out-tv" data-out="tv">
+          <strong>📺 TV player</strong>
+          <span>Full-screen sequential play of the queue</span>
+        </button>
+        <button type="button" class="mq-out-card" id="mq-out-present" data-out="present">
+          <strong>🖥 Presentation</strong>
+          <span>Second screen / Presentation API when available</span>
+        </button>
+        <button type="button" class="mq-out-card" id="mq-out-glyph" data-out="glyph">
+          <strong>◈ Glyph cast</strong>
+          <span>LED matrix screen · glyph-cast.html</span>
+        </button>
+        <button type="button" class="mq-out-card" id="mq-out-phone" data-out="phone">
+          <strong>📱 Phone</strong>
+          <span>Open queue on phone · same hub room</span>
+        </button>
+        <button type="button" class="mq-out-card" id="mq-out-sphere" data-out="sphere">
+          <strong>⬤ Sphere</strong>
+          <span>Venue ball · mesh room media</span>
+        </button>
+        <button type="button" class="mq-out-card" id="mq-out-speakers" data-out="speakers">
+          <strong>🔊 Speakers</strong>
+          <span>Audio-only mode on this device</span>
+        </button>
+      </div>
+      <div class="mq-row mq-hub-row">
+        <label class="mq-label">Hub WS
+          <input type="text" id="mq-hub" placeholder="ws://192.168.x.x:9876/" autocomplete="off" spellcheck="false" />
+        </label>
+        <button type="button" class="btn ghost" id="mq-hub-connect">Link mesh</button>
+        <span class="mq-status" id="mq-hub-status">mesh off</span>
+      </div>
+    </section>
+
+    <section class="mq-panel mq-browse" aria-label="Browse helper">
+      <h2>While you browse</h2>
+      <p class="mq-hint">
+        Drag this bookmarklet to your bookmarks bar. On any page, click it to add the current URL to the queue
+        (opens Play Queue with <code>#add=…</code>).
+      </p>
+      <p>
+        <a class="btn primary" id="mq-bookmarklet" href="#">＋ Queue in GrokYtalkY</a>
+      </p>
+      <p class="mq-hint mono" id="mq-bookmark-code"></p>
+      <div class="mq-row">
+        <button type="button" class="btn ghost" id="mq-export">Export JSON</button>
+        <button type="button" class="btn ghost" id="mq-import">Import JSON</button>
+        <input type="file" id="mq-import-file" accept="application/json,.json,text/plain" hidden />
+      </div>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js" defer></script>
+  <script src="media-queue.js"></script>
+  <script src="queue-app.js"></script>
+</body>
+</html>

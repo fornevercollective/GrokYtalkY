@@ -202,6 +202,7 @@ func BuildLanInfo(port int, room string) LanInfo {
 		Sphere:  httpBase + "/sphere.html",
 		Burst:   httpBase + "/burst.html",
 		Glyph:   httpBase + "/grokglyph.html?role=laptop&slot=C&room=" + room + "&hub=1",
+		// note: Play Queue at /queue.html (multi-link · social · TV/speakers out)
 		Room:    room,
 		Version: Version,
 		Host:    host,
@@ -319,6 +320,7 @@ func FormatLanBanner(info LanInfo) string {
 		b.WriteString(fmt.Sprintf("  phone film  %s\n", info.Film))
 	}
 	b.WriteString(fmt.Sprintf("  phone cast  %s\n", info.Phone))
+	b.WriteString(fmt.Sprintf("  play queue  %s/queue.html\n", strings.TrimRight(info.HTTP, "/")))
 	b.WriteString(fmt.Sprintf("  sphere      %s\n", info.Sphere))
 	b.WriteString(fmt.Sprintf("  quick QR    %s\n", info.QR))
 	b.WriteString("  scan tip    open GrokGlyph on laptop · Show phone QR · both cast live\n")

@@ -9,7 +9,7 @@
  * Always rebuilds the header so every page gets the same menu
  * (Home · Burst · Live News · GrokGlyph · Chat · DOJO · Mid-lane · Docs · Install · GitHub).
  *
- * data-active: home|burst|livenews|grokglyph|sphere|phone|chat|dojo|mid-lane|docs|install
+ * data-active: home|burst|livenews|grokglyph|queue|sphere|phone|chat|dojo|mid-lane|docs|install
  */
 (function () {
   'use strict';
@@ -19,6 +19,7 @@
     { id: 'burst', href: 'burst.html', label: 'Burst' },
     { id: 'livenews', href: 'livenews.html', label: 'Live News' },
     { id: 'grokglyph', href: 'grokglyph.html', label: 'GrokGlyph' },
+    { id: 'queue', href: 'queue.html', label: 'Queue' },
     { id: 'sphere', href: 'sphere.html', label: 'Sphere' },
     { id: 'phone', href: 'phone.html', label: 'Phone' },
     { id: 'chat', href: 'chat.html', label: 'Chat' },
@@ -44,6 +45,7 @@
     if (path.indexOf('burst') === 0) return 'burst';
     if (path.indexOf('livenews') === 0 || path.indexOf('live-news') === 0) return 'livenews';
     if (path.indexOf('grokglyph') === 0) return 'grokglyph';
+    if (path.indexOf('queue') === 0) return 'queue';
     if (path.indexOf('chat') === 0) return 'chat';
     if (path.indexOf('dojo') === 0) return 'dojo';
     if (path.indexOf('mid-lane') === 0 || path.indexOf('midlane') === 0) return 'mid-lane';

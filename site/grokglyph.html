@@ -263,6 +263,8 @@
             <p class="gg-hint">
               Handle → hub <code>/api/social</code> (yt-dlp). Prefers live/broadcast, then lazy-loads more.
               Mobile (tt/ig/x) uses <strong>double-stack</strong> GrokGlyph scale.
+              Multi-link play / TV / speakers: open
+              <a href="queue.html" target="_blank" rel="noopener">Play Queue</a>.
             </p>
             <label class="gg-hub-label">
               Handle
@@ -272,6 +274,7 @@
             <div class="gg-btn-row">
               <button type="button" class="btn primary" id="gg-social-go" title="Resolve live first">Load social</button>
               <button type="button" class="btn ghost" id="gg-social-stack" title="Toggle double-stack mobile scale" aria-pressed="false">2× stack</button>
+              <a class="btn ghost" href="queue.html" target="_blank" rel="noopener" title="Multi-link queue + cast out">Queue ▷</a>
             </div>
             <p class="gg-hint" id="gg-social-status">idle · needs hub with yt-dlp</p>
             <ul class="gg-social-lazy" id="gg-social-lazy" hidden aria-label="Lazy social queue"></ul>
