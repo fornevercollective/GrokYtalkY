@@ -235,6 +235,50 @@
     });
   }
 
+  // Facility ingest registry + PGM
+  var ingestList = document.getElementById("mq-ingest-list");
+  async function refreshIngest() {
+    if (!ingestList || !q.fetchIngestList) return;
+    try {
+      var data = await q.fetchIngestList();
+      ingestList.innerHTML = "";
+      (data.sources || []).forEach(function (s) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "mq-ingest-chip" + (s.ready ? " is-ready" : "");
+        b.title = (s.detail || "") + " · " + s.id;
+        b.innerHTML =
+          (s.brand === "Blackmagic" ? '<span class="bmd">BMD</span> ' : "") +
+          escapeHtml((s.label || s.id).slice(0, 36));
+        b.addEventListener("click", function () {
+          if (!s.ready && s.scheme !== "pgm") {
+            setStatus((s.detail || "not ready on this host"), "err");
+          }
+          q.addOne(s.id, { title: s.label });
+          setStatus("queued " + s.id, "live");
+          renderList();
+        });
+        ingestList.appendChild(b);
+      });
+    } catch (e) {
+      if (ingestList) {
+        ingestList.innerHTML =
+          "<span class='mq-hint'>ingest list offline · is gy serve up?</span>";
+      }
+    }
+  }
+  var ingestRefresh = document.getElementById("mq-ingest-refresh");
+  if (ingestRefresh) ingestRefresh.addEventListener("click", refreshIngest);
+  var pgmBtn = document.getElementById("mq-pgm");
+  if (pgmBtn) {
+    pgmBtn.addEventListener("click", function () {
+      q.addOne("pgm:", { title: "PGM · program bus" });
+      setStatus("PGM tile queued · set GY_PGM_PLAY_URL for live play", "live");
+      renderList();
+    });
+  }
+  refreshIngest();
+
   if (els.play) {
     els.play.addEventListener("click", async function () {
       var snap = q.snapshot();

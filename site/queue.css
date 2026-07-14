@@ -327,6 +327,31 @@
 .mq-hub-row { margin-top: 0.75rem; }
 .mq-hub-row .mq-label { flex: 1 1 14rem; margin: 0; }
 
+.mq-ingest { margin-top: 0.75rem; }
+.mq-ingest-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.4rem;
+  max-height: 9rem;
+  overflow: auto;
+}
+.mq-ingest-chip {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: #0a0a10;
+  color: var(--text);
+  border-radius: 999px;
+  padding: 0.3rem 0.65rem;
+  font: 600 0.68rem/1.2 var(--mono);
+  cursor: pointer;
+  max-width: 100%;
+}
+.mq-ingest-chip:hover { border-color: rgba(125, 211, 252, 0.45); color: var(--accent); }
+.mq-ingest-chip.is-ready { border-color: rgba(110, 231, 183, 0.35); }
+.mq-ingest-chip:not(.is-ready) { opacity: 0.55; }
+.mq-ingest-chip .bmd { color: #fbbf24; }
+
 /* TV / player out mode — chrome minimal */
 body.mq-out-tv .nav,
 body.mq-out-tv .mq-hero,

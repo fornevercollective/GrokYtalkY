@@ -35,12 +35,18 @@ type ResolvedStream struct {
 
 // ResolveMedia turns a path/URL/share-link/handle into ffmpeg-ready stream(s).
 // Auto uses yt-dlp for site pages; social handles prefer live/broadcast first.
+// Facility schemes: ndi: · srt:// · device: · decklink: · pgm: (see media_ingest.go).
 // Passes raw m3u8/mpd/rtsp/etc. straight through.
 func ResolveMedia(src string) (*ResolvedStream, error) {
 	src = strings.TrimSpace(strings.Trim(src, `"'`))
 	src = expandPath(src)
 	if src == "" {
 		return nil, fmt.Errorf("empty media source")
+	}
+
+	// Facility / cinema ingest registry (Blackmagic-first)
+	if IsIngestSource(src) {
+		return ResolveIngest(src)
 	}
 
 	// social handles: @user · twitch:user · yt:@channel · social:@user

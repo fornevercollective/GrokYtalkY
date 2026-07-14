@@ -523,6 +523,19 @@ func resolveMediaForBrowserQuality(src, quality string) (*ResolvedStream, error)
 	if src == "" {
 		return nil, fmt.Errorf("empty media source")
 	}
+	// Facility ingest: prefer HLS restream for queue/TV browser
+	if IsIngestSource(src) {
+		// publicBase empty here — caller WrapResolved may absolutize; start HLS relative
+		r, _, err := EnsureIngestBrowserPlay(src, "")
+		if err != nil {
+			// fall back to raw resolve (gy watch still works)
+			if r2, err2 := ResolveIngest(src); err2 == nil {
+				return r2, nil
+			}
+			return nil, err
+		}
+		return r, nil
+	}
 	// Expand t.co short links are handled by yt-dlp when needsYtDlp
 	if q := ParseSocialQuery(src); q != nil {
 		return ResolveSocial(q)

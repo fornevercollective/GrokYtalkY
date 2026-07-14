@@ -26,18 +26,27 @@
     </header>
 
     <section class="mq-panel mq-add" aria-label="Add links">
-      <label class="mq-label" for="mq-input">Add links or @handles (one per line)</label>
-      <textarea id="mq-input" rows="3" placeholder="https://youtube.com/watch?v=…&#10;https://twitch.tv/…&#10;@somechannel&#10;twitch:shroud&#10;yt:@CNN"></textarea>
+      <label class="mq-label" for="mq-input">Add links, @handles, or facility ingest (one per line)</label>
+      <textarea id="mq-input" rows="3" placeholder="https://x.com/…/status/…&#10;@channel · yt:@CNN&#10;srt://10.0.0.5:9000&#10;ndi:Studio Camera&#10;decklink:0&#10;device:avfoundation:0&#10;pgm:"></textarea>
       <div class="mq-row">
         <button type="button" class="btn primary" id="mq-add">Add to queue</button>
         <button type="button" class="btn ghost" id="mq-add-page" title="Add current page if opened via bookmarklet">Add clipboard URL</button>
         <button type="button" class="btn ghost" id="mq-resolve">Resolve all</button>
+        <button type="button" class="btn ghost" id="mq-pgm" title="Add program bus tile">+ PGM</button>
         <button type="button" class="btn ghost danger" id="mq-clear">Clear</button>
       </div>
       <p class="mq-hint" id="mq-add-hint">
-        Hub resolves via <code>/api/media/resolve</code> + <code>/api/social</code>. Needs
-        <code>gy serve</code> + <code>yt-dlp</code> for most sites.
+        Web: <code>/api/media/resolve</code> + yt-dlp. Facility:
+        <code>ndi:</code> · <code>srt://</code> · <code>device:</code> · <code>decklink:</code> (Blackmagic-first) ·
+        <code>pgm:</code> — via <code>/api/media/ingest</code> → HLS for browser/TV.
       </p>
+      <div class="mq-ingest" id="mq-ingest" aria-label="Ingest registry">
+        <div class="mq-player-head">
+          <h2 style="font-size:0.85rem;margin:0">Ingest registry</h2>
+          <button type="button" class="btn ghost" id="mq-ingest-refresh">Refresh sources</button>
+        </div>
+        <div class="mq-ingest-list" id="mq-ingest-list"></div>
+      </div>
     </section>
 
     <div class="mq-grid">

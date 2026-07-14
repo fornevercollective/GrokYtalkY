@@ -274,6 +274,9 @@ func NewHub(addr string, quiet bool, staticDir string) *Hub {
 	// Built-in blank-lite play + segment proxy (CORS for canvas / hls.js)
 	mux.HandleFunc("/api/media/play/", HandleMediaPlay)
 	mux.HandleFunc("/api/media/proxy", HandleMediaProxy)
+	// Facility ingest registry: ndi: · srt:// · device: · decklink: · pgm:
+	mux.HandleFunc("/api/media/ingest", HandleMediaIngestAPI)
+	mux.HandleFunc("/api/media/ingest/", HandleMediaIngestAPI)
 	// Glyph Sphere Siri-like chat (SpaceXAI / xAI — key stays on server)
 	mux.HandleFunc("/api/chat", HandleAPIChat)
 	mux.HandleFunc("/api/chat/clear", HandleAPIChat)

@@ -142,6 +142,30 @@ gy venue --sink st2110 --profile lab
 
 Scaffold: [`sfu/`](../sfu/README.md) (`make sfu-media` for webrtc-rs track + DataChannel fan-out) · [`chat/`](../chat/README.md) · site: [docs.html#streams-scale](https://fornevercollective.github.io/GrokYtalkY/docs.html#streams-scale)
 
+### Facility ingest registry (Blackmagic-first)
+
+Play Queue accepts **web URLs** and **facility schemes** on the same ladder:
+
+| Scheme | Example | Path |
+|--------|---------|------|
+| Web / social | `https://x.com/…` · `@ch` | yt-dlp → `/api/media/play` |
+| **DeckLink** | `decklink:0` · `blackmagic:0` | FFmpeg decklink → HLS ingest |
+| **NDI** | `ndi:Studio Camera` | libndi_newtek → HLS (or NDI Tools → SRT) |
+| **SRT / RTMP / RTSP** | `srt://host:9000` | raw → HLS restream for browser |
+| **Device** | `device:avfoundation:0` | UVC / FaceTime / Continuity |
+| **PGM** | `pgm:` · `pgm:dojo` | `GY_PGM_PLAY_URL` + mesh `type:program` |
+
+```bash
+# list sources
+curl -s http://127.0.0.1:9876/api/media/ingest | jq .
+# start browser-playable HLS for a DeckLink / device / SRT
+curl -s 'http://127.0.0.1:9876/api/media/ingest/start?src=device:0'
+# PGM tile (venue publishes play URL)
+export GY_PGM_PLAY_URL='http://127.0.0.1:9876/api/media/play/…'
+```
+
+Cinema bodies (ARRI / RED / Panavision / Canon / …) enter via **SDI → DeckLink / NDI / SRT**, not brand browser plugins.
+
 ### Dual-path media queue (LAN hub + SFU WebRTC)
 
 Play Queue timeline (`media-queue` seek/play/index) and Sphere `media-dome` ride **two planes**:

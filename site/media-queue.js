@@ -65,6 +65,15 @@
     return false;
   }
 
+  /** Facility ingest: ndi: · srt:// · device: · decklink: · pgm: */
+  function looksIngest(s) {
+    s = String(s || "").trim();
+    if (!s) return false;
+    if (/^(ndi|device|decklink|blackmagic|bmd|pgm|program|cam|uvc):/i.test(s)) return true;
+    if (/^(srt|rtmp|rtmps|rtsp|rtsps|udp|tcp|rtp):\/\//i.test(s)) return true;
+    return false;
+  }
+
   function normalizeInput(s) {
     s = String(s || "").trim();
     if (!s) return "";
@@ -345,6 +354,35 @@
       var base = hubHTTP(hubWs);
       try {
         var data = null;
+        // Facility / cinema ingest registry
+        if (looksIngest(it.input)) {
+          var ir = await fetch(base + "/api/media/ingest/start?src=" + encodeURIComponent(it.input), {
+            method: "GET",
+            headers: { Accept: "application/json" },
+          });
+          data = await ir.json().catch(function () {
+            return {};
+          });
+          if (!ir.ok || !data.ok) {
+            // try resolve-only for clearer error
+            var ir2 = await fetch(base + "/api/media/ingest/resolve?src=" + encodeURIComponent(it.input), {
+              headers: { Accept: "application/json" },
+            });
+            var d2 = await ir2.json().catch(function () {
+              return {};
+            });
+            throw new Error((data && data.error) || (d2 && d2.error) || "ingest failed");
+          }
+          it.video = data.video || data.play || "";
+          it.title = data.title || it.title || it.input;
+          it.via = data.via || "ingest";
+          it.live = true;
+          it.platform = "ingest";
+          if (!it.video) throw new Error("ingest produced no play URL");
+          it.status = "ready";
+          emit();
+          return it;
+        }
         if (looksSocial(it.input)) {
           var rs = await fetch(base + "/api/social?q=" + encodeURIComponent(it.input), {
             headers: { Accept: "application/json" },
@@ -855,6 +893,12 @@
       defaultHubWS: defaultHubWS,
       splitInputs: splitInputs,
       looksSocial: looksSocial,
+      looksIngest: looksIngest,
+      fetchIngestList: async function () {
+        var base = hubHTTP(hubWs);
+        var r = await fetch(base + "/api/media/ingest", { headers: { Accept: "application/json" } });
+        return r.json();
+      },
     };
   }
 
