@@ -192,6 +192,32 @@
     }
     body.sphere-body.mood-tx .sp-status strong { color: #f87171; }
     body.sphere-body.mood-rx .sp-status strong { color: #4ade80; }
+    .sp-walkie-actions button.is-on {
+      border-color: #6ee7b7; color: #6ee7b7;
+    }
+    .sp-cam-help {
+      width: 100%;
+      background: rgba(40, 20, 20, 0.95);
+      border: 1px solid rgba(248, 113, 113, 0.45);
+      border-radius: 10px;
+      padding: 0.55rem 0.65rem;
+      font: 0.68rem/1.4 "Instrument Sans", system-ui, sans-serif;
+      color: #fecaca;
+    }
+    .sp-cam-help[hidden] { display: none !important; }
+    .sp-cam-help a { color: #7dd3fc; }
+    .sp-cam-help em { color: #fde68a; font-style: normal; }
+    .sp-cam-help .sp-cam-mac {
+      display: block; margin-top: 0.35rem; color: #9ca3af; font-size: 0.62rem;
+    }
+    .sp-cam-help .sp-cam-help-actions {
+      display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.45rem;
+    }
+    .sp-cam-help button {
+      appearance: none; border: 1px solid #555; background: #1a1a22; color: #eee;
+      border-radius: 999px; padding: 0.3rem 0.55rem; font-size: 0.62rem; cursor: pointer;
+    }
+    .sp-cam-help button.primary { background: #6ee7b7; color: #042; border-color: transparent; }
   </style>
 </head>
 <body class="sphere-body">
@@ -221,10 +247,19 @@
           <span class="orb-label" id="sp-walkie-label">hold</span>
         </div>
       </div>
-      <p class="sp-walkie-meta" id="sp-walkie-meta">idle · connect hub · hold orb</p>
+      <p class="sp-walkie-meta" id="sp-walkie-meta">idle · connect hub · hold orb · cast sphere</p>
       <div class="sp-walkie-actions">
         <button type="button" class="primary" id="sp-walkie-hold">Hold burst</button>
         <button type="button" id="sp-walkie-cam">Enable cam</button>
+        <button type="button" class="is-on" id="sp-walkie-cast-mode" title="Project glyph across the whole dome">Cast: sphere</button>
+      </div>
+      <div class="sp-cam-help" id="sp-cam-help" hidden>
+        <div class="sp-cam-help-body"></div>
+        <div class="sp-cam-help-actions">
+          <button type="button" class="primary" id="sp-cam-retry">Retry cam</button>
+          <button type="button" id="sp-cam-localhost" onclick="location.href='http://127.0.0.1:9876/sphere.html'">Open localhost</button>
+          <button type="button" id="sp-cam-dismiss">Dismiss</button>
+        </div>
       </div>
       <div class="sp-walkie-chat">
         <div class="sp-walkie-log" id="sp-walkie-log" role="log" aria-live="polite"></div>

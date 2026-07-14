@@ -172,7 +172,9 @@
       var glyph = lastGlyph.map(function (v) {
         return Math.round(v);
       });
-      sendMesh({
+      var cast =
+        (typeof opts.getCastMode === "function" && opts.getCastMode()) || "sphere";
+      var frame = {
         type: "vburst-frame",
         from: nick,
         fmt: "jpeg",
@@ -181,17 +183,14 @@
         h: 120,
         glyph: glyph,
         glyphN: GLYPH_N,
+        cast: cast === "pin" ? "pin" : "sphere",
+        project: cast !== "pin",
         t: Date.now(),
-      });
-      // local paint on sphere ball
+      };
+      sendMesh(frame);
+      // local project across the 3D ball
       if (typeof opts.onLocalFrame === "function") {
-        opts.onLocalFrame({
-          type: "vburst-frame",
-          from: nick,
-          glyph: glyph,
-          glyphN: GLYPH_N,
-          t: Date.now(),
-        });
+        opts.onLocalFrame(frame);
       }
     }
 
@@ -299,6 +298,43 @@
       throw lastErr || new Error("getUserMedia failed");
     }
 
+    function showCamHelp(kind) {
+      var panel = document.getElementById("sp-cam-help");
+      if (!panel) return;
+      panel.hidden = false;
+      panel.dataset.kind = kind || "denied";
+      var body = panel.querySelector(".sp-cam-help-body");
+      if (!body) return;
+      if (kind === "insecure") {
+        body.innerHTML =
+          "<strong>Camera needs localhost</strong><br/>" +
+          "Open <a href='http://127.0.0.1:9876/sphere.html'>http://127.0.0.1:9876/sphere.html</a><br/>" +
+          "Browsers block cam on LAN IPs like 192.168.x.x over plain HTTP.";
+      } else {
+        body.innerHTML =
+          "<strong>Camera permission denied</strong><br/>" +
+          "1. Click the <em>🔒 lock</em> (or camera icon) left of the URL<br/>" +
+          "2. Set <em>Camera</em> and <em>Microphone</em> to <em>Allow</em><br/>" +
+          "3. Click <em>Retry cam</em> below (or reload the page)<br/>" +
+          "<span class='sp-cam-mac'>macOS: System Settings → Privacy &amp; Security → Camera → enable your browser</span>";
+      }
+    }
+
+    function hideCamHelp() {
+      var panel = document.getElementById("sp-cam-help");
+      if (panel) panel.hidden = true;
+    }
+
+    async function queryCamPermission() {
+      try {
+        if (!navigator.permissions || !navigator.permissions.query) return null;
+        var st = await navigator.permissions.query({ name: "camera" });
+        return st && st.state; // granted | denied | prompt
+      } catch (_) {
+        return null;
+      }
+    }
+
     async function enableCam() {
       // Preflight: insecure origin (LAN http://192.168…)
       var host = "";
@@ -317,15 +353,29 @@
           " — open http://127.0.0.1:9876/sphere.html (localhost is secure)";
         setMeta(hint);
         appendChat("system", hint, "system");
+        showCamHelp("insecure");
         if (el.btnCam) el.btnCam.textContent = "Use localhost";
         return;
+      }
+
+      var perm = await queryCamPermission();
+      if (perm === "denied") {
+        showCamHelp("denied");
+        setMeta("cam permission denied — allow in 🔒 then Retry cam");
+        appendChat(
+          "system",
+          "Permission previously denied. Use 🔒 → Camera Allow, then Retry cam.",
+          "system"
+        );
+        if (el.btnCam) el.btnCam.textContent = "Retry cam";
+        // still try getUserMedia — some browsers re-prompt after user changes settings
       }
 
       if (el.btnCam) {
         el.btnCam.disabled = true;
         el.btnCam.textContent = "Requesting…";
       }
-      setMeta("requesting camera…");
+      setMeta("requesting camera… allow the browser prompt");
 
       try {
         // stop previous
@@ -358,21 +408,27 @@
           }
         }
 
-        setMeta("cam ready · hold orb to burst" + (hasAudio ? "" : " (no mic)"));
+        hideCamHelp();
+        setMeta(
+          "cam ready · hold orb to cast across sphere" + (hasAudio ? "" : " (no mic)")
+        );
         if (el.btnCam) {
           el.btnCam.disabled = false;
           el.btnCam.textContent = "Cam on";
         }
         appendChat(
           "system",
-          "camera ready — hold the orb to walkie" + (hasAudio ? "" : " (video only)"),
+          "camera ready — hold orb to project face across the sphere" +
+            (hasAudio ? "" : " (video only)"),
           "system"
         );
       } catch (e) {
         console.warn("[sphere-walkie] cam", e);
-        var hint = camErrorHint(e);
-        setMeta(hint);
-        appendChat("system", hint, "system");
+        var hint2 = camErrorHint(e);
+        setMeta(hint2);
+        appendChat("system", hint2, "system");
+        if (e && e.name === "NotAllowedError") showCamHelp("denied");
+        else if (!isLocalhost) showCamHelp("insecure");
         if (el.btnCam) {
           el.btnCam.disabled = false;
           el.btnCam.textContent = isLocalhost ? "Retry cam" : "Use localhost";
@@ -467,6 +523,13 @@
     bindHold(el.orb);
     bindHold(el.btnHold);
     if (el.btnCam) el.btnCam.addEventListener("click", enableCam);
+    var camRetry = document.getElementById("sp-cam-retry");
+    if (camRetry) camRetry.addEventListener("click", enableCam);
+    var camDismiss = document.getElementById("sp-cam-dismiss");
+    if (camDismiss)
+      camDismiss.addEventListener("click", function () {
+        hideCamHelp();
+      });
     if (el.send) el.send.addEventListener("click", sendChat);
     if (el.input) {
       el.input.addEventListener("keydown", function (e) {

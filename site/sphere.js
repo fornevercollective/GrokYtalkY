@@ -179,6 +179,10 @@
   const feeds = new Map();
   const seatLive = new Map();
   const targetLive = new Map(); // targetId → feed
+  /** Full-dome UV cast — glyph projected across shell + seats via az/el */
+  let domeCast = null; // { nick, glyph, n, t, avg }
+  let castMode = "sphere"; // sphere | pin
+  const DOME_TTL_MS = 900; // keep live while frames stream (~6 fps)
   let ws = null;
   let demoTimer = 0;
   let bulkDemoTimer = 0;
@@ -483,6 +487,9 @@
         return sphereNick;
       },
       sendMesh: sendMesh,
+      getCastMode: function () {
+        return castMode;
+      },
       onMood: function (m) {
         setBurstMood(m === "tx" || m === "rx" ? m : "idle");
       },
@@ -491,11 +498,35 @@
         else setStatus("<strong>" + burstMood.toUpperCase() + "</strong> · " + (t || ""), "live");
       },
       onLocalFrame: function (msg) {
-        // paint own burst onto the 3D ball seats immediately
+        // project own burst across the 3D ball immediately
+        if (!msg.cast) msg.cast = castMode === "sphere" ? "sphere" : "pin";
         upsertFeed(msg);
       },
     });
     if (walkie) walkie.setNick(sphereNick);
+
+    const castBtn = document.getElementById("sp-walkie-cast-mode");
+    if (castBtn) {
+      const syncCastBtn = function () {
+        castBtn.textContent = castMode === "sphere" ? "Cast: sphere" : "Cast: pin";
+        castBtn.classList.toggle("is-on", castMode === "sphere");
+        castBtn.title =
+          castMode === "sphere"
+            ? "Project walkie glyph across the whole dome"
+            : "Pin feed to one seat only";
+      };
+      syncCastBtn();
+      castBtn.addEventListener("click", function () {
+        castMode = castMode === "sphere" ? "pin" : "sphere";
+        syncCastBtn();
+        setStatus(
+          castMode === "sphere"
+            ? "<strong>cast</strong> · full sphere projection"
+            : "<strong>cast</strong> · pin to seat",
+          "live"
+        );
+      });
+    }
   }
 
   function setStatus(t, kind) {
@@ -584,6 +615,25 @@
     });
   }
 
+  function sampleGlyphUV(glyph, n, u, v) {
+    if (!glyph || !n) return 0.5;
+    const gx = Math.max(0, Math.min(n - 1, Math.floor(u * n)));
+    // flip v so face upright on dome (top of cam → upper seats)
+    const gy = Math.max(0, Math.min(n - 1, Math.floor((1 - v) * n)));
+    const L = glyph[gy * n + gx];
+    return typeof L === "number" ? L / 255 : 0.5;
+  }
+
+  function setDomeCast(nick, glyph, gn, avg) {
+    domeCast = {
+      nick: nick,
+      glyph: glyph,
+      n: gn,
+      t: Date.now(),
+      avg: avg != null ? avg : glyphAvg(glyph),
+    };
+  }
+
   function upsertFeed(msg) {
     const nick = String(msg.from || msg.nick || msg.src || "peer").slice(0, 24);
     let glyph = null;
@@ -595,6 +645,16 @@
       glyph = normalizeGlyph(msg.data);
       gn = msg.w || Math.round(Math.sqrt(glyph.length)) || gn;
     } else return;
+    const avg = glyphAvg(glyph);
+    const wantSphere =
+      castMode === "sphere" ||
+      msg.cast === "sphere" ||
+      msg.project === true ||
+      msg.project === "sphere" ||
+      msg.dome === true;
+    if (wantSphere) {
+      setDomeCast(nick, glyph, gn, avg);
+    }
     const resolved = resolveFromPos(msg.pos || null, nick);
     const t = resolved.target;
     const posOut = msg.pos || (t ? VENUE.targetToMeshPos(t) : null);
@@ -606,7 +666,8 @@
       seatIdx: resolved.seatIdx,
       targetId: t ? t.id : null,
       t: Date.now(),
-      avg: glyphAvg(glyph),
+      avg: avg,
+      cast: wantSphere ? "sphere" : "pin",
     });
     rebuildLiveMaps();
     // phone torch rides with cast frames
@@ -630,6 +691,10 @@
         ch = true;
       }
     });
+    if (domeCast && now - domeCast.t > DOME_TTL_MS) {
+      domeCast = null;
+      ch = true;
+    }
     if (ch) rebuildLiveMaps();
   }
 
@@ -710,10 +775,27 @@
         }
       }
 
-      // live glyph
+      // full-dome walkie / cast projection (UV on shell + seats + screen)
+      if (domeCast && nowMs - domeCast.t < DOME_TTL_MS) {
+        const age = 1 - Math.min(1, (nowMs - domeCast.t) / DOME_TTL_MS);
+        const L = sampleGlyphUV(domeCast.glyph, domeCast.n, pAz[i], pEl[i]);
+        const mix =
+          kind === 1
+            ? 0.72 + 0.22 * age // shell LED is the main ball surface
+            : kind === 2
+              ? 0.55 + 0.25 * age
+              : 0.48 + 0.3 * age;
+        const pulse = 0.85 + 0.15 * Math.sin(nowMs / 90 + pAz[i] * 12);
+        r = r * (1 - mix) + (0.12 + 0.55 * L + 0.15 * pulse) * mix;
+        g = g * (1 - mix) + (0.2 + 0.75 * L) * mix;
+        b = b * (1 - mix) + (0.35 + 0.55 * (1 - L * 0.4)) * mix;
+        brightness = Math.min(1.2, brightness * (1 - mix * 0.7) + (0.55 + 0.55 * L * age) * mix);
+      }
+
+      // per-seat pin live glyph (multi-person identity)
       if (kind === 0) {
         const f = seatLive.get(pSeatIdx[i]);
-        if (f) {
+        if (f && f.cast !== "sphere") {
           const age = 1 - Math.min(1, (nowMs - f.t) / FEED_TTL_MS);
           const pulse = 0.55 + 0.45 * Math.sin(nowMs / 160 + i * 0.02);
           const mix = 0.55 + 0.4 * age;
@@ -725,7 +807,7 @@
         }
       } else if (kind === 2) {
         const f = targetLive.get(pTargetId[i]);
-        if (f) {
+        if (f && f.cast !== "sphere") {
           const age = 1 - Math.min(1, (nowMs - f.t) / FEED_TTL_MS);
           r = 0.3 + 0.5 * f.avg;
           g = 0.95;
@@ -819,6 +901,7 @@
     el.feeds.hidden = false;
     let html = "";
     if (bulkHot.size) html += "<div class='live'>bulk " + bulkHot.size + " targets</div>";
+    if (domeCast) html += "<div class='live'>dome cast · " + domeCast.nick + "</div>";
     if (feeds.size) html += "<div class='live'>" + feeds.size + " live Glyph</div>";
     const arr = [];
     feeds.forEach(function (f) {
