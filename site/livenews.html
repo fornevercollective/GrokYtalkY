@@ -31,6 +31,8 @@
 
     <div class="ln-toolbar" role="toolbar" aria-label="News wall controls">
       <button type="button" class="btn primary" id="ln-connect">Connect hub</button>
+      <button type="button" class="btn primary" id="ln-go-live" title="Resolve YouTube /live → real glyph frames (blank + yt-dlp)">Resolve live</button>
+      <button type="button" class="btn ghost" id="ln-stop-live" title="Stop real streams · back to sim" hidden>Stop live</button>
       <button type="button" class="btn ghost" id="ln-expand">Expand all</button>
       <button type="button" class="btn ghost" id="ln-collapse">Collapse all</button>
       <button type="button" class="btn ghost" id="ln-refresh-all" title="Refresh all sections">↻ All</button>
@@ -69,8 +71,7 @@
           <button type="button" class="btn ghost" id="ln-main-cycle" title="Cycle next page of feeds">Cycle ▸</button>
           <button type="button" class="btn ghost" id="ln-main-clear">Clear pins</button>
           <button type="button" class="btn ghost" id="ln-main-fill" title="Fill main from current sort">Fill from sort</button>
-          <button type="button" class="btn primary" id="ln-go-live" title="Resolve YouTube live → sample real frames to glyphs (needs blank or yt-dlp via hub)">Go live</button>
-          <button type="button" class="btn ghost" id="ln-stop-live" title="Stop real streams · back to sim" hidden>Stop live</button>
+          <button type="button" class="btn ghost" id="ln-go-live-main" title="Same as Resolve live">Resolve live</button>
         </div>
         <div class="speaker-grid ln-main-grid" id="ln-main-grid" role="list" aria-label="Main feed mosaic"></div>
         <div class="ln-theme-bar" id="ln-theme-bar" aria-label="Theme clusters"></div>

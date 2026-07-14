@@ -37,6 +37,7 @@
     castTv: document.getElementById('ln-cast-tv'),
     castStop: document.getElementById('ln-cast-stop'),
     goLive: document.getElementById('ln-go-live'),
+    goLiveMain: document.getElementById('ln-go-live-main'),
     stopLive: document.getElementById('ln-stop-live'),
   };
 
@@ -1026,11 +1027,15 @@
         mainIds = mainIds.slice(0, maxN);
         renderMain();
       }
-      if (el.goLive) {
-        el.goLive.classList.add('is-on');
-        el.goLive.textContent = 'Going live…';
-        el.goLive.disabled = true;
+      function setGoLiveUI(text, busy) {
+        [el.goLive, el.goLiveMain].forEach(function (b) {
+          if (!b) return;
+          b.classList.toggle('is-on', !!busy || (text && text.indexOf('Live') === 0));
+          b.textContent = text || 'Resolve live';
+          b.disabled = !!busy;
+        });
       }
+      setGoLiveUI('Resolving…', true);
       if (el.stopLive) el.stopLive.hidden = false;
       if (!ws || ws.readyState !== WebSocket.OPEN) connect();
       if (el.meta) el.meta.textContent = 'resolving YouTube live via blank/hub…';
@@ -1053,10 +1058,7 @@
           }
         },
       });
-      if (el.goLive) {
-        el.goLive.textContent = res.ok ? 'Live · ' + res.ok : 'Retry Go live';
-        el.goLive.disabled = false;
-      }
+      setGoLiveUI(res.ok ? 'Live · ' + res.ok : 'Retry resolve', false);
       if (el.meta) {
         el.meta.innerHTML =
           '<em>live</em> ' +
@@ -1067,18 +1069,20 @@
           (res.ok ? ' · real YT frames' : ' · check blank :5173');
       }
       if (el.mainSub) {
-        el.mainSub.textContent = res.ok ? 'LIVE youtube · ' + res.ok + ' streams' : 'sim · go live failed';
+        el.mainSub.textContent = res.ok ? 'LIVE youtube · ' + res.ok + ' streams' : 'sim · resolve failed';
       }
       if (res.ok > 0) {
         startCastLoop();
         if (el.castStop) el.castStop.hidden = false;
       }
     } catch (e) {
-      if (el.meta) el.meta.textContent = 'go live error · ' + (e && e.message ? e.message : e);
-      if (el.goLive) {
-        el.goLive.textContent = 'Retry Go live';
-        el.goLive.disabled = false;
-      }
+      if (el.meta) el.meta.textContent = 'resolve error · ' + (e && e.message ? e.message : e);
+      [el.goLive, el.goLiveMain].forEach(function (b) {
+        if (!b) return;
+        b.textContent = 'Retry resolve';
+        b.disabled = false;
+        b.classList.remove('is-on');
+      });
     } finally {
       goLiveBusy = false;
     }
@@ -1086,16 +1090,19 @@
 
   function stopLiveMain() {
     if (LIVE) LIVE.stopAllLive(tileMap);
-    if (el.goLive) {
-      el.goLive.classList.remove('is-on');
-      el.goLive.textContent = 'Go live';
-    }
+    [el.goLive, el.goLiveMain].forEach(function (b) {
+      if (!b) return;
+      b.classList.remove('is-on');
+      b.textContent = 'Resolve live';
+      b.disabled = false;
+    });
     if (el.stopLive) el.stopLive.hidden = true;
     if (el.mainSub) el.mainSub.textContent = 'sim · pin · theme clump';
     setMeta();
   }
 
   el.goLive && el.goLive.addEventListener('click', () => goLiveMain());
+  el.goLiveMain && el.goLiveMain.addEventListener('click', () => goLiveMain());
   el.stopLive && el.stopLive.addEventListener('click', () => stopLiveMain());
 
   // auto: ?live=1 · ?golive=1 · default auto-live for dev
