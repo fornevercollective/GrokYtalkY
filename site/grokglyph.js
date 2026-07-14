@@ -127,6 +127,9 @@
   let t0 = performance.now();
   let lastCastAt = 0;
   let castSeq = 0;
+  /** throttle face MOCAP re-sample (variance / talking) */
+  let lastMocapAt = 0;
+  const MOCAP_MS = 220;
   let camOn = false;
   let fileOn = false;
   let casting = false;
@@ -161,7 +164,13 @@
    *   short: string,
    *   kind?: string,
    *   slot?: string,
-   *   sceneOrder?: number
+   *   sceneOrder?: number,
+   *   face?: object,
+   *   mocap?: boolean,
+   *   talking?: boolean,
+   *   variance?: number,
+   *   varianceN?: number,
+   *   muteHint?: string
    * }>}
    */
   let camLanes = [];
@@ -988,7 +997,7 @@
   /**
    * Assign unique scene slots L2·L1·C·R1·R2 for local lanes.
    * Prefer laptop/webcam at C; phone front left; phone back right.
-   * forcedSlot only pins the *primary* lens (matching role), not every lane.
+   * Face MOCAP lanes pin L1 (variance flag seat). forcedSlot pins primary once.
    */
   function assignSceneSlots(lanes) {
     const used = new Set();
@@ -1007,17 +1016,22 @@
       R1: "back",
       R2: "uw",
     };
-    // sort by preferred film order (kind priority)
+    // sort by preferred film order (kind priority); mocap face first so L1 sticks
     const ranked = lanes.slice().sort((a, b) => {
+      const ma = a.mocap ? -1 : 0;
+      const mb = b.mocap ? -1 : 0;
+      if (ma !== mb) return ma - mb;
       const pa = a.kind === "laptop" ? 0 : a.kind === "front" ? 1 : a.kind === "back" ? 2 : a.kind === "uw" ? 3 : 4;
       const pb = b.kind === "laptop" ? 0 : b.kind === "front" ? 1 : b.kind === "back" ? 2 : b.kind === "uw" ? 3 : 4;
       return pa - pb || (a.order || 0) - (b.order || 0);
     });
     let primaryPinned = false;
     ranked.forEach((lane) => {
-      let slot = prefer[lane.kind] || lane.slot || "R1";
+      // face MOCAP variance seat stays L1 across reassigns
+      let slot = lane.mocap ? "L1" : prefer[lane.kind] || lane.slot || "R1";
       // Pin primary lens to forced seat once (phone ?slot=L1 keeps front on L1, other lenses free)
       if (
+        !lane.mocap &&
         forcedSlot &&
         SCENE_SLOTS.includes(forcedSlot) &&
         !primaryPinned &&
@@ -2301,7 +2315,7 @@
       ensureRxPeer(from);
       setCastLabel("rx " + from);
     }
-    // Tag RX peers with scene slot from cast meta or nick suffix (phone L1/R1 around laptop)
+    // Tag RX peers with scene slot + face MOCAP variance from cast meta
     if (
       (typ === "vburst-frame" || typ === "gyst") &&
       from &&
@@ -2320,6 +2334,23 @@
           p.sceneOrder = SCENE_ORD[slot];
           p.dir = slotDir(slot);
           p.camKind = cam.kind || p.camKind;
+        }
+        // multi-source face MOCAP variance flag from peer cast
+        if (cam.face || cam.talking != null || cam.variance != null || cam.muteHint) {
+          const prevTalk = !!p.talking;
+          p.face = cam.face || p.face || null;
+          p.mocap = !!cam.mocap;
+          p.talking = !!(cam.talking || (cam.face && cam.face.talking));
+          p.variance = cam.variance != null ? cam.variance : (cam.face && cam.face.variance) || 0;
+          p.varianceN =
+            cam.varianceN != null
+              ? cam.varianceN
+              : (cam.face && cam.face.varianceN) || 0;
+          p.muteHint =
+            cam.muteHint ||
+            (cam.face && cam.face.muteHint) ||
+            (p.talking ? "talking" : "none");
+          if (prevTalk !== p.talking) syncTileMOCAP();
         }
       }
     }
@@ -2781,6 +2812,8 @@
     for (const p of stageOrder().filter(isDrawn)) {
       const isVideo = isLivePeer(p);
       const tile = document.createElement("div");
+      const talking = !!p.talking;
+      const mocap = !!p.mocap;
       tile.className =
         "gg-tile" +
         (p.self ? " is-you" : "") +
@@ -2790,23 +2823,41 @@
         (isVideo ? " is-video" : "") +
         (p.on ? "" : " is-off") +
         (p.sceneSlot === "C" ? " is-scene-c" : "") +
+        (talking ? " is-talking" : "") +
+        (mocap ? " is-mocap" : "") +
         (focusPeerId && p.id === focusPeerId ? " is-focus" : "");
       tile.dataset.id = p.id;
       if (p.sceneSlot) tile.dataset.slot = p.sceneSlot;
+      if (p.muteHint) tile.dataset.muteHint = p.muteHint;
       tile.setAttribute("role", "listitem");
       tile.tabIndex = 0;
+      const faceHint =
+        p.face && p.face.confidence > 0
+          ? " · face " +
+            p.face.confidence.toFixed(2) +
+            (p.face.talking || talking ? " talking" : "") +
+            (p.varianceN != null ? " v" + Number(p.varianceN).toFixed(2) : "")
+          : talking
+            ? " · talking"
+            : "";
       tile.title =
         p.nick +
         (p.sceneSlot ? " · slot " + p.sceneSlot : "") +
         (p.camKind ? " · " + p.camKind : "") +
+        (mocap ? " · MOCAP" : "") +
+        faceHint +
         (p.self ? " (you)" : "") +
         (isVideo ? " · video" : "");
 
       const badge = document.createElement("span");
-      badge.className = "gg-dir-badge" + (isVideo ? " gg-live-badge" : "");
-      if (sceneMode && p.sceneSlot) badge.textContent = p.sceneSlot;
-      else if ((p.self || p.selfCam) && casting) badge.textContent = "TX";
-      else if (isVideo && p.source === "rx") badge.textContent = "RX";
+      badge.className =
+        "gg-dir-badge" +
+        (isVideo ? " gg-live-badge" : "") +
+        (talking ? " is-talking" : "");
+      if (sceneMode && p.sceneSlot) {
+        badge.textContent = talking ? p.sceneSlot + "·TX" : p.sceneSlot;
+      } else if ((p.self || p.selfCam) && casting) badge.textContent = "TX";
+      else if (isVideo && p.source === "rx") badge.textContent = talking ? "RX·TX" : "RX";
       else if ((p.self || p.selfCam) && (camOn || fileOn)) badge.textContent = "CAM";
       else if (p.dir && p.dir !== "c") badge.textContent = p.dir.toUpperCase();
       if (badge.textContent) tile.appendChild(badge);
@@ -3169,9 +3220,69 @@
     return null;
   }
 
+  /**
+   * Continuous face MOCAP → seats + peer flags (variance / talking).
+   * Slot reshuffle only on first hit or confidence flip; cast rides every sample.
+   */
+  function tickFaceMOCAP(now) {
+    if (!camOn || !camLanes.length || !window.GY_CAM_BRIDGE) return;
+    if (now - lastMocapAt < MOCAP_MS) return;
+    lastMocapAt = now;
+    const hadMocap = camLanes.some((l) => l.mocap);
+    const prevTalk = camLanes.map((l) => !!(l.talking || (l.face && l.face.talking)));
+    window.GY_CAM_BRIDGE.refreshFaceMOCAP(camLanes, { reslot: !hadMocap });
+    // one-shot slot lock when face first lands
+    if (!hadMocap && camLanes.some((l) => l.mocap)) {
+      assignSceneSlots(camLanes);
+      camLanes.forEach((lane, i) => ensureCamPeer(lane, i));
+      layoutAndPaint();
+    }
+    let talkFlip = false;
+    camLanes.forEach((lane, i) => {
+      const p = peers.find((x) => x.id === lane.peerId);
+      if (!p) return;
+      p.face = lane.face || null;
+      p.mocap = !!lane.mocap;
+      p.talking = !!lane.talking;
+      p.variance = lane.variance || 0;
+      p.varianceN = lane.varianceN || 0;
+      p.muteHint = lane.muteHint || "none";
+      if (!!prevTalk[i] !== !!lane.talking) talkFlip = true;
+    });
+    if (talkFlip || camLanes.some((l) => l.mocap)) {
+      syncTileMOCAP();
+    }
+  }
+
+  /** Lightweight DOM update for talking / mocap badges (no full tile rebuild). */
+  function syncTileMOCAP() {
+    if (!els.stage) return;
+    peers.forEach((p) => {
+      const tile = els.stage.querySelector('.gg-tile[data-id="' + p.id + '"]');
+      if (!tile) return;
+      const talking = !!p.talking;
+      const mocap = !!p.mocap;
+      tile.classList.toggle("is-talking", talking);
+      tile.classList.toggle("is-mocap", mocap);
+      if (talking) tile.dataset.muteHint = "talking";
+      else if (p.muteHint) tile.dataset.muteHint = p.muteHint;
+      else delete tile.dataset.muteHint;
+      const badge = tile.querySelector(".gg-dir-badge");
+      if (badge && talking && sceneMode && p.sceneSlot) {
+        badge.textContent = p.sceneSlot + "·TX";
+        badge.classList.add("is-talking");
+      } else if (badge && sceneMode && p.sceneSlot) {
+        badge.textContent = p.sceneSlot;
+        badge.classList.remove("is-talking");
+      }
+    });
+  }
+
   // ── animation: sample video every frame ──────────────────
   function tick(now) {
     const t = (now - t0) / 1000;
+    // continuous face MOCAP variance → seats / cast meta
+    tickFaceMOCAP(now);
     // throttle mesh cast across all lanes as a group
     let castDue = casting && now - lastCastAt >= CAST_MS;
     if (castDue) lastCastAt = now;
@@ -3214,12 +3325,28 @@
               sceneMode || (lane && camLanes.length > 1)
                 ? myNick() + "-" + slot
                 : myNick();
+            const face =
+              (lane && lane.face) ||
+              p.face ||
+              (window.GY_CAM_BRIDGE && window.GY_CAM_BRIDGE.emptyFace
+                ? window.GY_CAM_BRIDGE.emptyFace()
+                : null);
             sendCastFrame(buf, from, {
               id: lane ? lane.short : slot,
               label: lane ? lane.label : p.nick,
               slot: slot,
               kind: p.camKind || (lane && lane.kind) || "cam",
               sceneOrder: peerSceneKey(p),
+              mocap: !!(lane && lane.mocap) || !!p.mocap,
+              talking: !!(lane && lane.talking) || !!p.talking || !!(face && face.talking),
+              variance: (lane && lane.variance) || (face && face.variance) || 0,
+              varianceN: (lane && lane.varianceN) || (face && face.varianceN) || 0,
+              muteHint:
+                (lane && lane.muteHint) ||
+                p.muteHint ||
+                (face && face.muteHint) ||
+                "none",
+              face: face,
             });
           }
         }
@@ -4206,49 +4333,52 @@
     hdriBtn.addEventListener("click", () => runHdriProbe({ cast: true }));
   }
 
-  // 3-cam pack: built-in + externals + face MOCAP → seats + optional queue
+  // 3-cam pack: built-in + externals + face MOCAP variance → seats + multi-source
   const threeCamBtn = document.getElementById("gg-threecam");
   if (threeCamBtn) {
     threeCamBtn.addEventListener("click", async () => {
       setCastLabel("3-cam…");
       const ok = await enableCam({ all: true, force: true });
       if (!ok) return;
-      // face MOCAP → prefer L1 for face lane
+      // face MOCAP → prefer L1; continuous tick keeps variance/talking live
       if (window.GY_CAM_BRIDGE && camLanes.length) {
-        const pseudo = camLanes.map((l) => ({
-          video: l.video,
-          slot: l.slot,
-          kind: l.kind,
-          label: l.label,
-          short: l.short,
-          deviceId: l.deviceId,
-        }));
-        window.GY_CAM_BRIDGE.applyFaceSlots(pseudo);
-        pseudo.forEach((p, i) => {
-          if (camLanes[i]) {
-            camLanes[i].slot = p.slot;
-            camLanes[i].kind = p.kind;
-            camLanes[i].face = p.face;
-            camLanes[i].mocap = p.mocap;
+        window.GY_CAM_BRIDGE.applyFaceSlots(camLanes);
+        assignSceneSlots(camLanes);
+        camLanes.forEach((lane, i) => {
+          const peer = ensureCamPeer(lane, i);
+          if (peer) {
+            peer.face = lane.face || null;
+            peer.mocap = !!lane.mocap;
+            peer.talking = !!lane.talking;
+            peer.variance = lane.variance || 0;
+            peer.varianceN = lane.varianceN || 0;
+            peer.muteHint = lane.muteHint || "none";
           }
         });
-        assignSceneSlots(camLanes);
-        camLanes.forEach((lane, i) => ensureCamPeer(lane, i));
         layoutAndPaint();
+        lastMocapAt = 0; // force next tick re-sample
+        const multi = window.GY_CAM_BRIDGE.toMultiSource(camLanes);
         const face = camLanes.find((l) => l.mocap || (l.face && l.face.confidence > 0.25));
         setCastLabel(
           "3-cam · " +
             camLanes.map((l) => l.slot).join("·") +
-            (face ? " · face→" + face.slot : "")
+            (face ? " · face→" + face.slot : "") +
+            (multi.talking ? " · talking" : "")
         );
         if (els.hubHint) {
           els.hubHint.textContent =
             "3-cam live · " +
             camLanes.map((l) => l.slot + ":" + (l.short || l.kind)).join(" · ") +
             (face && face.face
-              ? " · MOCAP conf " + face.face.confidence.toFixed(2) + (face.face.talking ? " talking" : "")
+              ? " · MOCAP conf " +
+                face.face.confidence.toFixed(2) +
+                " v" +
+                Number(face.face.varianceN || 0).toFixed(2) +
+                (face.face.talking ? " talking" : " quiet")
               : "") +
-            ". HDRI or → queue for shared timeline.";
+            " · multi-source muteHint=" +
+            (multi.muteHint || "none") +
+            ". Cast ships variance; → queue stamps adapter.";
         }
       }
       threeCamBtn.classList.add("is-on");
@@ -4270,16 +4400,22 @@
         return;
       }
       const eng = window.GY_MEDIA_QUEUE.create({});
-      // push native three-cam HLS when possible
+      // push native three-cam HLS + face MOCAP multi-source adapter fields
       if (window.GY_CAM_BRIDGE) {
-        const pseudo = camLanes.map((l) => ({
-          video: l.video,
-          slot: l.slot,
-          kind: l.kind,
-          label: l.label,
-          deviceId: l.deviceId,
-        }));
-        await window.GY_CAM_BRIDGE.pushLanesToQueue(eng, pseudo, { native: true });
+        window.GY_CAM_BRIDGE.refreshFaceMOCAP(camLanes, { reslot: false });
+        await window.GY_CAM_BRIDGE.pushLanesToQueue(eng, camLanes, { native: true });
+        const multi = eng._lastMultiSource || window.GY_CAM_BRIDGE.toMultiSource(camLanes);
+        try {
+          sessionStorage.setItem("gy.multiSource.v1", JSON.stringify(multi));
+        } catch (_) {}
+        setCastLabel(
+          "→ queue · " +
+            eng.snapshot().items.length +
+            (multi.talking ? " · talking" : "") +
+            (multi.faceSlot ? " · face " + multi.faceSlot : "")
+        );
+      } else {
+        setCastLabel("→ queue · " + eng.snapshot().items.length);
       }
       // also open queue page with share of current set
       try {
@@ -4290,7 +4426,6 @@
       } catch (_) {
         window.open("queue.html", "_blank", "noopener");
       }
-      setCastLabel("→ queue · " + eng.snapshot().items.length);
     });
   }
   const hdriClose = document.getElementById("gg-hdri-close");

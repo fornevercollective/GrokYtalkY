@@ -170,9 +170,24 @@
     return lanes;
   }
 
+  /** Empty face sample (stable shape for multi-source / mesh). */
+  function emptyFace() {
+    return {
+      x: 0.5,
+      y: 0.4,
+      confidence: 0,
+      talking: false,
+      variance: 0,
+      varianceN: 0,
+      muteHint: "none",
+      slotHint: "L1",
+    };
+  }
+
   /**
-   * Lightweight face MOCAP — brightness centroid as face proxy.
-   * Returns {x,y,confidence} in 0..1 for slot assignment (L1 when face).
+   * Lightweight face MOCAP — brightness centroid + mouth-band variance.
+   * Returns continuous variance for GrokGlyph seats / multi-source adapter:
+   *   {x,y,confidence,talking,variance,varianceN,muteHint,slotHint}
    */
   function trackFace(videoOrCanvas) {
     var c = document.createElement("canvas");
@@ -181,7 +196,7 @@
     c.width = w;
     c.height = h;
     var ctx = c.getContext("2d", { willReadFrequently: true });
-    if (!ctx || !videoOrCanvas) return { x: 0.5, y: 0.4, confidence: 0, talking: false };
+    if (!ctx || !videoOrCanvas) return emptyFace();
     try {
       ctx.drawImage(videoOrCanvas, 0, 0, w, h);
       var img = ctx.getImageData(0, 0, w, h);
@@ -203,10 +218,10 @@
           }
         }
       }
-      if (sw < 20) return { x: 0.5, y: 0.4, confidence: 0, talking: false };
+      if (sw < 20) return emptyFace();
       var cx = sx / sw / w;
       var cy = sy / sw / h;
-      // crude talking: sample mouth band variance
+      // crude talking: sample mouth band luminance variance
       var mouthY = Math.min(h - 2, Math.floor(cy * h + h * 0.12));
       var sum = 0,
         sum2 = 0,
@@ -219,32 +234,82 @@
         n++;
       }
       var mean = sum / Math.max(1, n);
-      var varL = sum2 / Math.max(1, n) - mean * mean;
+      var varL = Math.max(0, sum2 / Math.max(1, n) - mean * mean);
+      // continuous 0..1 flag for mesh / venue (threshold ~180 → talking)
+      var varianceN = Math.min(1, varL / 400);
       var talking = varL > 180;
+      var conf = Math.min(1, sw / 200);
+      var muteHint = talking ? "talking" : conf > 0.25 ? "quiet" : "none";
       return {
         x: cx,
         y: cy,
-        confidence: Math.min(1, sw / 200),
+        confidence: conf,
         talking: talking,
+        variance: Math.round(varL * 10) / 10,
+        varianceN: Math.round(varianceN * 1000) / 1000,
+        muteHint: muteHint,
         slotHint: "L1",
       };
     } catch (_) {
-      return { x: 0.5, y: 0.4, confidence: 0, talking: false };
+      return emptyFace();
     }
   }
 
-  /** Apply face track to lanes — boost front/L1 when face confidence high */
-  function applyFaceSlots(lanes) {
+  /**
+   * Re-sample face MOCAP on open lanes (no slot reshuffle unless reslot).
+   * @param {object[]} lanes
+   * @param {{reslot?:boolean}} [opts]
+   */
+  function refreshFaceMOCAP(lanes, opts) {
+    opts = opts || {};
     if (!lanes || !lanes.length) return lanes;
     var best = null;
     var bestC = 0;
     lanes.forEach(function (lane) {
       var tr = trackFace(lane.video);
       lane.face = tr;
+      lane.talking = !!tr.talking;
+      lane.variance = tr.variance || 0;
+      lane.varianceN = tr.varianceN || 0;
+      lane.muteHint = tr.muteHint || "none";
       if (tr.confidence > bestC) {
         bestC = tr.confidence;
         best = lane;
       }
+    });
+    lanes.forEach(function (l) {
+      l.mocap = !!(best && l === best && bestC > 0.25);
+    });
+    if (opts.reslot && best && bestC > 0.25) {
+      applyFaceSlots(lanes, { alreadyTracked: true });
+    }
+    return lanes;
+  }
+
+  /**
+   * Apply face track to lanes — boost front/L1 when face confidence high.
+   * @param {object[]} lanes
+   * @param {{alreadyTracked?:boolean}} [opts]
+   */
+  function applyFaceSlots(lanes, opts) {
+    opts = opts || {};
+    if (!lanes || !lanes.length) return lanes;
+    var best = null;
+    var bestC = 0;
+    lanes.forEach(function (lane) {
+      var tr = opts.alreadyTracked && lane.face ? lane.face : trackFace(lane.video);
+      lane.face = tr;
+      lane.talking = !!tr.talking;
+      lane.variance = tr.variance || 0;
+      lane.varianceN = tr.varianceN || 0;
+      lane.muteHint = tr.muteHint || "none";
+      if (tr.confidence > bestC) {
+        bestC = tr.confidence;
+        best = lane;
+      }
+    });
+    lanes.forEach(function (l) {
+      l.mocap = false;
     });
     if (best && bestC > 0.25) {
       // ensure face cam sits L1 for HDRI / mocap
@@ -266,15 +331,98 @@
   }
 
   /**
+   * Multi-source adapter snapshot — stable shape for queue, mesh, venue, HDRI.
+   * Continuous face variance flag rides every source + rollup.
+   */
+  function toMultiSource(lanes) {
+    var sources = (lanes || []).map(function (l) {
+      var f = l.face || emptyFace();
+      return {
+        slot: l.slot || "",
+        kind: l.kind || "",
+        label: l.label || "",
+        short: l.short || l.kind || "",
+        deviceId: l.deviceId || "",
+        mocap: !!l.mocap,
+        talking: !!(l.talking || (f && f.talking)),
+        variance: f.variance != null ? f.variance : l.variance || 0,
+        varianceN: f.varianceN != null ? f.varianceN : l.varianceN || 0,
+        muteHint: f.muteHint || l.muteHint || "none",
+        confidence: f.confidence || 0,
+        face: {
+          x: f.x,
+          y: f.y,
+          confidence: f.confidence || 0,
+          talking: !!f.talking,
+          variance: f.variance || 0,
+          varianceN: f.varianceN || 0,
+          muteHint: f.muteHint || "none",
+        },
+      };
+    });
+    var faceSrc =
+      sources.find(function (s) {
+        return s.mocap;
+      }) ||
+      sources
+        .slice()
+        .sort(function (a, b) {
+          return (b.confidence || 0) - (a.confidence || 0);
+        })[0] ||
+      null;
+    var talkingSrc = sources.find(function (s) {
+      return s.talking;
+    });
+    return {
+      type: "multi-source",
+      via: "cam-bridge",
+      t: Date.now(),
+      sources: sources,
+      faceSlot: faceSrc ? faceSrc.slot : "",
+      talking: !!(talkingSrc || (faceSrc && faceSrc.talking)),
+      variance: faceSrc ? faceSrc.variance : 0,
+      varianceN: faceSrc ? faceSrc.varianceN : 0,
+      muteHint: talkingSrc
+        ? "talking"
+        : faceSrc && faceSrc.confidence > 0.25
+          ? faceSrc.muteHint || "quiet"
+          : "none",
+      face: faceSrc ? faceSrc.face : emptyFace(),
+    };
+  }
+
+  /** Stamp face MOCAP multi-source fields onto a queue item. */
+  function stampQueueItem(item, lane, multi) {
+    if (!item) return item;
+    var f = (lane && lane.face) || emptyFace();
+    item.slot = (lane && lane.slot) || item.slot || "";
+    item.mocap = !!(lane && lane.mocap);
+    item.talking = !!(lane && (lane.talking || f.talking));
+    item.variance = f.variance || 0;
+    item.varianceN = f.varianceN || 0;
+    item.muteHint = f.muteHint || "none";
+    item.face = f;
+    if (multi) item.multiSource = multi;
+    return item;
+  }
+
+  /**
    * Push opened browser lanes into a GY_MEDIA_QUEUE engine as titled items
    * using hub three-cam/device restream when possible; else mark browser-live.
+   * Face MOCAP variance rides each item + multiSource rollup.
    */
   async function pushLanesToQueue(q, lanes, opts) {
     opts = opts || {};
     if (!q || !lanes || !lanes.length) return [];
+    refreshFaceMOCAP(lanes, { reslot: false });
+    var multi = toMultiSource(lanes);
+    var bySlot = {};
+    lanes.forEach(function (l) {
+      if (l.slot) bySlot[l.slot] = l;
+    });
     var added = [];
     // Prefer native three-cam pack for shared timeline (server HLS)
-    if (opts.native !== false && q.fetchIngestList) {
+    if (opts.native !== false) {
       try {
         var base = q.hubHTTP ? q.hubHTTP() : location.origin;
         var r = await fetch(base + "/api/media/ingest/three-cam", {
@@ -284,6 +432,7 @@
         if (data && data.ok && Array.isArray(data.items)) {
           data.items.forEach(function (it) {
             if (!it.video) return;
+            var lane = bySlot[it.slot] || null;
             var item = q.addOne(it.src || it.video, {
               title: (it.slot || "") + " · " + (it.label || it.title || "cam"),
               video: it.video,
@@ -292,12 +441,17 @@
               item.video = it.video;
               item.status = "ready";
               item.live = true;
-              item.slot = it.slot;
               item.via = it.via || "three-cam";
+              stampQueueItem(item, lane, multi);
               added.push(item);
             }
           });
-          if (added.length) return added;
+          if (added.length) {
+            try {
+              q._lastMultiSource = multi;
+            } catch (_) {}
+            return added;
+          }
         }
       } catch (e) {
         console.warn("[cam-bridge] native three-cam", e);
@@ -311,22 +465,33 @@
       var item = q.addOne(id, {
         title: (lane.slot || "") + " · " + (lane.label || lane.kind),
       });
-      if (item) added.push(item);
+      if (item) {
+        stampQueueItem(item, lane, multi);
+        added.push(item);
+      }
     });
+    try {
+      q._lastMultiSource = multi;
+    } catch (_) {}
     return added;
   }
 
-  /** Lanes shape for GY_HDRI.runProbe */
+  /** Lanes shape for GY_HDRI.runProbe (+ face variance for stitch bias). */
   function toHdriLanes(lanes) {
     return (lanes || []).map(function (l) {
+      var f = l.face || null;
       return {
         slot: l.slot,
         video: l.video,
         short: l.short || l.kind,
         kind: l.kind,
         label: l.label,
-        face: l.face || null,
+        face: f,
         mocap: !!l.mocap,
+        talking: !!(l.talking || (f && f.talking)),
+        variance: f ? f.variance : 0,
+        varianceN: f ? f.varianceN : 0,
+        muteHint: f ? f.muteHint : "none",
       };
     });
   }
@@ -351,7 +516,10 @@
     listCameras: listCameras,
     openThreeCam: openThreeCam,
     trackFace: trackFace,
+    emptyFace: emptyFace,
+    refreshFaceMOCAP: refreshFaceMOCAP,
     applyFaceSlots: applyFaceSlots,
+    toMultiSource: toMultiSource,
     pushLanesToQueue: pushLanesToQueue,
     toHdriLanes: toHdriLanes,
     stopLanes: stopLanes,

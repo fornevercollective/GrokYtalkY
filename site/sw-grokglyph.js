@@ -1,10 +1,12 @@
 /* GrokGlyph service worker — cache shell for offline PWA */
-const CACHE = "grokglyph-v15-multi-cam";
+const CACHE = "grokglyph-v16-mocap";
 const PRECACHE = [
   "./grokglyph.html",
   "./grokglyph.js",
   "./grokglyph.css",
   "./grokglyph-presets.js",
+  "./cam-bridge.js",
+  "./media-queue.js",
   "./hdri-stitch.js",
   "./hdri-sphere.js",
   "./hdri-view.html",

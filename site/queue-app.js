@@ -316,11 +316,34 @@
             }
           });
         }
-        // 2) browser getUserMedia bridge (labels + face MOCAP) for HDRI
+        // 2) browser getUserMedia bridge (labels + face MOCAP variance) for HDRI / multi-source
         if (window.GY_CAM_BRIDGE) {
           try {
             liveLanes = await window.GY_CAM_BRIDGE.openThreeCam({ max: 3 });
             liveLanes = window.GY_CAM_BRIDGE.applyFaceSlots(liveLanes);
+            var multi = window.GY_CAM_BRIDGE.toMultiSource(liveLanes);
+            // stamp multi-source face flags onto matching queue items by slot
+            var snap = q.snapshot && q.snapshot();
+            if (snap && Array.isArray(snap.items)) {
+              snap.items.forEach(function (it) {
+                if (!it || !it.slot) return;
+                var src = multi.sources.find(function (s) {
+                  return s.slot === it.slot;
+                });
+                if (!src) return;
+                it.mocap = src.mocap;
+                it.talking = src.talking;
+                it.variance = src.variance;
+                it.varianceN = src.varianceN;
+                it.muteHint = src.muteHint;
+                it.face = src.face;
+                it.multiSource = multi;
+              });
+            }
+            try {
+              q._lastMultiSource = multi;
+              sessionStorage.setItem("gy.multiSource.v1", JSON.stringify(multi));
+            } catch (_) {}
             var faceN = liveLanes.filter(function (l) {
               return l.mocap || (l.face && l.face.confidence > 0.25);
             }).length;
@@ -329,7 +352,14 @@
                 n +
                 " · browser " +
                 liveLanes.length +
-                (faceN ? " · face MOCAP L1" : ""),
+                (faceN ? " · face MOCAP " + (multi.faceSlot || "L1") : "") +
+                (multi.talking
+                  ? " · talking v" + Number(multi.varianceN || 0).toFixed(2)
+                  : faceN
+                    ? " · quiet"
+                    : "") +
+                " · muteHint=" +
+                (multi.muteHint || "none"),
               "live"
             );
           } catch (e) {
