@@ -44,47 +44,46 @@
     });
   }
 
-  /** Quick health: blank up + not concurrent-capped. Hub optional. */
+  /**
+   * Quick health: prefer built-in hub media tools (yt-dlp + CORS play proxy).
+   * blank is optional fallback only.
+   */
   async function preflight() {
     var blank = blankBase();
     var hub = hubBase();
+    // 1) Hub built-in tools (gy serve) — sufficient for Live News
+    try {
+      var hr = await fetchTimeout(hub + "/api/lan", { headers: { Accept: "application/json" } }, 2500);
+      if (hr.ok) {
+        return {
+          ok: true,
+          via: "hub",
+          blank: blank,
+          hub: hub,
+          note: "built-in resolve+play proxy",
+        };
+      }
+    } catch (_) {}
+    // 2) blank optional
     try {
       var br = await fetchTimeout(blank + "/", {}, 2500);
       if (br.status === 503) {
         return {
           ok: false,
           error:
-            "blank concurrent cap (503) — restart blank: cd ~/dev/blank && ./start.sh",
+            "hub down and blank concurrent cap (503) — start gy serve, or restart blank",
           via: "blank",
         };
       }
-      if (!br.ok && br.status >= 500) {
-        return { ok: false, error: "blank HTTP " + br.status + " at " + blank, via: "blank" };
+      if (br.ok || (br.status > 0 && br.status < 500)) {
+        return { ok: true, via: "blank", blank: blank, hub: hub };
       }
-      return { ok: true, via: "blank", blank: blank, hub: hub };
-    } catch (e) {
-      // blank down — hub may still proxy resolve if it can reach blank itself
-      try {
-        var hr = await fetchTimeout(hub + "/api/lan", { headers: { Accept: "application/json" } }, 2500);
-        if (hr.ok) {
-          return {
-            ok: true,
-            via: "hub-only",
-            warning: "blank not reachable from browser (" + blank + ") — trying hub resolve",
-            blank: blank,
-            hub: hub,
-          };
-        }
-      } catch (_) {}
-      return {
-        ok: false,
-        error:
-          "blank not reachable at " +
-          blank +
-          " — start: cd ~/dev/blank && ./start.sh",
-        via: "none",
-      };
-    }
+    } catch (_) {}
+    return {
+      ok: false,
+      error: "hub not reachable at " + hub + " — run: gy serve --bind 0.0.0.0 --port 9876",
+      via: "none",
+    };
   }
 
   async function resolveStream(pageURL) {

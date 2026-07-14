@@ -1209,7 +1209,7 @@
           ' · fail ' +
           res.fail +
           (res.errors.length ? ' · ' + escapeHtml(res.errors[0].slice(0, 80)) : '') +
-          (res.ok ? ' · real YT frames' : ' · check blank :5173');
+          (res.ok ? ' · real YT frames' : ' · check yt-dlp · gy serve');
       }
       if (el.mainSub) {
         el.mainSub.textContent = res.ok ? 'LIVE youtube · ' + res.ok + ' streams' : 'sim · resolve failed';

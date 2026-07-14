@@ -139,12 +139,14 @@ func ResolveViaBlank(pageURL string) (*ResolvedStream, error) {
 // FormatBlankDoctor multi-line status for gy doctor / install blank.
 func FormatBlankDoctor() string {
 	var b strings.Builder
+	// Built-in tools first — Live News / resolve do not require node blank
+	b.WriteString(FormatMediaToolsDoctor())
+	b.WriteString("blank optional (extra social · TikTok cookies · node stack)\n")
 	root := BlankRoot()
 	base := BlankBaseURL()
-	b.WriteString("blank (social · TikTok live resolve)\n")
 	b.WriteString(fmt.Sprintf("  path      %s\n", root))
 	if st, err := os.Stat(root); err != nil || !st.IsDir() {
-		b.WriteString("  install   missing — gy install blank\n")
+		b.WriteString("  install   missing — optional: gy install blank\n")
 	} else {
 		b.WriteString("  install   present\n")
 		status := filepath.Join(root, "support", ".blank-install", "status.json")
@@ -158,9 +160,9 @@ func FormatBlankDoctor() string {
 	} else if base == "" {
 		b.WriteString("  server    disabled (GY_BLANK=0)\n")
 	} else {
-		b.WriteString("  server    down · cd ~/dev/blank && ./start.sh\n")
+		b.WriteString("  server    down (ok) — hub uses built-in resolve+play proxy\n")
 	}
-	b.WriteString("  social    tiktok:@user · /live first · yt-dlp · YTDLP_COOKIES optional\n")
+	b.WriteString("  social    tiktok:@user · YTDLP_COOKIES optional · blank only if needed\n")
 	return b.String()
 }
 

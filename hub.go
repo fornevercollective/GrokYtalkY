@@ -207,14 +207,13 @@ func NewHub(addr string, quiet bool, staticDir string) *Hub {
 			},
 		})
 	})
-	// Media resolve for browser Live News (YouTube live → stream URL via blank/yt-dlp).
+	// Media resolve for browser Live News (YouTube live → stream URL).
+	// Built-in blank-lite: yt-dlp resolve + CORS HLS play proxy (no node blank required).
 	// GET /api/media/resolve?url=https://www.youtube.com/@CNN/live
 	// POST /api/media/resolve  {"url":"…"}
 	mux.HandleFunc("/api/media/resolve", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		mediaCORS(w)
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -239,26 +238,35 @@ func NewHub(addr string, quiet bool, staticDir string) *Hub {
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "missing url"})
 			return
 		}
-		src, err := ResolveMediaTimeout(q, 100*time.Second)
+		src, err := resolveMediaForBrowserTimeout(q, 100*time.Second)
 		if err != nil {
 			w.WriteHeader(http.StatusBadGateway)
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": err.Error(), "url": q})
 			return
 		}
+		// Prefer raw stream under hub CORS proxy for browser glyph sampling
+		rawVideo := src.Video
+		video, via, kind := WrapResolvedForBrowser(q, src, mediaPublicBase(r))
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"ok":       true,
-			"url":      q,
-			"video":    src.Video,
-			"audio":    src.Audio,
-			"title":    src.Title,
-			"via":      src.Via,
-			"live":     src.Live,
-			"platform": src.Platform,
-			"handle":   src.Handle,
-			"mobile":   src.Mobile,
-			"blank":    BlankBaseURL(),
+			"ok":         true,
+			"url":        q,
+			"video":      video,
+			"audio":      src.Audio,
+			"title":      src.Title,
+			"via":        via,
+			"live":       src.Live,
+			"platform":   src.Platform,
+			"handle":     src.Handle,
+			"mobile":     src.Mobile,
+			"streamKind": kind,
+			"raw":        rawVideo,
+			"blank":      BlankBaseURL(),
+			"tools":      "hub-builtin",
 		})
 	})
+	// Built-in blank-lite play + segment proxy (CORS for canvas / hls.js)
+	mux.HandleFunc("/api/media/play/", HandleMediaPlay)
+	mux.HandleFunc("/api/media/proxy", HandleMediaProxy)
 	// Same-WiFi phone → terminal: join URLs + discovery metadata
 	mux.HandleFunc("/api/lan", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
