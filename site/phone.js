@@ -19,6 +19,7 @@
     cam: document.getElementById("ph-cam"),
     hub: document.getElementById("ph-hub"),
     look: document.getElementById("ph-look"),
+    flash: document.getElementById("ph-flash"),
     camPanel: document.getElementById("ph-cam-panel"),
     nick: document.getElementById("ph-nick"),
     hubUrl: document.getElementById("ph-hub-url"),
@@ -411,6 +412,48 @@
     }
   }
 
+  function broadcastFlash() {
+    const msg = {
+      type: "venue-light",
+      kind: "flashlight",
+      from: myNick(),
+      on: !!look.torch,
+      intensity: look.torch ? 1.2 + (look.fill || 0) * 0.5 : 0,
+      pos: seatPos || null,
+      color: [1.0, 0.94, 0.82],
+      t: Date.now(),
+    };
+    sendJSON(msg);
+    if (CAM) {
+      const m = CAM.meshMessage(look, myNick());
+      if (seatPos) m.pos = seatPos;
+      sendJSON(m);
+    }
+  }
+
+  async function setTorch(on) {
+    look.torch = !!on;
+    if (els.flash) {
+      els.flash.classList.toggle("is-on", look.torch);
+      els.flash.textContent = look.torch ? "🔦 Flash on" : "🔦 Flash";
+    }
+    if (mediaStream && CAM && CAM.applyHardware) {
+      const track = mediaStream.getVideoTracks()[0];
+      if (track) {
+        try {
+          await CAM.applyHardware(track, look);
+        } catch (_) {}
+      }
+    }
+    broadcastFlash();
+    setStatus(
+      look.torch
+        ? "flashlight ON · visible on sphere · torch if hardware allows"
+        : "flashlight off",
+      look.torch ? "is-live" : ""
+    );
+  }
+
   function onLookChange(l, key) {
     look = CAM ? CAM.clone(l) : l;
     // hardware constraints when track live
@@ -424,9 +467,18 @@
         });
       }
     }
-    // mesh fan-out
-    if (CAM) sendJSON(CAM.meshMessage(look, myNick()));
+    // mesh fan-out (+ flashlight if torch)
+    if (CAM) {
+      const m = CAM.meshMessage(look, myNick());
+      if (seatPos) m.pos = seatPos;
+      sendJSON(m);
+    }
+    if (look.torch || key === "torch") broadcastFlash();
     if (els.look) els.look.textContent = "Look · " + (CAM ? CAM.summary(look) : "on");
+    if (els.flash) {
+      els.flash.classList.toggle("is-on", !!look.torch);
+      els.flash.textContent = look.torch ? "🔦 Flash on" : "🔦 Flash";
+    }
   }
 
   function toggleLookPanel() {
@@ -592,6 +644,8 @@
     if (CAM) burst.look = CAM.clone(look);
     if (seatPos) burst.pos = seatPos;
     sendJSON(burst);
+    // keep flashlight alive while casting
+    if (look.torch && seq % 5 === 0) broadcastFlash();
 
     // formal gyst hexlum for stream-pub / SFU / terminal hex style
     const gyst = {
@@ -716,6 +770,14 @@
     }
     if (els.copyUrl) els.copyUrl.addEventListener("click", () => copyPhoneURL());
     if (els.cam) els.cam.addEventListener("click", () => (camOn ? stopCam() : enableCam()));
+    if (els.flash)
+      els.flash.addEventListener("click", async () => {
+        if (!camOn) {
+          const ok = await enableCam();
+          if (!ok) return;
+        }
+        await setTorch(!look.torch);
+      });
     if (els.look) els.look.addEventListener("click", toggleLookPanel);
     if (els.hub) els.hub.addEventListener("click", () => connectHub());
     bindCastButton();

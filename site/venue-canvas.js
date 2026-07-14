@@ -3,13 +3,15 @@
  *
  * CONCEPT BREAKDOWN (handle one layer at a time):
  *
- *   L0  BLUEPRINT   zones like a lidar/scan: stage, backstage, aisles,
- *                   openings/exits, parking, seats, screen
+ *   L0  BLUEPRINT   zones: stage, backstage, aisles, openings, parking, seats,
+ *                   screen, camera viewpoints
  *   L1  TARGETS     every cast address: id · kind · zone · (x,y,z)m · (px,py)@16K
  *   L2  INDEX       16K spatial hash: pixel → nearest target; zone/section/chunk → set
  *   L3  BULK        activate section / chunk / zone / pixel rect → hot target ids
  *   L4  CAST        phone/mesh pos binds to targetId | seat | px,py | bulk set
  *   L5  SCREEN      interior LED 16K×16K unwrap (az/el) — free LED spots are valid
+ *   L6  CAMERAS     fixed viewing positions (FOH, wings, balcony, parking…)
+ *   L7  LIGHTING    venue wash + phone flashlights (see venue-lighting.js)
  *
  * Depends on: GY_SPHERE (sphere-seating.js) for seat generation + seatToPixel.
  */
@@ -35,6 +37,7 @@
     screen: "screen",
     proscenium: "proscenium",
     vip: "vip",
+    camera: "camera",
   };
 
   const ZONE_META = {
@@ -47,7 +50,62 @@
     screen: { label: "LED screen sample", color: [0.7, 0.3, 0.85], layer: 4 },
     proscenium: { label: "Proscenium", color: [0.95, 0.4, 0.4], layer: 3 },
     vip: { label: "VIP / suites", color: [0.75, 0.4, 0.9], layer: 2 },
+    camera: { label: "Camera views", color: [0.4, 0.95, 0.85], layer: 5 },
   };
+
+  /**
+   * Fixed camera viewing positions (orbit/free-cam presets).
+   * eye/lookAt in meters; also normalized x,y,z for sphere render.
+   */
+  function cameraViewCatalog(c) {
+    c = c || cfg();
+    const Rd = c.dome_radius_m || 78.6;
+    const H = c.height_m || 111.6;
+    function view(id, label, eye, lookAt, fov) {
+      lookAt = lookAt || { x: 0, y: 12, z: -10 };
+      const pix = seatToPixel(eye.x, eye.y, eye.z);
+      return {
+        id: "cam:" + id,
+        kind: "camera",
+        zone: ZONE.camera,
+        label: label,
+        section: "camera",
+        chunk: "chunk:camera:" + id,
+        x_m: eye.x,
+        y_m: eye.y,
+        z_m: eye.z,
+        x: eye.x / Rd,
+        y: (eye.y / H - 0.5) * 2,
+        z: eye.z / Rd,
+        px: pix.px,
+        py: pix.py,
+        res: RES,
+        castable: true,
+        bulk: true,
+        view: {
+          id: id,
+          eye: eye,
+          lookAt: lookAt,
+          fov: fov || 55,
+        },
+      };
+    }
+    return [
+      view("foh", "FOH (front of house)", { x: 0, y: 18, z: 48 }, { x: 0, y: 14, z: -15 }, 50),
+      view("stage", "Stage apron", { x: 0, y: 8, z: -8 }, { x: 0, y: 20, z: 20 }, 60),
+      view("wing_l", "Stage left wing", { x: -28, y: 10, z: -12 }, { x: 0, y: 12, z: -5 }, 55),
+      view("wing_r", "Stage right wing", { x: 28, y: 10, z: -12 }, { x: 0, y: 12, z: -5 }, 55),
+      view("balcony", "Upper bowl center", { x: 0, y: 48, z: 28 }, { x: 0, y: 10, z: -12 }, 48),
+      view("sec200_l", "Section 200 house left", { x: -32, y: 28, z: 18 }, { x: 0, y: 14, z: -10 }, 52),
+      view("sec200_r", "Section 200 house right", { x: 32, y: 28, z: 18 }, { x: 0, y: 14, z: -10 }, 52),
+      view("sec400", "Upper 400 center", { x: 0, y: 55, z: 35 }, { x: 0, y: 12, z: -8 }, 45),
+      view("backstage", "Backstage / BOH", { x: 0, y: 2, z: -28 }, { x: 0, y: 8, z: -5 }, 65),
+      view("entry", "Main entrance", { x: 0, y: 6, z: 62 }, { x: 0, y: 20, z: 0 }, 58),
+      view("parking", "Parking exterior", { x: 0, y: 12, z: 95 }, { x: 0, y: 30, z: 0 }, 50),
+      view("overhead", "Overhead / catwalk", { x: 0, y: 72, z: 5 }, { x: 0, y: 8, z: -8 }, 70),
+      view("led_close", "LED wall close-up", { x: 0, y: 35, z: -55 }, { x: 0, y: 40, z: -70 }, 40),
+    ];
+  }
 
   function cfg() {
     const S = root.GY_SPHERE;
@@ -333,6 +391,13 @@
         );
       }
     }
+
+    // Camera viewing positions (fixed venue cameras / director views)
+    cameraViewCatalog(c).forEach(function (cam) {
+      out.push(makeTarget(cam));
+      // store view metadata on target
+      out[out.length - 1].view = cam.view;
+    });
 
     // Screen sample grid (addressable LED patches — not every pixel)
     const azSamples = 48;
@@ -739,6 +804,23 @@
     );
   }
 
+  function listCameraViews() {
+    const v = venue();
+    const ids = v.index.byZone.get(ZONE.camera) || [];
+    return ids
+      .map(function (id) {
+        return v.index.byId.get(id);
+      })
+      .filter(Boolean);
+  }
+
+  function getCameraView(id) {
+    const raw = String(id || "");
+    const tid = raw.indexOf("cam:") === 0 ? raw : "cam:" + raw;
+    const t = findTarget(tid) || findTarget(raw);
+    return t && t.view ? t : null;
+  }
+
   return {
     RES: RES,
     CELL: CELL,
@@ -755,6 +837,9 @@
     },
     pixelToWorld: pixelToWorld,
     listChunks: listChunks,
+    listCameraViews: listCameraViews,
+    getCameraView: getCameraView,
+    cameraViewCatalog: cameraViewCatalog,
     meta: meta,
     summary: summary,
   };

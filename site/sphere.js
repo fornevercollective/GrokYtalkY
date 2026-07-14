@@ -8,6 +8,7 @@
 
   const SPHERE = window.GY_SPHERE;
   const VENUE = window.GY_VENUE;
+  const LIGHT = window.GY_LIGHT;
   if (!SPHERE || !VENUE) {
     console.error("sphere-seating.js + venue-canvas.js required");
     return;
@@ -39,6 +40,9 @@
     bulk: document.getElementById("sp-bulk"),
     bulkCast: document.getElementById("sp-bulk-cast"),
     bulkClear: document.getElementById("sp-bulk-clear"),
+    view: document.getElementById("sp-view"),
+    lights: document.getElementById("sp-lights"),
+    lightPanel: document.getElementById("sp-light-panel"),
   };
 
   // ── venue blueprint ──
@@ -47,6 +51,9 @@
   const Nseats = seats.length;
   const bulkHot = new Set(); // target ids
   let picked = null;
+  const lightState = LIGHT ? LIGHT.createState() : null;
+  /** free-cam from venue camera views (null = orbit) */
+  let freeCam = null;
 
   // ── shell points (full dome LED sample) ──
   function buildShell() {
@@ -253,8 +260,61 @@
     m[10] = c;
     return m;
   }
+  function m4LookAt(eye, target, up) {
+    up = up || [0, 1, 0];
+    let zx = eye[0] - target[0];
+    let zy = eye[1] - target[1];
+    let zz = eye[2] - target[2];
+    let zl = Math.hypot(zx, zy, zz) || 1;
+    zx /= zl;
+    zy /= zl;
+    zz /= zl;
+    let xx = up[1] * zz - up[2] * zy;
+    let xy = up[2] * zx - up[0] * zz;
+    let xz = up[0] * zy - up[1] * zx;
+    let xl = Math.hypot(xx, xy, xz) || 1;
+    xx /= xl;
+    xy /= xl;
+    xz /= xl;
+    const yx = zy * xz - zz * xy;
+    const yy = zz * xx - zx * xz;
+    const yz = zx * xy - zy * xx;
+    const m = new Float32Array(16);
+    m[0] = xx;
+    m[1] = yx;
+    m[2] = zx;
+    m[4] = xy;
+    m[5] = yy;
+    m[6] = zy;
+    m[8] = xz;
+    m[9] = yz;
+    m[10] = zz;
+    m[12] = -(xx * eye[0] + xy * eye[1] + xz * eye[2]);
+    m[13] = -(yx * eye[0] + yy * eye[1] + yz * eye[2]);
+    m[14] = -(zx * eye[0] + zy * eye[1] + zz * eye[2]);
+    m[15] = 1;
+    return m;
+  }
+
+  function worldToRender(x_m, y_m, z_m) {
+    const Rd = 78.6;
+    const H = 111.6;
+    return [(x_m / Rd) * 3, ((y_m / H - 0.5) * 2) * 1.5, (z_m / Rd) * 3];
+  }
+
   function mvpMatrix(aspect) {
-    return m4M(m4P(0.9, aspect, 0.1, 100), m4M(m4T(panX, panY, -dist), m4M(m4RX(rotX), m4RY(rotY))));
+    const fov = freeCam && freeCam.fov ? (freeCam.fov * Math.PI) / 180 : 0.9;
+    const proj = m4P(fov, aspect, 0.1, 100);
+    if (freeCam && freeCam.eye) {
+      const eye = worldToRender(freeCam.eye.x, freeCam.eye.y, freeCam.eye.z);
+      const tgt = worldToRender(
+        freeCam.lookAt.x,
+        freeCam.lookAt.y,
+        freeCam.lookAt.z
+      );
+      return m4M(proj, m4LookAt(eye, tgt, [0, 1, 0]));
+    }
+    return m4M(proj, m4M(m4T(panX, panY, -dist), m4M(m4RX(rotX), m4RY(rotY))));
   }
   function project(mvp, x, y, z, w, h) {
     const X = mvp[0] * x + mvp[4] * y + mvp[8] * z + mvp[12];
@@ -418,17 +478,29 @@
     } else return;
     const resolved = resolveFromPos(msg.pos || null, nick);
     const t = resolved.target;
+    const posOut = msg.pos || (t ? VENUE.targetToMeshPos(t) : null);
     feeds.set(nick, {
       nick: nick,
       glyph: glyph,
       n: gn,
-      pos: msg.pos || (t ? VENUE.targetToMeshPos(t) : null),
+      pos: posOut,
       seatIdx: resolved.seatIdx,
       targetId: t ? t.id : null,
       t: Date.now(),
       avg: glyphAvg(glyph),
     });
     rebuildLiveMaps();
+    // phone torch rides with cast frames
+    if (LIGHT && lightState && msg.look && msg.look.torch) {
+      LIGHT.applyMeshMessage(lightState, {
+        type: "venue-light",
+        kind: "flashlight",
+        from: nick,
+        on: true,
+        pos: posOut,
+        look: msg.look,
+      });
+    }
   }
 
   function pruneFeeds(now) {
@@ -452,13 +524,21 @@
     screen: [0.7, 0.35, 0.9],
     vip: [0.75, 0.4, 0.9],
     seat: [0.4, 0.65, 0.95],
+    camera: [0.4, 0.95, 0.85],
   };
 
   function applyColors(nowMs) {
     const tsec = (nowMs - waveT0) / 1000;
+    if (LIGHT && lightState) LIGHT.prune(lightState, nowMs);
     for (let i = 0; i < TOTAL; i++) {
       const kind = pKind[i];
       let r, g, b, brightness;
+      const zone =
+        kind === 2 && pTargetId[i]
+          ? (VENUE.findTarget(pTargetId[i]) || {}).zone
+          : kind === 0
+            ? "seat"
+            : "screen";
 
       if (waveOn && kind !== 2) {
         const w = waveAt(i, tsec);
@@ -476,7 +556,7 @@
         r = zc[0];
         g = zc[1];
         b = zc[2];
-        brightness = hot ? 0.95 : 0.35;
+        brightness = hot ? 0.95 : tgt && tgt.kind === "camera" ? 0.55 : 0.35;
         if (waveOn) {
           const w = waveAt(i, tsec);
           r = r * 0.55 + hsl(w.hue, 0.5, 0.35)[0] * 0.45;
@@ -489,6 +569,15 @@
         g = 0.18;
         b = 0.28;
         brightness = 0.1;
+      }
+
+      // venue lighting (ambient · key · fill · stage · phone flashlights)
+      if (LIGHT && lightState) {
+        const L = LIGHT.sampleAt(lightState, pX[i], pY[i], pZ[i], { zone: zone });
+        r = Math.min(1.5, r * L.r);
+        g = Math.min(1.5, g * L.g);
+        b = Math.min(1.5, b * L.b);
+        brightness = Math.min(1.4, brightness * L.gain);
       }
 
       // bulk highlight seats
@@ -748,9 +837,18 @@
     el.bulkVal.innerHTML = "";
     let opts = [];
     if (kind === "section") opts = ven.sections.slice();
-    else if (kind === "chunk") opts = ven.chunks.filter(function (c) {
-      return c.indexOf("chunk:1") === 0 || c.indexOf("chunk:2") === 0 || c.indexOf("chunk:3") === 0 || c.indexOf("chunk:floor") === 0 || c.indexOf("chunk:screen") === 0;
-    }).slice(0, 80);
+    else if (kind === "chunk")
+      opts = ven.chunks
+        .filter(function (c) {
+          return (
+            c.indexOf("chunk:1") === 0 ||
+            c.indexOf("chunk:2") === 0 ||
+            c.indexOf("chunk:3") === 0 ||
+            c.indexOf("chunk:floor") === 0 ||
+            c.indexOf("chunk:screen") === 0
+          );
+        })
+        .slice(0, 80);
     else if (kind === "zone") opts = ven.zones.slice();
     else if (kind === "rect") opts = ["center 4K", "upper half", "full screen sample"];
     opts.forEach(function (o) {
@@ -759,6 +857,131 @@
       op.textContent = o;
       el.bulkVal.appendChild(op);
     });
+  }
+
+  function fillViewOptions() {
+    if (!el.view) return;
+    const keep = el.view.value || "orbit";
+    el.view.innerHTML = "";
+    const o0 = document.createElement("option");
+    o0.value = "orbit";
+    o0.textContent = "Orbit free";
+    el.view.appendChild(o0);
+    (VENUE.listCameraViews() || []).forEach(function (t) {
+      const op = document.createElement("option");
+      op.value = t.view ? t.view.id : t.id;
+      op.textContent = t.label || op.value;
+      el.view.appendChild(op);
+    });
+    el.view.value = keep;
+  }
+
+  function applyView(id) {
+    if (!id || id === "orbit") {
+      freeCam = null;
+      setStatus("view · orbit free", "live");
+      return;
+    }
+    const t = VENUE.getCameraView(id);
+    if (!t || !t.view) {
+      freeCam = null;
+      return;
+    }
+    freeCam = {
+      eye: t.view.eye,
+      lookAt: t.view.lookAt,
+      fov: t.view.fov || 55,
+      id: t.view.id,
+    };
+    setStatus(
+      "<strong>camera</strong> · " + t.label + " · " + t.id,
+      "live"
+    );
+  }
+
+  function refreshLightPanel() {
+    if (!el.lightPanel || el.lightPanel.hidden || !LIGHT || !lightState) return;
+    const p = lightState.params;
+    const flashes = LIGHT.listFlashlights(lightState);
+    let html =
+      "<h4>Venue lighting</h4>" +
+      row("ambient", p.ambient, 0, 1) +
+      row("key", p.key, 0, 1.5) +
+      row("fill", p.fill, 0, 1) +
+      row("stageWash", p.stageWash, 0, 1.5) +
+      row("exposure", p.exposure, 0.4, 2) +
+      row("flashIntensity", p.flashIntensity, 0.2, 3) +
+      "<div class='flash-list'>🔦 phones " +
+      flashes.length +
+      (flashes.length
+        ? ": " +
+          flashes
+            .map(function (f) {
+              return f.from;
+            })
+            .join(", ")
+        : "") +
+      "</div>" +
+      "<button type='button' id='sp-lt-preset-concert'>Concert</button> " +
+      "<button type='button' id='sp-lt-preset-dim'>Dim house</button> " +
+      "<button type='button' id='sp-lt-preset-flat'>Flat</button>";
+    el.lightPanel.innerHTML = html;
+    el.lightPanel.querySelectorAll("input[type=range]").forEach(function (inp) {
+      inp.addEventListener("input", function () {
+        const k = inp.dataset.key;
+        const v = parseFloat(inp.value);
+        LIGHT.setParams(lightState, { [k]: v });
+        const em = inp.parentElement && inp.parentElement.querySelector("em");
+        if (em) em.textContent = v.toFixed(2);
+      });
+    });
+    function bindPreset(id, patch) {
+      const b = document.getElementById(id);
+      if (b)
+        b.onclick = function () {
+          LIGHT.setParams(lightState, patch);
+          refreshLightPanel();
+        };
+    }
+    bindPreset("sp-lt-preset-concert", {
+      ambient: 0.18,
+      key: 0.95,
+      fill: 0.2,
+      stageWash: 0.85,
+      exposure: 1.1,
+    });
+    bindPreset("sp-lt-preset-dim", {
+      ambient: 0.12,
+      key: 0.35,
+      fill: 0.1,
+      stageWash: 0.25,
+      exposure: 0.85,
+    });
+    bindPreset("sp-lt-preset-flat", {
+      ambient: 0.55,
+      key: 0.4,
+      fill: 0.45,
+      stageWash: 0.35,
+      exposure: 1,
+    });
+  }
+
+  function row(key, val, lo, hi) {
+    return (
+      "<div class='row'><span>" +
+      key +
+      "</span><input type='range' data-key='" +
+      key +
+      "' min='" +
+      lo +
+      "' max='" +
+      hi +
+      "' step='0.02' value='" +
+      val +
+      "'/><em>" +
+      val.toFixed(2) +
+      "</em></div>"
+    );
   }
 
   function runBulkActivate() {
@@ -924,8 +1147,10 @@
       } catch (_) {
         return;
       }
+      if (LIGHT && lightState) LIGHT.applyMeshMessage(lightState, msg);
       if (msg.type === "vburst-frame" || msg.type === "news-frame") upsertFeed(msg);
       else if (msg.type === "gyst" && (msg.kind === "hexlum" || Array.isArray(msg.data))) upsertFeed(msg);
+      if (msg.type === "camera-controls" || msg.type === "venue-light") refreshLightPanel();
     };
   }
 
@@ -983,6 +1208,11 @@
     if (Math.abs(dx) + Math.abs(dy) > 3) moved = true;
     lastMX = e.clientX;
     lastMY = e.clientY;
+    // drag exits free-cam back to orbit
+    if (freeCam) {
+      freeCam = null;
+      if (el.view) el.view.value = "orbit";
+    }
     rotY += dx * 0.005;
     rotX = Math.max(-1.35, Math.min(1.35, rotX + dy * 0.005));
   });
@@ -1038,23 +1268,35 @@
         updateFeedList();
         setStatus("bulk cleared", "live");
       });
+    if (el.view)
+      el.view.addEventListener("change", function () {
+        applyView(el.view.value);
+      });
+    if (el.lights)
+      el.lights.addEventListener("click", function () {
+        if (!el.lightPanel) return;
+        el.lightPanel.hidden = !el.lightPanel.hidden;
+        el.lights.classList.toggle("is-on", !el.lightPanel.hidden);
+        if (!el.lightPanel.hidden) refreshLightPanel();
+      });
     if (el.wave) {
       el.wave.classList.toggle("is-on", waveOn);
       el.wave.textContent = waveOn ? "Wave on" : "Wave off";
     }
     if (el.waveMode) el.waveMode.value = waveMode;
     fillBulkOptions();
+    fillViewOptions();
 
     const m = VENUE.meta();
     setStatus(
-      "<strong>16K venue</strong> · " +
+      "<strong>16K venue</strong> · cameras · lights · 🔦 phone flash · " +
         m.targets.toLocaleString() +
-        " targets · click any spot · bulk section/chunk/zone",
+        " targets",
       "live"
     );
     if (el.legend)
       el.legend.innerHTML =
-        "seats · stage · aisles · exits<br/>parking · screen LED<br/>" +
+        "views · lighting · flashlights<br/>seats · stage · parking · LED<br/>" +
         TOTAL.toLocaleString() +
         " pts";
 

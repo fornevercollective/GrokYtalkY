@@ -13,6 +13,8 @@ Implementation: `site/venue-canvas.js` · viewer `site/sphere.html` · phone `si
 | **L3** | **Bulk activate** | Turn on section, chunk, zone, or LED rect → hot target list |
 | **L4** | **Cast** | Phone/mesh `pos` binds to `target` \| `seat` \| `px,py` |
 | **L5** | **Screen** | Interior LED unwrap — **any free LED spot is a valid cast target** |
+| **L6** | **Cameras** | Fixed viewing positions (FOH, wings, balcony, parking, overhead…) |
+| **L7** | **Lighting** | Venue wash (ambient/key/fill/stage) + **phone flashlights** on mesh |
 
 ```
 phone / bulk demo
@@ -104,8 +106,42 @@ GY_VENUE.resolvePos({ px: 1200, py: 9000 });
 | True one-LED-per-seat unique CAD | Procedural map (not official Sphere CAD) |
 | Physical lidar import | Blueprint is **procedural scan-like**; swap-in real CSV later via same target schema |
 
+## Camera viewing positions (L6)
+
+Director dropdown on `sphere.html` → free-cam lookAt:
+
+| id | View |
+|----|------|
+| `foh` | Front of house |
+| `stage` | Stage apron |
+| `wing_l` / `wing_r` | Stage wings |
+| `balcony` / `sec200_*` / `sec400` | House bowl |
+| `backstage` / `entry` / `parking` / `overhead` / `led_close` | Ops & exterior |
+
+Drag orbit exits free-cam back to free orbit. Cameras are also zone=`camera` targets (bulk-activatable).
+
+## Lighting + phone flashlights (L7)
+
+`site/venue-lighting.js` · panel **Lights** on sphere.
+
+| Control | Mesh / source |
+|---------|----------------|
+| ambient · key · fill · stageWash · exposure | Local panel or `type:venue-light` kind=`wash` |
+| Concert / Dim house / Flat presets | Sphere panel |
+| **Phone 🔦 Flash** | Hardware torch when allowed + mesh `type:venue-light` kind=`flashlight` |
+| Torch on Look panel | `type:camera-controls` look.torch + cast `look.torch` |
+
+Flashlight position follows cast `pos` (seat / LED). Sphere shades points with inverse-square falloff so multi-phone flashlights light nearby seats/aisles.
+
+```text
+/phone.html?seat=200-R5-C12&quick=1
+# tap 🔦 Flash → torch + venue light at that seat on sphere.html
+```
+
 ## Related
 
 - [`docs/stadium-glyph.md`](stadium-glyph.md) — infinite canvas LOD strategy  
+- [`docs/camera-controls.md`](camera-controls.md) — look / torch hardware  
 - `site/sphere-seating.js` — seat generation + Bloch³  
-- `site/venue-canvas.js` — L0–L5 addressable layer  
+- `site/venue-canvas.js` — L0–L6 addressable layer  
+- `site/venue-lighting.js` — L7 lighting + flashlights  

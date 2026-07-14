@@ -52,6 +52,7 @@ GrokYtalkY is the **terminal + mesh authority**: vision takes drive style, theme
 | **1.79.2** | **Sphere Vegas Bloch³ seating** — `site/sphere-seating.js` + phone `?seat=` → cast `pos` |
 | **1.80** | **Sphere Glyph viewer** — `sphere.html` live mesh Glyphs on seats (no qpu extras) |
 | **1.81** | **16K addressable venue** — blueprint zones, bulk section/chunk, free LED cast |
+| **1.82** | **Venue cameras + lighting** — view presets, wash controls, phone flashlights |
 
 Three bullets for external recaps:
 

@@ -60,6 +60,7 @@ func SamplePlatformReadiness() PlatformReadiness {
 			"v1.79.2 Sphere Vegas Bloch³ seating map → phone cast pos",
 			"v1.80 Sphere Glyph viewer (live seats, no qpu bells)",
 			"v1.81 16K addressable venue + bulk section/chunk/zone cast",
+			"v1.82 venue camera views + lighting + phone flashlights",
 		},
 		OutOfScope: []string{
 			"auto-cast every livenews feed (manual pin/shuffle only)",
