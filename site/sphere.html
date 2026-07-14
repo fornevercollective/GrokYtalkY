@@ -198,6 +198,11 @@
   <script src="site-nav.js"></script>
 
   <div class="sp-wrap">
+    <div id="sp-boot" style="position:absolute;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:0.6rem;background:#07070a;color:#9ca3af;font:0.85rem/1.4 system-ui,sans-serif;pointer-events:none">
+      <div style="width:2.5rem;height:2.5rem;border-radius:50%;border:2px solid #333;border-top-color:#6ee7b7;animation:sp-boot 0.8s linear infinite"></div>
+      <div id="sp-boot-msg">Loading Glyph Sphere…</div>
+    </div>
+    <style>@keyframes sp-boot{to{transform:rotate(360deg)}} #sp-boot.is-err{color:#f87171} #sp-boot.is-done{display:none!important}</style>
     <canvas id="sp-gl" aria-label="16K addressable Sphere venue"></canvas>
     <canvas id="sp-hud" aria-hidden="true"></canvas>
     <div class="sp-status" id="sp-status">Venue 16K · talk to the Glyph Sphere</div>

@@ -29,7 +29,7 @@ func TestHandleAPIChatOfflineReply(t *testing.T) {
 	t.Setenv("XAI_API_KEY", "")
 	t.Setenv("GROK_API_KEY", "")
 	t.Setenv("XAI_KEY", "")
-	t.Setenv("GROK_OFFLINE", "1")
+	t.Setenv("GY_CHAT_LOCAL", "1")
 	body := bytes.NewBufferString(`{"message":"hello sphere","session":"test-offline"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/chat", body)
 	req.Header.Set("Content-Type", "application/json")
@@ -45,8 +45,11 @@ func TestHandleAPIChatOfflineReply(t *testing.T) {
 	if m["ok"] != true {
 		t.Fatalf("%v", m)
 	}
+	if m["via"] != "local" {
+		t.Fatalf("via=%v", m["via"])
+	}
 	reply, _ := m["reply"].(string)
-	if !strings.Contains(strings.ToLower(reply), "sphere") && !strings.Contains(strings.ToLower(reply), "xai") {
+	if !strings.Contains(strings.ToLower(reply), "sphere") && !strings.Contains(strings.ToLower(reply), "local") {
 		t.Fatalf("reply=%q", reply)
 	}
 }

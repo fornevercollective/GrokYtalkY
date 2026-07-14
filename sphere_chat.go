@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -31,7 +32,43 @@ type sphereChatSession struct {
 var (
 	sphereSessionsMu sync.Mutex
 	sphereSessions   = map[string]*sphereChatSession{}
+
+	// After xAI credit/403 failures, stick to local replies for a while so the
+	// UI doesn't feel stuck waiting on a dead cloud key every turn.
+	sphereAIFailMu   sync.Mutex
+	sphereAIFailUntil time.Time
+	sphereAIFailMsg   string
 )
+
+func sphereForceLocal() bool {
+	v := strings.TrimSpace(os.Getenv("GY_CHAT_LOCAL"))
+	if v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "on") {
+		return true
+	}
+	if v := strings.TrimSpace(os.Getenv("GROK_OFFLINE")); v == "1" || strings.EqualFold(v, "true") {
+		return true
+	}
+	sphereAIFailMu.Lock()
+	defer sphereAIFailMu.Unlock()
+	return time.Now().Before(sphereAIFailUntil)
+}
+
+func sphereMarkAIFail(err error) {
+	if err == nil {
+		return
+	}
+	msg := err.Error()
+	low := strings.ToLower(msg)
+	// sticky for credit / auth style failures
+	if strings.Contains(low, "credit") || strings.Contains(low, "spending") ||
+		strings.Contains(low, "403") || strings.Contains(low, "401") ||
+		strings.Contains(low, "permission-denied") {
+		sphereAIFailMu.Lock()
+		sphereAIFailUntil = time.Now().Add(30 * time.Minute)
+		sphereAIFailMsg = msg
+		sphereAIFailMu.Unlock()
+	}
+}
 
 func getSphereSession(id string) *sphereChatSession {
 	if id == "" {
@@ -182,31 +219,39 @@ func HandleAPIChat(w http.ResponseWriter, r *http.Request) {
 		hist = sess.snapHistory()
 	}
 
-	if !cfg.Available() || (cfg.APIKey == "" && cfg.Offline) {
-		// graceful offline reply so UI still works
-		reply := offlineSphereReply(msg)
+	// Local-first when forced, offline, or sticky after recent xAI credit failure
+	if sphereForceLocal() || !cfg.Available() || cfg.Offline || cfg.APIKey == "" {
+		reply := localSphereReply(msg, hist)
 		if !req.Ephemeral {
 			sess.appendTurn(msg, reply)
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"ok":     true,
-			"reply":  reply,
-			"via":    "offline",
-			"model":  "offline",
-			"hint":   "set XAI_API_KEY for live Grok (SpaceXAI)",
-		})
+		sphereAIFailMu.Lock()
+		warn := sphereAIFailMsg
+		sphereAIFailMu.Unlock()
+		out := map[string]any{
+			"ok":      true,
+			"reply":   reply,
+			"via":     "local",
+			"model":   "local",
+			"session": firstNonEmpty(req.Session, "default"),
+			"hint":    "local Sphere brain · set GY_CHAT_LOCAL=0 and top up XAI_API_KEY for full Grok",
+		}
+		if warn != "" {
+			out["warning"] = warn
+		}
+		_ = json.NewEncoder(w).Encode(out)
 		return
 	}
 
 	start := time.Now()
 	reply, err := AskGrok(cfg, hist, msg)
 	if err != nil {
-		// Credits / network / model errors: still keep the conversation alive
-		fb := offlineSphereReply(msg)
+		sphereMarkAIFail(err)
+		fb := localSphereReply(msg, hist)
 		if strings.Contains(strings.ToLower(err.Error()), "credit") ||
 			strings.Contains(strings.ToLower(err.Error()), "spending") ||
 			strings.Contains(err.Error(), "403") {
-			fb = "I'd love to keep talking with full Grok, but this hub's xAI credits are spent. Top up at console.x.ai — meanwhile I'm in local Sphere mode. " + shortLocalAck(msg)
+			fb = "Switching to local Sphere mode (xAI credits). " + fb
 		}
 		if !req.Ephemeral {
 			sess.appendTurn(msg, fb)
@@ -214,8 +259,8 @@ func HandleAPIChat(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":      true,
 			"reply":   fb,
-			"model":   "fallback",
-			"via":     "fallback",
+			"model":   "local",
+			"via":     "local",
 			"warning": err.Error(),
 			"ms":      time.Since(start).Milliseconds(),
 			"session": firstNonEmpty(req.Session, "default"),
@@ -236,30 +281,63 @@ func HandleAPIChat(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func shortLocalAck(msg string) string {
-	low := strings.ToLower(msg)
+// localSphereReply is a small rule-based brain so the sphere always chats
+// without waiting on the network (used when xAI is down or GY_CHAT_LOCAL=1).
+func localSphereReply(msg string, hist []GrokMessage) string {
+	low := strings.ToLower(strings.TrimSpace(msg))
+	// strip [name]: prefix from multi-person
+	if i := strings.Index(low, "]:"); i > 0 && i < 40 {
+		low = strings.TrimSpace(low[i+2:])
+	}
+
 	switch {
-	case strings.Contains(low, "who"):
-		return "I'm still the Glyph Sphere LED dome."
-	case strings.Contains(low, "light") || strings.Contains(low, "color"):
-		return "Watch the dome — blue for listen, amber for think, green when I speak."
-	case strings.Contains(low, "hello") || strings.Contains(low, "hi"):
-		return "Hello from the venue."
+	case low == "" || low == "ping":
+		return "I'm online — local Sphere brain. Tap the mic or type anytime."
+	case strings.Contains(low, "hello") || strings.Contains(low, "hi ") || low == "hi" || strings.Contains(low, "hey"):
+		return "Hey — I'm the Glyph Sphere. Local mode is up. Ask me about seats, lights, or who I am."
+	case strings.Contains(low, "who are you") || strings.Contains(low, "what are you") || low == "who are you?":
+		return "I'm the living LED dome in GrokYtalkY — venue assistant for seats, stage, lights, and glyph casts."
+	case strings.Contains(low, "how are you"):
+		return "Lit and listening. Blue when I hear you, amber when I think, green when I speak."
+	case strings.Contains(low, "light") || strings.Contains(low, "color") || strings.Contains(low, "wave"):
+		return "Watch the dome — wave modes are cascade, azimuth, spiral, latitude. Lights panel is bottom-right."
+	case strings.Contains(low, "seat") || strings.Contains(low, "section") || strings.Contains(low, "venue"):
+		return "About twenty thousand seats on this Bloch³ map. Click the dome to pick a seat or LED; bulk activate sections from the bar."
+	case strings.Contains(low, "phone") || strings.Contains(low, "cast"):
+		return "Open phone.html on the same Wi‑Fi, or scan /api/lan/qr. Phones cast glyphs onto seats and the screen."
+	case strings.Contains(low, "news") || strings.Contains(low, "live"):
+		return "Live News is at /livenews.html — Resolve live pulls YouTube through the hub play proxy."
+	case strings.Contains(low, "help") || low == "?":
+		return "Try: who are you · lights · seats · phone cast · or just chat. Mic listens; Continuous keeps going."
+	case strings.Contains(low, "thank"):
+		return "Anytime — the dome's got you."
+	case strings.Contains(low, "bye") || strings.Contains(low, "goodnight"):
+		return "Catch you later. I'll keep the venue warm."
+	case strings.Contains(low, "credit") || strings.Contains(low, "grok") || strings.Contains(low, "api"):
+		return "Full Grok needs XAI_API_KEY with credits. Local mode stays free and instant — top up console.x.ai when you want cloud Grok."
 	default:
-		return "Say hello, ask who I am, or talk about lights and seats."
+		snippet := strings.TrimSpace(msg)
+		if len(snippet) > 80 {
+			snippet = snippet[:77] + "…"
+		}
+		n := len(hist) / 2
+		if n > 0 {
+			return "Got it — \"" + snippet + "\". I'm on local brain (turn " + itoaLocal(n+1) + "). Ask about lights, seats, or say help."
+		}
+		return "Got it — \"" + snippet + "\". Local Sphere is listening. Say help for ideas."
 	}
 }
 
-func offlineSphereReply(msg string) string {
-	low := strings.ToLower(msg)
-	switch {
-	case strings.Contains(low, "hello") || strings.Contains(low, "hi ") || low == "hi":
-		return "Hey — I'm the Glyph Sphere. Set XAI_API_KEY on the hub for full Grok chat; I can still greet you offline."
-	case strings.Contains(low, "who are you") || strings.Contains(low, "what are you"):
-		return "I'm the living LED dome in GrokYtalkY — your room's visual assistant. Connect XAI_API_KEY and we can really talk."
-	case strings.Contains(low, "light") || strings.Contains(low, "color"):
-		return "I'd pulse the dome for you — live replies need XAI_API_KEY on gy serve."
-	default:
-		return "I'm here, but running offline. Export XAI_API_KEY and restart gy serve for full back-and-forth chat."
+func itoaLocal(n int) string {
+	if n <= 0 {
+		return "0"
 	}
+	var b [16]byte
+	i := len(b)
+	for n > 0 {
+		i--
+		b[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(b[i:])
 }

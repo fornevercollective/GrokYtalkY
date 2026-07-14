@@ -6,13 +6,34 @@
 (function () {
   "use strict";
 
+  function bootMsg(t, err) {
+    var b = document.getElementById("sp-boot");
+    var m = document.getElementById("sp-boot-msg");
+    if (m) m.textContent = t || "";
+    if (b) {
+      if (err) b.classList.add("is-err");
+      if (t === "" || t === "done") b.classList.add("is-done");
+    }
+  }
+
   const SPHERE = window.GY_SPHERE;
   const VENUE = window.GY_VENUE;
   const LIGHT = window.GY_LIGHT;
   if (!SPHERE || !VENUE) {
     console.error("sphere-seating.js + venue-canvas.js required");
+    bootMsg("Missing sphere modules — hard refresh (Cmd+Shift+R)", true);
     return;
   }
+
+  try {
+    bootMain();
+  } catch (e) {
+    console.error("[sphere] boot", e);
+    bootMsg("Sphere failed: " + (e && e.message ? e.message : e), true);
+  }
+
+  function bootMain() {
+  bootMsg("Building venue map…");
 
   const STORAGE = "gy.sphere.v2";
   const FEED_TTL_MS = 4500;
@@ -54,8 +75,9 @@
     siriClear: document.getElementById("sp-siri-clear"),
   };
 
-  // ── venue blueprint ──
+  // ── venue blueprint (can take ~0.5s — keep boot overlay up) ──
   const ven = VENUE.buildVenue();
+  bootMsg("Placing " + ((ven && ven.seats) || "…") + " seats…");
   const seats = SPHERE.seatsCached();
   const Nseats = seats.length;
   const bulkHot = new Set(); // target ids
@@ -171,11 +193,18 @@
   let demoTimer = 0;
   let bulkDemoTimer = 0;
 
-  const gl = el.gl.getContext("webgl", { antialias: true, alpha: false });
+  if (!el.gl) {
+    bootMsg("Canvas missing — check sphere.html", true);
+    return;
+  }
+  const gl = el.gl.getContext("webgl", { antialias: true, alpha: false }) ||
+    el.gl.getContext("experimental-webgl", { antialias: true, alpha: false });
   if (!gl) {
+    bootMsg("WebGL unavailable in this browser", true);
     setStatus("WebGL unavailable", "err");
     return;
   }
+  bootMsg("Starting WebGL…");
 
   const VS =
     "attribute vec3 aPos;attribute vec3 aCol;attribute float aBrt;" +
@@ -1516,9 +1545,11 @@
 
     initSiri();
     if (location.protocol !== "file:" && !(location.host || "").includes("github.io")) connect();
+    bootMsg("done");
     requestAnimationFrame(frame);
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();
+  } // end bootMain
 })();
