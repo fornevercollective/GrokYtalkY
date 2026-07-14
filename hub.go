@@ -239,7 +239,11 @@ func NewHub(addr string, quiet bool, staticDir string) *Hub {
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "missing url"})
 			return
 		}
-		src, err := resolveMediaForBrowserTimeout(q, 100*time.Second)
+		quality := strings.TrimSpace(r.URL.Query().Get("quality"))
+		if quality == "" {
+			quality = "best" // browser queue/TV path prefers high-res
+		}
+		src, err := resolveMediaForBrowserTimeoutQuality(q, 100*time.Second, quality)
 		if err != nil {
 			w.WriteHeader(http.StatusBadGateway)
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": err.Error(), "url": q})
@@ -261,6 +265,8 @@ func NewHub(addr string, quiet bool, staticDir string) *Hub {
 			"mobile":     src.Mobile,
 			"streamKind": kind,
 			"raw":        rawVideo,
+			"quality":    quality,
+			"format":     src.Format,
 			"blank":      BlankBaseURL(),
 			"tools":      "hub-builtin",
 		})

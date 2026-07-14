@@ -212,18 +212,37 @@ func isLivePageURL(s string) bool {
 }
 
 func resolveYtDlp(pageURL string) (*ResolvedStream, error) {
+	return resolveYtDlpQuality(pageURL, "")
+}
+
+// resolveYtDlpQuality picks format ladder.
+// quality "best" | "1080" | "max" → high-res TV path; default stays ≤720 terminal-friendly.
+func resolveYtDlpQuality(pageURL, quality string) (*ResolvedStream, error) {
 	bin, err := lookYtDlp()
 	if err != nil {
 		return nil, err
 	}
 
-	// Prefer combined progressive ≤720p for light terminal pipe;
-	// fall back to best video+audio merge URLs, then plain best.
-	formats := []string{
-		"bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720]/bv*+ba/b",
-		"best[height<=720]/best",
-		"bv*+ba/b",
-		"best",
+	q := strings.ToLower(strings.TrimSpace(quality))
+	var formats []string
+	switch q {
+	case "best", "max", "1080", "tv", "hi", "high":
+		// TV / queue path: prefer 1080p then best merged, then plain best
+		formats = []string{
+			"bv*[height<=1080]+ba/b[height<=1080]",
+			"bv*+ba/b",
+			"bestvideo*+bestaudio/best",
+			"best",
+		}
+	default:
+		// Prefer combined progressive ≤720p for light terminal pipe;
+		// fall back to best video+audio merge URLs, then plain best.
+		formats = []string{
+			"bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720]/bv*+ba/b",
+			"best[height<=720]/best",
+			"bv*+ba/b",
+			"best",
+		}
 	}
 
 	var lastErr error

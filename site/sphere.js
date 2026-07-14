@@ -186,6 +186,10 @@
   let envSampleCanvas = null;
   let envSampleCtx = null;
   let envSampleCache = null; // { canvas, ctx, w, h } downscaled for fast LED sample
+  /** Live video dome (queue /api/media/play → HDRI layer) */
+  let envVideo = null; // HTMLVideoElement
+  let envVideoUrl = "";
+  let envVideoLastSample = 0;
   let hdri3dViewer = null;
   let hdri3dOn = false;
   let castMode = "sphere"; // sphere | pin
@@ -826,9 +830,130 @@
       });
   }
 
+  function stopEnvVideo() {
+    if (envVideo) {
+      try {
+        envVideo.pause();
+        envVideo.removeAttribute("src");
+        envVideo.load();
+      } catch (_) {}
+      envVideo = null;
+    }
+    envVideoUrl = "";
+  }
+
+  /**
+   * Pipe resolved media play URL onto the HDRI dome (LED sample + optional Three ball).
+   * Prefer hub /api/media/play/… (CORS) over raw CDN.
+   */
+  function setEnvMapFromVideoURL(url, meta) {
+    meta = meta || {};
+    if (!url) return;
+    stopEnvVideo();
+    const v = document.createElement("video");
+    v.crossOrigin = "anonymous";
+    v.playsInline = true;
+    v.muted = true;
+    v.loop = true;
+    v.autoplay = true;
+    v.setAttribute("playsinline", "");
+    envVideo = v;
+    envVideoUrl = url;
+    v.onloadeddata = function () {
+      sampleEnvVideo(true);
+      setStatus(
+        "<strong>media dome</strong> · " +
+          (meta.title || url.slice(0, 48)) +
+          (meta.live ? " · LIVE" : " · VOD") +
+          " · HDRI ball optional",
+        "live"
+      );
+      if (meta.autoBall || (location.search || "").indexOf("hdri=1") >= 0) {
+        try {
+          if (!hdri3dOn) setHdri3d(true);
+        } catch (_) {}
+      }
+    };
+    v.onerror = function () {
+      setStatus("media dome load failed (CORS?) · use hub /api/media/play URL", "err");
+    };
+    v.src = url;
+    v.play().catch(function () {});
+    if (typeof meta.mediaTime === "number" && meta.mediaTime > 1) {
+      v.addEventListener(
+        "loadedmetadata",
+        function () {
+          try {
+            v.currentTime = meta.mediaTime;
+          } catch (_) {}
+        },
+        { once: true }
+      );
+    }
+  }
+
+  function sampleEnvVideo(force) {
+    if (!envVideo || envVideo.readyState < 2) return;
+    const now = performance.now();
+    if (!force && now - envVideoLastSample < 120) return;
+    envVideoLastSample = now;
+    try {
+      const vw = envVideo.videoWidth || 0;
+      const vh = envVideo.videoHeight || 0;
+      if (!vw || !vh) return;
+      // Build equirect-ish canvas: 2:1 map, stretch frame into mid band (TV feed on dome)
+      const W = 512;
+      const H = 256;
+      const c = document.createElement("canvas");
+      c.width = W;
+      c.height = H;
+      const ctx = c.getContext("2d");
+      if (!ctx) return;
+      // sky/ground fill
+      const g = ctx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, "#0a1020");
+      g.addColorStop(0.45, "#101018");
+      g.addColorStop(1, "#0a0806");
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, H);
+      // letterbox video into center 70% height (horizon band)
+      const bandH = Math.floor(H * 0.7);
+      const y0 = Math.floor((H - bandH) / 2);
+      ctx.drawImage(envVideo, 0, y0, W, bandH);
+      // label
+      ctx.fillStyle = "rgba(0,0,0,0.45)";
+      ctx.fillRect(6, H - 22, 200, 16);
+      ctx.fillStyle = "#a7f3d0";
+      ctx.font = "11px monospace";
+      ctx.fillText("media dome · queue", 10, H - 10);
+
+      const img = new Image();
+      img.onload = function () {
+        envMap = {
+          img: img,
+          dataUrl: c.toDataURL("image/jpeg", 0.72),
+          w: W,
+          h: H,
+          t: Date.now(),
+          nick: "media-dome",
+          slots: ["EQ"],
+          video: true,
+        };
+        rebuildEnvSampleCache(img);
+        if (hdri3dViewer) {
+          try {
+            hdri3dViewer.setMap(c).catch(function () {});
+          } catch (_) {}
+        }
+      };
+      img.src = c.toDataURL("image/jpeg", 0.7);
+    } catch (_) {}
+  }
+
   function setEnvMapFromB64(b64, meta) {
     meta = meta || {};
     if (!b64) return;
+    stopEnvVideo();
     const dataUrl = b64.indexOf("data:") === 0 ? b64 : "data:image/jpeg;base64," + b64;
     const img = new Image();
     img.onload = function () {
@@ -1030,9 +1155,14 @@
         }
       }
 
-      // HDRI equirect probe on dome (filmmaker hurdle hop)
-      if (envMap && nowMs - envMap.t < ENV_TTL_MS) {
-        const age = 1 - Math.min(1, (nowMs - envMap.t) / ENV_TTL_MS);
+      // Live video dome: refresh sample a few times/sec before point paint
+      if (envVideo && i === 0) sampleEnvVideo(false);
+
+      // HDRI equirect / media-dome on shell (filmmaker + queue)
+      if (envMap && (envMap.video || nowMs - envMap.t < ENV_TTL_MS)) {
+        const age = envMap.video
+          ? 1
+          : 1 - Math.min(1, (nowMs - envMap.t) / ENV_TTL_MS);
         const rgb = sampleEnvMap(pAz[i], pEl[i]);
         if (rgb) {
           const mix =
@@ -1648,6 +1778,21 @@
           });
         }
       }
+      // Queue / TV resolved stream → dome HDRI layer
+      if (msg.type === "media-dome" && msg.video) {
+        setEnvMapFromVideoURL(msg.video, msg);
+      }
+      if (msg.type === "media-queue" && msg.video && msg.action === "playstate" && msg.playing) {
+        if (!envVideoUrl || envVideoUrl !== msg.video) {
+          setEnvMapFromVideoURL(msg.video, msg);
+        } else if (envVideo && typeof msg.mediaTime === "number") {
+          try {
+            if (Math.abs((envVideo.currentTime || 0) - msg.mediaTime) > 1.2) {
+              envVideo.currentTime = msg.mediaTime;
+            }
+          } catch (_) {}
+        }
+      }
       if (msg.type === "camera-controls" || msg.type === "venue-light") refreshLightPanel();
       // walkie burst + mesh chat + bitchat dual-path
       if (walkie) walkie.onMesh(msg);
@@ -1812,12 +1957,20 @@
       });
     }
 
-    // load stashed GrokGlyph HDRI (view 3D / cast sphere handoff)
+    // load stashed GrokGlyph HDRI or queue media-dome URL
     try {
       const q = new URLSearchParams(location.search || "");
+      const dome = q.get("dome") || q.get("media") || q.get("video");
+      if (dome) {
+        setEnvMapFromVideoURL(dome, {
+          title: "queue dome",
+          autoBall: q.get("hdri") === "1",
+          live: q.get("live") === "1",
+        });
+      }
       if (window.GY_HDRI_VIEW) {
         const st = window.GY_HDRI_VIEW.loadStashed();
-        if (st && st.dataUrl) {
+        if (st && st.dataUrl && !dome) {
           setEnvMapFromB64(st.dataUrl, st.meta || { from: "GrokGlyph" });
           if (q.get("hdri") === "1") {
             // defer until image onload inside setEnvMapFromB64 also auto-enables
@@ -1825,8 +1978,8 @@
               if (!hdri3dOn) setHdri3d(true);
             }, 120);
           }
-        } else if (q.get("hdri") === "1") {
-          setStatus("HDRI mode · waiting for map (cast from GrokGlyph or open HDRI view)", "live");
+        } else if (q.get("hdri") === "1" && !dome) {
+          setStatus("HDRI mode · waiting for map (cast from GrokGlyph or queue media-dome)", "live");
         }
         // live updates from GrokGlyph tab
         if (typeof BroadcastChannel !== "undefined") {

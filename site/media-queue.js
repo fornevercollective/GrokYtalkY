@@ -60,7 +60,8 @@
   function looksURL(s) {
     s = String(s || "").trim();
     if (/^https?:\/\//i.test(s)) return true;
-    if (/^(www\.|youtu\.be\/|youtube\.com|twitch\.tv|tiktok\.com|vimeo\.com)/i.test(s)) return true;
+    if (/^(www\.|youtu\.be\/|youtube\.com|twitch\.tv|tiktok\.com|vimeo\.com|x\.com|twitter\.com|t\.co\/)/i.test(s))
+      return true;
     return false;
   }
 
@@ -131,6 +132,10 @@
     var playing = false;
     var ws = null;
     var listeners = [];
+    var quality = "best"; // best | 720
+    var mediaTime = 0;
+    var suppressMesh = false;
+    var lastMeshSeek = 0;
 
     function emit() {
       var snap = snapshot();
@@ -156,6 +161,8 @@
         current: items[index] || null,
         hubWs: hubWs,
         hubHttp: hubHTTP(hubWs),
+        quality: quality,
+        mediaTime: mediaTime,
       };
     }
 
@@ -216,6 +223,26 @@
     function setMode(m) {
       if (m === "multi" || m === "audio" || m === "seq") mode = m;
       emit();
+    }
+
+    function setQuality(q) {
+      quality = q === "720" ? "720" : "best";
+      emit();
+    }
+
+    function setMediaTime(t) {
+      mediaTime = Math.max(0, Number(t) || 0);
+    }
+
+    function absolutePlayURL(it) {
+      if (!it || !it.video) return "";
+      var v = it.video;
+      if (/^https?:\/\//i.test(v)) return v;
+      try {
+        return new URL(v, hubHTTP(hubWs)).toString();
+      } catch (_) {
+        return hubHTTP(hubWs).replace(/\/$/, "") + (v.charAt(0) === "/" ? v : "/" + v);
+      }
     }
 
     function find(id) {
@@ -363,9 +390,15 @@
             throw new Error("no stream for " + it.input);
           }
         } else {
-          var rm = await fetch(base + "/api/media/resolve?url=" + encodeURIComponent(it.input), {
-            headers: { Accept: "application/json" },
-          });
+          var qParam = quality === "720" ? "720" : "best";
+          var rm = await fetch(
+            base +
+              "/api/media/resolve?quality=" +
+              encodeURIComponent(qParam) +
+              "&url=" +
+              encodeURIComponent(it.input),
+            { headers: { Accept: "application/json" } }
+          );
           data = await rm.json().catch(function () {
             return {};
           });
@@ -375,8 +408,24 @@
           it.title = data.title || it.title;
           it.live = !!data.live;
           it.via = data.via || "hub";
-          it.platform = data.platform || "";
+          it.platform = data.platform || data.platform || "";
+          it.format = data.format || "";
           if (!it.video) throw new Error("no playable stream");
+        }
+        // also wrap raw video under hub if still external m3u8
+        if (it.video && !/\/api\/media\/play\//.test(it.video) && /m3u8|hls/i.test(it.video)) {
+          try {
+            var wrap2 = await fetch(
+              base +
+                "/api/media/resolve?quality=best&url=" +
+                encodeURIComponent(it.input),
+              { headers: { Accept: "application/json" } }
+            );
+            var w2 = await wrap2.json().catch(function () {
+              return null;
+            });
+            if (w2 && w2.ok && w2.video) it.video = w2.video;
+          } catch (_) {}
         }
         it.status = "ready";
       } catch (e) {
@@ -405,21 +454,112 @@
         if (playing && i === index && it.video) it.status = "playing";
       });
       emit();
-      meshSync();
+      meshTimeline("playstate");
     }
 
     function next() {
       if (!items.length) return null;
       index = (index + 1) % items.length;
+      mediaTime = 0;
       emit();
+      meshTimeline("index");
       return items[index];
     }
 
     function prev() {
       if (!items.length) return null;
       index = (index - 1 + items.length) % items.length;
+      mediaTime = 0;
       emit();
+      meshTimeline("index");
       return items[index];
+    }
+
+    /** Seek relative seconds on current item (caller applies to <video>). */
+    function seekRel(delta) {
+      mediaTime = Math.max(0, mediaTime + (Number(delta) || 0));
+      meshTimeline("seek");
+      emit();
+      return mediaTime;
+    }
+
+    function seekAbs(t) {
+      mediaTime = Math.max(0, Number(t) || 0);
+      meshTimeline("seek");
+      emit();
+      return mediaTime;
+    }
+
+    function meshTimeline(reason) {
+      if (suppressMesh) return;
+      if (typeof opts.sendMesh !== "function" && !(ws && ws.readyState === 1)) {
+        meshSync();
+        return;
+      }
+      var cur = items[index];
+      var msg = {
+        type: "media-queue",
+        action: reason || "sync",
+        mode: mode,
+        index: index,
+        playing: playing,
+        mediaTime: mediaTime,
+        quality: quality,
+        video: cur ? absolutePlayURL(cur) : "",
+        title: cur ? cur.title : "",
+        input: cur ? cur.input : "",
+        live: cur ? !!cur.live : false,
+        t: Date.now(),
+      };
+      try {
+        if (typeof opts.sendMesh === "function") opts.sendMesh(msg);
+        else if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg));
+      } catch (_) {}
+      meshSync();
+    }
+
+    /** Cast current resolved play URL into Sphere HDRI / dome layer */
+    function castSphereDome() {
+      var cur = items[index];
+      if (!cur || !cur.video) return null;
+      var video = absolutePlayURL(cur);
+      var msg = {
+        type: "media-dome",
+        video: video,
+        title: cur.title || cur.input,
+        from: "queue",
+        live: !!cur.live,
+        mediaTime: mediaTime,
+        playing: playing,
+        t: Date.now(),
+      };
+      try {
+        if (typeof opts.sendMesh === "function") opts.sendMesh(msg);
+        else if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg));
+      } catch (_) {}
+      return msg;
+    }
+
+    function applyRemoteTimeline(msg) {
+      if (!msg || msg.type !== "media-queue") return;
+      suppressMesh = true;
+      try {
+        if (typeof msg.index === "number" && msg.index >= 0 && msg.index < items.length) {
+          index = msg.index;
+        }
+        if (typeof msg.playing === "boolean") {
+          playing = msg.playing;
+          items.forEach(function (it, i) {
+            if (it.status === "playing") it.status = it.video ? "ready" : "queued";
+            if (playing && i === index && it.video) it.status = "playing";
+          });
+        }
+        if (typeof msg.mediaTime === "number") mediaTime = msg.mediaTime;
+        if (msg.mode) mode = msg.mode;
+        emit();
+      } finally {
+        suppressMesh = false;
+      }
     }
 
     /** Items to play for current mode (seq: 1, multi: up to MAX_SIMUL ready). */
@@ -512,6 +652,7 @@
           mode: mode,
           index: index,
           playing: playing,
+          mediaTime: mediaTime,
           items: items.map(function (it) {
             return {
               id: it.id,
@@ -527,6 +668,28 @@
       } catch (_) {}
     }
 
+    function castTargets() {
+      var base = hubHTTP(hubWs);
+      var set = shareURL(base + "/queue.html");
+      var sep = set.indexOf("?") >= 0 ? "&" : "?";
+      var cur = items[index];
+      var dome = cur && cur.video ? absolutePlayURL(cur) : "";
+      return {
+        queuePlayer: set + sep + "out=player&play=1",
+        queueTV: set + sep + "out=tv&mode=seq&play=1&sync=1",
+        glyphCast: base + "/glyph-cast.html?hub=" + encodeURIComponent(hubWs) + "&room=media",
+        sphere:
+          base +
+          "/sphere.html?hdri=1" +
+          (dome ? "&dome=" + encodeURIComponent(dome) : "") +
+          "&hub=" +
+          encodeURIComponent(hubWs),
+        phone: base + "/phone.html?room=media&quick=1",
+        share: set,
+        domeVideo: dome,
+      };
+    }
+
     function connectMesh(nick) {
       if (!hubWs || hubWs === "ws://" || hubWs === "wss://") return null;
       try {
@@ -534,7 +697,11 @@
       } catch (_) {}
       var url = hubWs;
       if (!/[?&]nick=/.test(url)) {
-        url += (url.includes("?") ? "&" : "?") + "nick=" + encodeURIComponent(nick || "queue") + "&role=queue&room=media";
+        url +=
+          (url.includes("?") ? "&" : "?") +
+          "nick=" +
+          encodeURIComponent(nick || "queue") +
+          "&role=queue&room=media";
       }
       try {
         ws = new WebSocket(url);
@@ -552,22 +719,37 @@
             })
           );
         } catch (_) {}
-        meshSync();
+        meshTimeline("join");
+      };
+      ws.onmessage = function (ev) {
+        var msg;
+        try {
+          msg = JSON.parse(ev.data);
+        } catch (_) {
+          return;
+        }
+        if (msg.type === "media-queue" && msg.action && msg.action !== "sync") {
+          // avoid echo loops: only apply remote seeks from other nicks
+          if (msg.from && nick && msg.from === nick) return;
+          var now = Date.now();
+          if (msg.action === "seek" && now - lastMeshSeek < 80) return;
+          if (msg.action === "seek") lastMeshSeek = now;
+          applyRemoteTimeline(msg);
+        }
+      };
+      // expose for sendMesh path
+      opts.sendMesh = function (obj) {
+        if (!ws || ws.readyState !== 1) return false;
+        try {
+          if (!obj.from) obj.from = nick || "queue";
+          if (!obj.room) obj.room = "media";
+          ws.send(JSON.stringify(obj));
+          return true;
+        } catch (_) {
+          return false;
+        }
       };
       return ws;
-    }
-
-    function castTargets() {
-      var base = hubHTTP(hubWs);
-      var set = shareURL(base + "/queue.html");
-      return {
-        queuePlayer: set + (set.indexOf("?") >= 0 ? "&" : "?") + "out=player",
-        queueTV: set + (set.indexOf("?") >= 0 ? "&" : "?") + "out=tv&mode=seq",
-        glyphCast: base + "/glyph-cast.html?hub=" + encodeURIComponent(hubWs) + "&room=media",
-        sphere: base + "/sphere.html",
-        phone: base + "/phone.html?room=media&quick=1",
-        share: set,
-      };
     }
 
     load();
@@ -579,6 +761,10 @@
       on: on,
       setHub: setHub,
       setMode: setMode,
+      setQuality: setQuality,
+      setMediaTime: setMediaTime,
+      seekRel: seekRel,
+      seekAbs: seekAbs,
       addOne: addOne,
       addMany: addMany,
       remove: remove,
@@ -598,7 +784,11 @@
       loadFromLocation: loadFromLocation,
       connectMesh: connectMesh,
       meshSync: meshSync,
+      meshTimeline: meshTimeline,
+      castSphereDome: castSphereDome,
       castTargets: castTargets,
+      absolutePlayURL: absolutePlayURL,
+      applyRemoteTimeline: applyRemoteTimeline,
       hubHTTP: function () {
         return hubHTTP(hubWs);
       },
@@ -618,6 +808,39 @@
     var multiVideos = [];
     var hlsInstances = []; // optional hls.js if present
     var endedBound = false;
+    var scrubBound = false;
+
+    function seekVideo(deltaOrAbs, absolute) {
+      var v = els.videoMain;
+      if (!v || !isFinite(v.duration) || v.duration <= 0) {
+        if (absolute) q.seekAbs(deltaOrAbs);
+        else q.seekRel(deltaOrAbs);
+        return;
+      }
+      var t = absolute ? Number(deltaOrAbs) || 0 : (v.currentTime || 0) + (Number(deltaOrAbs) || 0);
+      t = Math.max(0, Math.min(v.duration - 0.05, t));
+      try {
+        v.currentTime = t;
+      } catch (_) {}
+      q.setMediaTime(t);
+      q.meshTimeline && q.meshTimeline("seek");
+      if (els.scrub) {
+        try {
+          els.scrub.value = String(Math.floor(t));
+          els.scrub.max = String(Math.floor(v.duration));
+        } catch (_) {}
+      }
+      if (els.timeLab) {
+        els.timeLab.textContent = fmtTime(t) + " / " + fmtTime(v.duration);
+      }
+    }
+
+    function fmtTime(s) {
+      s = Math.max(0, Math.floor(s || 0));
+      var m = Math.floor(s / 60);
+      var r = s % 60;
+      return m + ":" + (r < 10 ? "0" : "") + r;
+    }
 
     function destroyMulti() {
       multiVideos.forEach(function (v) {
@@ -783,6 +1006,35 @@
           apply();
         });
       }
+      if (!scrubBound && els.videoMain) {
+        scrubBound = true;
+        els.videoMain.addEventListener("timeupdate", function () {
+          var v = els.videoMain;
+          if (!v) return;
+          q.setMediaTime(v.currentTime || 0);
+          if (els.scrub && isFinite(v.duration) && v.duration > 0) {
+            els.scrub.max = String(Math.floor(v.duration));
+            if (document.activeElement !== els.scrub) {
+              els.scrub.value = String(Math.floor(v.currentTime || 0));
+            }
+          }
+          if (els.timeLab && isFinite(v.duration)) {
+            els.timeLab.textContent = fmtTime(v.currentTime) + " / " + fmtTime(v.duration);
+          }
+        });
+        if (els.scrub) {
+          els.scrub.addEventListener("input", function () {
+            seekVideo(Number(els.scrub.value) || 0, true);
+          });
+        }
+        // restore shared timeline
+        var mt = q.snapshot().mediaTime;
+        if (mt > 1) {
+          try {
+            els.videoMain.currentTime = mt;
+          } catch (_) {}
+        }
+      }
       if (snap.playing) {
         try {
           els.videoMain.muted = false;
@@ -815,6 +1067,12 @@
       apply: apply,
       destroy: destroyMulti,
       setStatus: setStatus,
+      seekRel: function (d) {
+        seekVideo(d, false);
+      },
+      seekAbs: function (t) {
+        seekVideo(t, true);
+      },
     };
   }
 

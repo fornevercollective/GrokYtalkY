@@ -51,6 +51,14 @@
           <div id="mq-multi" class="mq-multi" hidden></div>
           <audio id="mq-audio" class="mq-audio" controls></audio>
         </div>
+        <div class="mq-scrub-row">
+          <button type="button" class="btn ghost" id="mq-seek-back" title="-10s (j)">−10s</button>
+          <button type="button" class="btn ghost" id="mq-seek-back30" title="-30s (J)">−30s</button>
+          <input type="range" id="mq-scrub" min="0" max="100" value="0" step="1" aria-label="Seek" />
+          <button type="button" class="btn ghost" id="mq-seek-fwd" title="+10s (l)">+10s</button>
+          <button type="button" class="btn ghost" id="mq-seek-fwd30" title="+30s (L)">+30s</button>
+          <span class="mq-time" id="mq-time">0:00 / 0:00</span>
+        </div>
         <div class="mq-transport" role="toolbar" aria-label="Transport">
           <button type="button" class="btn ghost" id="mq-prev" title="Previous">⏮</button>
           <button type="button" class="btn primary" id="mq-play">Play</button>
@@ -64,7 +72,18 @@
               <option value="audio">Speakers (audio)</option>
             </select>
           </label>
+          <label class="mq-mode">
+            Quality
+            <select id="mq-quality" title="yt-dlp ladder via hub">
+              <option value="best" selected>TV best</option>
+              <option value="720">720p light</option>
+            </select>
+          </label>
         </div>
+        <p class="mq-hint">
+          Scrub: <kbd>j</kbd>/<kbd>l</kbd> ±10s · <kbd>J</kbd>/<kbd>L</kbd> ±30s · space play/pause ·
+          <strong>VOD full scrub</strong> · live = short DVR only. Safari X tab stays locked — resolve first.
+        </p>
       </section>
 
       <section class="mq-panel mq-list-wrap" aria-label="Queue list">
@@ -101,14 +120,23 @@
           <span>Open queue on phone · same hub room</span>
         </button>
         <button type="button" class="mq-out-card" id="mq-out-sphere" data-out="sphere">
-          <strong>⬤ Sphere</strong>
-          <span>Venue ball · mesh room media</span>
+          <strong>⬤ Sphere + HDRI</strong>
+          <span>Pipe /api/media/play into dome + open ball</span>
+        </button>
+        <button type="button" class="mq-out-card" id="mq-out-dome" data-out="dome">
+          <strong>◈ Mesh dome only</strong>
+          <span>media-dome fan-out · keep queue here</span>
         </button>
         <button type="button" class="mq-out-card" id="mq-out-speakers" data-out="speakers">
           <strong>🔊 Speakers</strong>
           <span>Audio-only mode on this device</span>
         </button>
       </div>
+      <p class="mq-hint" id="mq-onetap">
+        <strong>One-tap from clipboard (Mac):</strong>
+        <code id="mq-onetap-cmd">pbpaste | xargs -I{} open 'http://127.0.0.1:9876/queue.html#add={}'</code>
+        · or terminal: <code>gy watch "$(pbpaste)"</code>
+      </p>
       <div class="mq-row mq-hub-row">
         <label class="mq-label">Hub WS
           <input type="text" id="mq-hub" placeholder="ws://192.168.x.x:9876/" autocomplete="off" spellcheck="false" />

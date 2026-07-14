@@ -491,13 +491,17 @@ func mediaPlayIDForRow(want *mediaPlayRow) string {
 }
 
 func resolveMediaForBrowserTimeout(src string, d time.Duration) (*ResolvedStream, error) {
+	return resolveMediaForBrowserTimeoutQuality(src, d, "")
+}
+
+func resolveMediaForBrowserTimeoutQuality(src string, d time.Duration, quality string) (*ResolvedStream, error) {
 	type result struct {
 		r   *ResolvedStream
 		err error
 	}
 	ch := make(chan result, 1)
 	go func() {
-		r, err := resolveMediaForBrowser(src)
+		r, err := resolveMediaForBrowserQuality(src, quality)
 		ch <- result{r, err}
 	}()
 	select {
@@ -511,16 +515,27 @@ func resolveMediaForBrowserTimeout(src string, d time.Duration) (*ResolvedStream
 // resolveMediaForBrowser prefers local yt-dlp (then hub CORS proxy) over the
 // optional node blank server. blank remains a fallback for cookie-gated TikTok etc.
 func resolveMediaForBrowser(src string) (*ResolvedStream, error) {
+	return resolveMediaForBrowserQuality(src, "")
+}
+
+func resolveMediaForBrowserQuality(src, quality string) (*ResolvedStream, error) {
 	src = strings.TrimSpace(strings.Trim(src, `"'`))
 	if src == "" {
 		return nil, fmt.Errorf("empty media source")
 	}
+	// Expand t.co short links are handled by yt-dlp when needsYtDlp
 	if q := ParseSocialQuery(src); q != nil {
 		return ResolveSocial(q)
 	}
 	if needsYtDlp(src) {
-		if isLivePageURL(src) {
+		wantBest := quality == "best" || quality == "max" || quality == "1080" || quality == "tv" || quality == "hi" || quality == "high"
+		if isLivePageURL(src) || strings.Contains(strings.ToLower(src), "x.com/i/spaces") {
 			if r, err := resolveYtDlpLiveFirst(src); err == nil && r != nil && r.Video != "" {
+				return r, nil
+			}
+		}
+		if wantBest {
+			if r, err := resolveYtDlpQuality(src, "best"); err == nil && r != nil && r.Video != "" {
 				return r, nil
 			}
 		}
@@ -532,6 +547,9 @@ func resolveMediaForBrowser(src string) (*ResolvedStream, error) {
 			return r, nil
 		}
 		// last error from yt-dlp path
+		if wantBest {
+			return resolveYtDlpQuality(src, "best")
+		}
 		if isLivePageURL(src) {
 			return resolveYtDlpLiveFirst(src)
 		}

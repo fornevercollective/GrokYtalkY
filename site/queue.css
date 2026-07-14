@@ -179,6 +179,33 @@
   pointer-events: none;
 }
 
+.mq-scrub-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.55rem;
+}
+.mq-scrub-row input[type="range"] {
+  flex: 1 1 8rem;
+  min-width: 6rem;
+  accent-color: #6ee7b7;
+}
+.mq-time {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  color: var(--faint);
+  min-width: 5.5rem;
+  text-align: right;
+}
+.mq-hint kbd {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.05rem 0.28rem;
+  background: #12121a;
+}
 .mq-transport {
   display: flex;
   flex-wrap: wrap;

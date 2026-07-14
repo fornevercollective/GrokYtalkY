@@ -56,6 +56,24 @@
     multiWrap: els.multi,
     audioOnly: els.audio,
     status: els.status,
+    scrub: document.getElementById("mq-scrub"),
+    timeLab: document.getElementById("mq-time"),
+  });
+
+  // wire remote timeline → video
+  q.on(function (snap) {
+    if (!els.video || snap.mediaTime == null) return;
+    // when mesh seek applied, snap video if drift > 0.6s
+    try {
+      if (
+        isFinite(els.video.duration) &&
+        Math.abs((els.video.currentTime || 0) - snap.mediaTime) > 0.6
+      ) {
+        els.video.currentTime = snap.mediaTime;
+      }
+      if (snap.playing && els.video.paused) els.video.play().catch(function () {});
+      if (!snap.playing && !els.video.paused) els.video.pause();
+    } catch (_) {}
   });
 
   function setStatus(t, kind) {
@@ -262,6 +280,23 @@
       if (q.snapshot().playing) player.apply();
     });
   }
+  var qualityEl = document.getElementById("mq-quality");
+  if (qualityEl) {
+    qualityEl.addEventListener("change", function () {
+      q.setQuality(qualityEl.value);
+    });
+  }
+  function wireSeek(id, delta) {
+    var b = document.getElementById(id);
+    if (!b) return;
+    b.addEventListener("click", function () {
+      player.seekRel(delta);
+    });
+  }
+  wireSeek("mq-seek-back", -10);
+  wireSeek("mq-seek-back30", -30);
+  wireSeek("mq-seek-fwd", 10);
+  wireSeek("mq-seek-fwd30", 30);
 
   async function copyText(t) {
     try {
@@ -295,13 +330,12 @@
   function openOut(kind) {
     var targets = q.castTargets();
     if (kind === "tv") {
-      window.open(targets.queueTV + "&play=1", "_blank", "noopener");
+      var cTv = q.snapshot().current;
+      (cTv && !cTv.video ? q.resolveItem(cTv) : Promise.resolve()).then(function () {
+        window.open(q.castTargets().queueTV, "_blank", "noopener");
+      });
     } else if (kind === "present") {
-      // Presentation API or fallback window
-      var url = targets.queueTV + "&play=1";
-      if (navigator.presentation && navigator.presentation.defaultRequest) {
-        /* limited support — fallback */
-      }
+      var url = q.castTargets().queueTV;
       if (window.PresentationRequest) {
         try {
           var req = new PresentationRequest([url]);
@@ -315,9 +349,20 @@
     } else if (kind === "glyph") {
       window.open(targets.glyphCast, "_blank", "noopener");
     } else if (kind === "phone") {
-      window.open(targets.share + "&out=player", "_blank", "noopener");
+      window.open(targets.share + "&out=player&play=1", "_blank", "noopener");
     } else if (kind === "sphere") {
-      window.open(targets.sphere, "_blank", "noopener");
+      var cur = q.snapshot().current;
+      (cur && !cur.video ? q.resolveItem(cur) : Promise.resolve()).then(function () {
+        q.castSphereDome();
+        window.open(q.castTargets().sphere, "_blank", "noopener");
+        setStatus("sphere HDRI · media-dome sent", "live");
+      });
+    } else if (kind === "dome") {
+      var c2 = q.snapshot().current;
+      (c2 && !c2.video ? q.resolveItem(c2) : Promise.resolve()).then(function () {
+        var m = q.castSphereDome();
+        setStatus(m ? "media-dome → mesh" : "resolve a clip first", m ? "live" : "err");
+      });
     } else if (kind === "speakers") {
       q.setMode("audio");
       if (els.mode) els.mode.value = "audio";
@@ -411,20 +456,66 @@
     });
   }
 
-  // keyboard
+  // keyboard — TV scrub like gy watch
   document.addEventListener("keydown", function (e) {
-    if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
+    if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.tagName === "SELECT"))
+      return;
     if (e.key === " " || e.key === "k") {
       e.preventDefault();
       if (q.snapshot().playing) els.pause && els.pause.click();
       else els.play && els.play.click();
     }
-    if (e.key === "n" || e.key === "ArrowRight") els.next && els.next.click();
-    if (e.key === "p" || e.key === "ArrowLeft") els.prev && els.prev.click();
+    if (e.key === "n") els.next && els.next.click();
+    if (e.key === "p" && !e.shiftKey) els.prev && els.prev.click();
+    if (e.key === "j") {
+      e.preventDefault();
+      player.seekRel(-10);
+    }
+    if (e.key === "l" && !e.metaKey && !e.ctrlKey) {
+      e.preventDefault();
+      player.seekRel(10);
+    }
+    if (e.key === "J") {
+      e.preventDefault();
+      player.seekRel(-30);
+    }
+    if (e.key === "L") {
+      e.preventDefault();
+      player.seekRel(30);
+    }
+    if (e.key === "0") {
+      e.preventDefault();
+      player.seekAbs(0);
+    }
+    if (e.key === "ArrowRight" && e.shiftKey) {
+      e.preventDefault();
+      player.seekRel(30);
+    } else if (e.key === "ArrowRight") {
+      e.preventDefault();
+      player.seekRel(10);
+    }
+    if (e.key === "ArrowLeft" && e.shiftKey) {
+      e.preventDefault();
+      player.seekRel(-30);
+    } else if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      player.seekRel(-10);
+    }
     if (e.key === "f" && els.video && els.video.requestFullscreen) {
       els.video.requestFullscreen().catch(function () {});
     }
   });
+
+  // one-tap cmd uses live LAN when possible
+  try {
+    var ot = document.getElementById("mq-onetap-cmd");
+    if (ot && location.port === "9876") {
+      ot.textContent =
+        "pbpaste | python3 -c \"import sys,urllib.parse;print(sys.stdin.read().strip())\" | xargs -I{} open '" +
+        location.origin +
+        "/queue.html#add={}'";
+    }
+  } catch (_) {}
 
   setStatus(
     q.snapshot().items.length
