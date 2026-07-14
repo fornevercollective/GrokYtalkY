@@ -1,14 +1,17 @@
 /**
  * Live News real-stream sampler — YouTube live → HLS → 25² glyph.
- * Resolve: hub /api/media/resolve (blank/yt-dlp) or blank /api/ingest/resolve.
- * Playback: native HLS (Safari) or hls.js (Chrome).
+ *
+ * Prefer hub /api/media/resolve (serial server-side blank/yt-dlp).
+ * Fallback: blank /api/ingest/resolve.
+ * Playback: hls.js or native Safari HLS. Sample with crossOrigin + blank proxy CORS.
  */
 (function (global) {
   "use strict";
 
-  var MAX_LIVE = 6; // concurrent video decodes (browser budget)
+  var MAX_LIVE = 4; // fewer concurrent decodes = more reliable
   var GLYPH_N = 25;
-  var SAMPLE_MS = 200;
+  var SAMPLE_MS = 250;
+  var RESOLVE_GAP_MS = 900;
 
   function blankBase() {
     if (global.GY_BLANK_URL) return String(global.GY_BLANK_URL).replace(/\/$/, "");
@@ -30,45 +33,58 @@
   async function resolveStream(pageURL) {
     pageURL = String(pageURL || "").trim();
     if (!pageURL) throw new Error("empty url");
+    var lastErr = "resolve failed";
 
-    // 1) blank ingest (CORS + HLS proxy — best for YouTube live)
+    // 1) Hub first (one server path, uses blank when up, returns blank-proxy URL)
     try {
-      const res = await fetch(blankBase() + "/api/ingest/resolve", {
+      var res2 = await fetch(
+        hubBase() + "/api/media/resolve?url=" + encodeURIComponent(pageURL),
+        { headers: { Accept: "application/json" } }
+      );
+      var j2 = await res2.json();
+      if (j2 && j2.ok && j2.video) {
+        return {
+          video: j2.video,
+          title: j2.title || "",
+          via: j2.via || "hub",
+          live: !!j2.live,
+          streamKind: /m3u8|hls|play\//i.test(j2.video) ? "hls" : "",
+        };
+      }
+      if (j2 && j2.error) lastErr = j2.error;
+    } catch (e) {
+      lastErr = e && e.message ? e.message : String(e);
+    }
+
+    // 2) Direct blank
+    try {
+      var res = await fetch(blankBase() + "/api/ingest/resolve", {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({ url: pageURL }),
       });
-      const j = await res.json();
-      if (j && j.ok && j.streamUrl) {
-        var play = j.playPath ? blankBase() + j.playPath : j.streamUrl;
-        return {
-          video: play,
-          raw: j.streamUrl,
-          title: j.title || "",
-          via: j.playPath ? "blank-proxy" : "blank",
-          live: true,
-          streamKind: j.streamKind || "",
-        };
+      if (!res.ok) {
+        lastErr = "blank HTTP " + res.status;
+      } else {
+        var j = await res.json();
+        if (j && j.ok && j.streamUrl) {
+          var play = j.playPath ? blankBase() + j.playPath : j.streamUrl;
+          return {
+            video: play,
+            raw: j.streamUrl,
+            title: j.title || "",
+            via: j.playPath ? "blank-proxy" : "blank",
+            live: true,
+            streamKind: j.streamKind || "hls",
+          };
+        }
+        if (j && j.error) lastErr = j.error;
       }
-    } catch (_) {
-      /* blank down */
+    } catch (e2) {
+      lastErr = e2 && e2.message ? e2.message : String(e2);
     }
 
-    // 2) gy hub resolve (yt-dlp / blank server-side)
-    const res2 = await fetch(
-      hubBase() + "/api/media/resolve?url=" + encodeURIComponent(pageURL),
-      { headers: { Accept: "application/json" } }
-    );
-    const j2 = await res2.json();
-    if (!j2 || !j2.ok || !j2.video) {
-      throw new Error((j2 && j2.error) || "resolve failed");
-    }
-    return {
-      video: j2.video,
-      title: j2.title || "",
-      via: j2.via || "hub",
-      live: !!j2.live,
-    };
+    throw new Error(lastErr);
   }
 
   function loadHlsScript() {
@@ -84,16 +100,18 @@
         resolve(global.Hls);
       };
       s.onerror = function () {
-        reject(new Error("hls.js load failed"));
+        reject(new Error("hls.js CDN failed — check network"));
       };
       document.head.appendChild(s);
     });
   }
 
+  var _sampleCanvas = null;
   function sampleVideo(video, n) {
     n = n || GLYPH_N;
     if (!video || video.readyState < 2) return null;
-    var c = document.createElement("canvas");
+    if (!_sampleCanvas) _sampleCanvas = document.createElement("canvas");
+    var c = _sampleCanvas;
     c.width = n;
     c.height = n;
     var ctx = c.getContext("2d", { willReadFrequently: true });
@@ -102,12 +120,12 @@
     var vh = video.videoHeight || 1;
     var side = Math.min(vw, vh);
     var sx = Math.floor((vw - side) / 2);
-    var sy = Math.floor((vh - side) / 2);
+    var sy = Math.floor((vh - side) * 0.15);
     try {
       ctx.drawImage(video, sx, sy, side, side, 0, 0, n, n);
       var img = ctx.getImageData(0, 0, n, n);
     } catch (e) {
-      return null; // CORS taint
+      return null;
     }
     var d = img.data;
     var lum = new Float32Array(n * n);
@@ -117,10 +135,37 @@
     return lum;
   }
 
-  /**
-   * Attach live sampler to a tile record.
-   * rec: { src, video?, hls?, timer?, live, hubFrame, lum, onLiveError? }
-   */
+  function waitPlaying(video, ms) {
+    ms = ms || 12000;
+    return new Promise(function (resolve) {
+      if (video.readyState >= 2 && !video.paused) {
+        resolve(true);
+        return;
+      }
+      var done = false;
+      function fin(ok) {
+        if (done) return;
+        done = true;
+        video.removeEventListener("playing", onPlay);
+        video.removeEventListener("loadeddata", onPlay);
+        video.removeEventListener("error", onErr);
+        resolve(ok);
+      }
+      function onPlay() {
+        fin(true);
+      }
+      function onErr() {
+        fin(false);
+      }
+      video.addEventListener("playing", onPlay);
+      video.addEventListener("loadeddata", onPlay);
+      video.addEventListener("error", onErr);
+      setTimeout(function () {
+        fin(video.readyState >= 2);
+      }, ms);
+    });
+  }
+
   async function startTileLive(rec, opts) {
     opts = opts || {};
     if (!rec || !rec.src || !rec.src.url) throw new Error("no source url");
@@ -135,13 +180,20 @@
     video.playsInline = true;
     video.autoplay = true;
     video.crossOrigin = "anonymous";
+    video.preload = "auto";
     video.setAttribute("playsinline", "");
-    video.style.cssText = "position:fixed;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none";
+    video.setAttribute("muted", "");
+    video.style.cssText =
+      "position:fixed;left:-9999px;top:0;width:160px;height:90px;opacity:0;pointer-events:none";
     document.body.appendChild(video);
     rec.video = video;
 
     var url = resolved.video;
-    var isHls = /\.m3u8(\?|$)/i.test(url) || resolved.streamKind === "hls" || /\/api\/ingest\/play\//.test(url);
+    var isHls =
+      /\.m3u8(\?|$)/i.test(url) ||
+      resolved.streamKind === "hls" ||
+      /\/api\/ingest\/play\//.test(url) ||
+      /manifest\.googlevideo|playlist_type\/DVR/i.test(url);
 
     if (isHls && video.canPlayType("application/vnd.apple.mpegurl")) {
       video.src = url;
@@ -151,14 +203,18 @@
         var hls = new Hls({
           enableWorker: true,
           lowLatencyMode: true,
-          maxBufferLength: 8,
+          maxBufferLength: 12,
+          maxMaxBufferLength: 20,
         });
         hls.loadSource(url);
         hls.attachMedia(video);
         rec.hls = hls;
+        hls.on(Hls.Events.MANIFEST_PARSED, function () {
+          video.play().catch(function () {});
+        });
         hls.on(Hls.Events.ERROR, function (_e, data) {
           if (data && data.fatal) {
-            rec.liveError = "hls " + (data.type || "error");
+            rec.liveError = "hls " + (data.details || data.type || "error");
             if (typeof opts.onError === "function") opts.onError(rec, rec.liveError);
           }
         });
@@ -171,12 +227,16 @@
 
     try {
       await video.play();
-    } catch (e) {
-      rec.liveError = "play: " + (e && e.message ? e.message : e);
+    } catch (_) {
+      /* autoplay policies — muted should allow */
+    }
+    var ok = await waitPlaying(video, 14000);
+    if (!ok && video.readyState < 2) {
+      throw new Error(rec.liveError || "video never started (" + (resolved.via || "") + ")");
     }
 
     rec.live = true;
-    rec.hubFrame = true; // don't let simLum overwrite
+    rec.hubFrame = true;
     rec.timer = global.setInterval(function () {
       var lum = sampleVideo(video, opts.glyphN || GLYPH_N);
       if (lum) {
@@ -187,6 +247,15 @@
         if (typeof opts.onSample === "function") opts.onSample(rec);
       }
     }, opts.sampleMs || SAMPLE_MS);
+
+    // first sample ASAP
+    setTimeout(function () {
+      var lum = sampleVideo(video, opts.glyphN || GLYPH_N);
+      if (lum) {
+        rec.lum = lum;
+        if (typeof opts.onSample === "function") opts.onSample(rec);
+      }
+    }, 400);
 
     return rec;
   }
@@ -214,9 +283,6 @@
     }
   }
 
-  /**
-   * Start live for up to MAX_LIVE main ids (staggered resolve).
-   */
   async function startMainLive(tileMap, mainIds, opts) {
     opts = opts || {};
     var max = opts.max != null ? opts.max : MAX_LIVE;
@@ -230,15 +296,28 @@
         if (opts.onStatus) opts.onStatus("resolving " + (rec.src.label || id) + "…");
         await startTileLive(rec, opts);
         results.ok++;
-        if (opts.onStatus) opts.onStatus("live · " + (rec.src.label || id) + " · " + (rec.resolved && rec.resolved.via));
+        if (opts.onStatus)
+          opts.onStatus(
+            "live " +
+              results.ok +
+              "/" +
+              ids.length +
+              " · " +
+              (rec.src.label || id) +
+              " · " +
+              (rec.resolved && rec.resolved.via)
+          );
       } catch (e) {
         results.fail++;
         rec.liveError = e && e.message ? e.message : String(e);
         results.errors.push(id + ": " + rec.liveError);
         if (opts.onStatus) opts.onStatus("fail · " + id + " · " + rec.liveError);
       }
-      // stagger so we don't hammer yt-dlp
-      if (i + 1 < ids.length) await new Promise(function (r) { setTimeout(r, 600); });
+      if (i + 1 < ids.length) {
+        await new Promise(function (r) {
+          setTimeout(r, RESOLVE_GAP_MS);
+        });
+      }
     }
     return results;
   }
@@ -247,11 +326,17 @@
     if (!tileMap) return;
     tileMap.forEach(function (rec) {
       stopTileLive(rec);
-      if (rec) {
-        rec.hubFrame = false;
-        // keep last lum; sim resumes if hubFrame false
-      }
+      if (rec) rec.hubFrame = false;
     });
+  }
+
+  function countLive(tileMap) {
+    var n = 0;
+    if (!tileMap) return 0;
+    tileMap.forEach(function (rec) {
+      if (rec && (rec.live || rec.hubFrame) && rec.video) n++;
+    });
+    return n;
   }
 
   global.GY_NEWS_LIVE = {
@@ -261,6 +346,7 @@
     startMainLive: startMainLive,
     stopAllLive: stopAllLive,
     sampleVideo: sampleVideo,
+    countLive: countLive,
     MAX_LIVE: MAX_LIVE,
     blankBase: blankBase,
     hubBase: hubBase,

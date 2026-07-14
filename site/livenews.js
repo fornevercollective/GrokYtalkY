@@ -448,8 +448,19 @@
     if (!el.meta) return;
     let live = 0;
     tileMap.forEach((t) => {
-      if (t.live) live++;
+      // real YT sampler: video element + recent sample or hubFrame
+      if (
+        t.live ||
+        (t.video && t.hubFrame) ||
+        (t.lastSample && Date.now() - t.lastSample < 4000)
+      ) {
+        live++;
+      }
     });
+    if (LIVE && LIVE.countLive) {
+      const n = LIVE.countLive(tileMap);
+      if (n > live) live = n;
+    }
     const mode = ws && ws.readyState === 1 ? 'hub' : 'poster';
     const vs = TH && TH.visionStats ? TH.visionStats() : { sam: 0, pose: 0 };
     el.meta.innerHTML =
@@ -458,9 +469,9 @@
       allSources().length +
       '</em> catalog · main <em>' +
       mainIds.length +
-      '</em> · live ' +
+      '</em> · live <em style="color:#6ee7b7">' +
       live +
-      ' · SAM <em>' +
+      '</em> · SAM <em>' +
       vs.sam +
       '</em> · pose <em>' +
       vs.pose +
@@ -990,58 +1001,86 @@
   el.castTv && el.castTv.addEventListener('click', () => startCast(true));
   el.castStop && el.castStop.addEventListener('click', stopCast);
 
+  let goLiveBusy = false;
   async function goLiveMain() {
+    if (goLiveBusy) return;
     if (!LIVE) {
-      if (el.meta) el.meta.textContent = 'news-live.js missing';
+      if (el.meta) el.meta.innerHTML = '<em class="err">news-live.js missing</em> — hard refresh';
       return;
     }
-    if (!mainIds.length) fillFromSort();
-    // ensure at least a few known-good US news if empty
-    if (!mainIds.length) {
-      mainIds = ['cnn', 'bbc', 'sky', 'aje', 'cnbc', 'cspan'].filter((id) => NS.findById(id));
-      mainIds.forEach((id) => {
-        const s = NS.findById(id);
-        if (s) ensureRec(s);
+    goLiveBusy = true;
+    try {
+      if (!mainIds.length) fillFromSort();
+      // known-good live news defaults
+      if (!mainIds.length) {
+        mainIds = ['cnn', 'bbc', 'sky', 'aje', 'cnbc', 'cspan'].filter((id) => NS.findById(id));
+        mainIds.forEach((id) => {
+          const s = NS.findById(id);
+          if (s) ensureRec(s);
+        });
+        renderMain();
+      }
+      // pin only first MAX for resolve budget
+      const maxN = LIVE.MAX_LIVE || 4;
+      if (mainIds.length > maxN) {
+        mainIds = mainIds.slice(0, maxN);
+        renderMain();
+      }
+      if (el.goLive) {
+        el.goLive.classList.add('is-on');
+        el.goLive.textContent = 'Going live…';
+        el.goLive.disabled = true;
+      }
+      if (el.stopLive) el.stopLive.hidden = false;
+      if (!ws || ws.readyState !== WebSocket.OPEN) connect();
+      if (el.meta) el.meta.textContent = 'resolving YouTube live via blank/hub…';
+      if (el.mainSub) el.mainSub.textContent = 'resolving…';
+
+      const res = await LIVE.startMainLive(tileMap, mainIds, {
+        max: maxN,
+        onStatus: function (s) {
+          if (el.meta) el.meta.textContent = s;
+          if (el.mainSub) el.mainSub.textContent = s;
+        },
+        onSample: function (rec) {
+          if (rec.canvas && rec.lum && G.paintGlyphCanvas) {
+            G.paintGlyphCanvas(rec.canvas, rec.lum, {
+              cell: rec.canvas.width <= 100 ? 3 : 5,
+              tint: 0,
+            });
+            const parent = rec.canvas.parentElement;
+            if (parent) parent.classList.add('is-live');
+          }
+        },
       });
-      renderMain();
-    }
-    if (el.goLive) {
-      el.goLive.classList.add('is-on');
-      el.goLive.textContent = 'Going live…';
-    }
-    if (el.stopLive) el.stopLive.hidden = false;
-    if (!ws || ws.readyState !== WebSocket.OPEN) connect();
-    const res = await LIVE.startMainLive(tileMap, mainIds, {
-      max: LIVE.MAX_LIVE || 6,
-      onStatus: function (s) {
-        if (el.meta) el.meta.textContent = s;
-        if (el.mainSub) el.mainSub.textContent = s;
-      },
-      onSample: function (rec) {
-        // repaint this tile canvas if present
-        if (rec.canvas && rec.lum && G.paintGlyphCanvas) {
-          G.paintGlyphCanvas(rec.canvas, rec.lum, {
-            cell: rec.canvas.width <= 100 ? 3 : 5,
-            tint: 0,
-          });
-        }
-      },
-    });
-    if (el.goLive) {
-      el.goLive.textContent = 'Live · ' + res.ok + ' streams';
-    }
-    if (el.meta) {
-      el.meta.innerHTML =
-        '<em>live</em> ' +
-        res.ok +
-        ' · fail ' +
-        res.fail +
-        (res.errors.length ? ' · ' + escapeHtml(res.errors[0]) : '');
-    }
-    // start casting to hub so TV/glyph-cast see real frames
-    if (res.ok > 0) {
-      startCastLoop();
-      if (el.castStop) el.castStop.hidden = false;
+      if (el.goLive) {
+        el.goLive.textContent = res.ok ? 'Live · ' + res.ok : 'Retry Go live';
+        el.goLive.disabled = false;
+      }
+      if (el.meta) {
+        el.meta.innerHTML =
+          '<em>live</em> ' +
+          res.ok +
+          ' · fail ' +
+          res.fail +
+          (res.errors.length ? ' · ' + escapeHtml(res.errors[0].slice(0, 80)) : '') +
+          (res.ok ? ' · real YT frames' : ' · check blank :5173');
+      }
+      if (el.mainSub) {
+        el.mainSub.textContent = res.ok ? 'LIVE youtube · ' + res.ok + ' streams' : 'sim · go live failed';
+      }
+      if (res.ok > 0) {
+        startCastLoop();
+        if (el.castStop) el.castStop.hidden = false;
+      }
+    } catch (e) {
+      if (el.meta) el.meta.textContent = 'go live error · ' + (e && e.message ? e.message : e);
+      if (el.goLive) {
+        el.goLive.textContent = 'Retry Go live';
+        el.goLive.disabled = false;
+      }
+    } finally {
+      goLiveBusy = false;
     }
   }
 
@@ -1059,16 +1098,20 @@
   el.goLive && el.goLive.addEventListener('click', () => goLiveMain());
   el.stopLive && el.stopLive.addEventListener('click', () => stopLiveMain());
 
-  // auto: ?live=1 · ?golive=1
+  // auto: ?live=1 · ?golive=1 · default auto-live for dev
   try {
     const q = new URLSearchParams(location.search);
-    if (q.get('live') === '1' || q.get('golive') === '1') {
+    const auto =
+      q.get('live') === '1' ||
+      q.get('golive') === '1' ||
+      q.get('live') !== '0'; // default on unless live=0
+    if (auto) {
       setTimeout(function () {
         if (!ws || ws.readyState !== WebSocket.OPEN) connect();
         setTimeout(function () {
           goLiveMain();
-        }, 500);
-      }, 400);
+        }, 700);
+      }, 500);
     }
   } catch (_) {}
   el.shuffle && el.shuffle.addEventListener('click', shuffleMain);
