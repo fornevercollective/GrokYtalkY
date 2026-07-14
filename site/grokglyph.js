@@ -169,6 +169,8 @@
   let sceneMode = true;
   /** URL ?slot=L1 forces this device into a scene seat */
   let forcedSlot = "";
+  /** laptop | phone — UI role for this browser */
+  let deviceRole = "laptop";
   const SCENE_SLOTS = ["L2", "L1", "C", "R1", "R2"];
   const SCENE_ORD = { L2: 0, L1: 1, C: 2, R1: 3, R2: 4 };
   /** @type {WebSocket | null} */
@@ -1164,8 +1166,14 @@
       fileOn = false;
       if (els.camBtn) {
         els.camBtn.setAttribute("aria-pressed", "true");
+        const prefix = deviceRole === "phone" ? "phone" : "laptop";
         els.camBtn.textContent =
-          camLanes.length > 1 ? "cams " + camLanes.length : "cam";
+          camLanes.length > 1
+            ? prefix + " " + camLanes.length + " on"
+            : prefix + " on";
+      }
+      if (typeof syncDeviceRoleUI === "function") {
+        /* keep seat chip; cam label overridden above */
       }
       const orderStr = camLanes.map((l) => l.slot + ":" + l.short).join(" · ");
       setCastLabel(
@@ -1217,7 +1225,8 @@
     camOn = false;
     if (els.camBtn) {
       els.camBtn.setAttribute("aria-pressed", "false");
-      els.camBtn.textContent = "cam";
+      els.camBtn.textContent =
+        deviceRole === "phone" ? "open phone cams" : "open laptop cam";
     }
     peers.forEach((p) => {
       if (p.selfCam || p.source === "cam") {
@@ -3187,7 +3196,7 @@
   }
 
 
-  // boot — filmmaker scene params
+  // boot — filmmaker scene params + device role
   try {
     const q = new URLSearchParams(location.search);
     if (q.get("scene") === "0" || q.get("scene") === "off") sceneMode = false;
@@ -3197,14 +3206,154 @@
       forcedSlot = sl;
       sceneMode = true;
     }
+    const roleQ = (q.get("role") || q.get("device") || "").toLowerCase();
+    if (roleQ === "phone" || roleQ === "mobile") deviceRole = "phone";
+    if (roleQ === "laptop" || roleQ === "desk" || roleQ === "mac") deviceRole = "laptop";
+    // auto: mobile UA + non-C slot → phone
+    if (!roleQ && isMobileUA()) {
+      deviceRole = forcedSlot && forcedSlot !== "C" ? "phone" : "phone";
+    } else if (!roleQ && !isMobileUA()) {
+      deviceRole = "laptop";
+      if (!forcedSlot) forcedSlot = "C";
+    }
+    if (deviceRole === "phone" && !forcedSlot) forcedSlot = "L1";
+    if (deviceRole === "laptop" && !forcedSlot) forcedSlot = "C";
   } catch {
     /* ignore */
+  }
+
+  function syncDeviceRoleUI() {
+    const isPhone = deviceRole === "phone";
+    const slot = forcedSlot || (isPhone ? "L1" : "C");
+    const rl = document.getElementById("gg-role-laptop");
+    const rp = document.getElementById("gg-role-phone");
+    if (rl) {
+      rl.setAttribute("aria-pressed", isPhone ? "false" : "true");
+      rl.classList.toggle("is-on", !isPhone);
+    }
+    if (rp) {
+      rp.setAttribute("aria-pressed", isPhone ? "true" : "false");
+      rp.classList.toggle("is-on", isPhone);
+    }
+    document.querySelectorAll(".gg-slot-btn").forEach((btn) => {
+      const on = btn.getAttribute("data-slot") === slot;
+      btn.classList.toggle("is-on", on);
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    const chip = document.getElementById("gg-role-chip");
+    if (chip) {
+      chip.textContent = (isPhone ? "phone" : "laptop") + " · " + slot;
+      chip.classList.toggle("is-phone", isPhone);
+      chip.title = isPhone
+        ? "This browser is a phone cam · seat " + slot + " · open cams then cast live"
+        : "This browser is the laptop / director · seat " + slot + " · open cams for webcam C";
+    }
+    const cam = document.getElementById("gg-cam");
+    if (cam && !camOn) {
+      cam.textContent = isPhone ? "open phone cams" : "open laptop cam";
+      cam.title = isPhone
+        ? "Open front/back on THIS phone only · then cast live to join the laptop stage"
+        : "Open webcam(s) on THIS laptop (center C) · does not start phones";
+    }
+    const cast = document.getElementById("gg-cast");
+    if (cast && !casting) {
+      cast.textContent = isPhone ? "cast phone" : "cast live";
+    }
+    const cl = document.getElementById("gg-card-laptop");
+    const cp = document.getElementById("gg-card-phone");
+    if (cl) cl.classList.toggle("is-on", !isPhone);
+    if (cp) cp.classList.toggle("is-on", isPhone);
+    const dl = document.getElementById("gg-device-label");
+    if (dl) dl.textContent = isPhone ? "phone" : "laptop";
+  }
+
+  function setDeviceRole(role, opts) {
+    opts = opts || {};
+    deviceRole = role === "phone" ? "phone" : "laptop";
+    if (deviceRole === "laptop") {
+      if (!forcedSlot || opts.resetSlot) forcedSlot = "C";
+    } else {
+      if (!forcedSlot || forcedSlot === "C" || opts.resetSlot) forcedSlot = "L1";
+    }
+    // reflect in URL without reload
+    try {
+      const u = new URL(location.href);
+      u.searchParams.set("role", deviceRole);
+      u.searchParams.set("slot", forcedSlot);
+      history.replaceState(null, "", u.pathname + u.search + u.hash);
+    } catch {
+      /* ignore */
+    }
+    syncDeviceRoleUI();
+    if (els.hubHint) {
+      els.hubHint.textContent =
+        deviceRole === "phone"
+          ? "Phone mode · seat " +
+            forcedSlot +
+            ". Tap open phone cams, then cast phone. Laptop is separate — it won’t open this camera."
+          : "Laptop mode · seat " +
+            forcedSlot +
+            " (center). Tap open laptop cam for webcam. Phones open their own page with seat L1/R1.";
+    }
+    setCastLabel(deviceRole + " · " + forcedSlot);
+    // re-open cams with new slot preference if already on
+    if (camOn && opts.reopen) {
+      enableCam({ all: true, force: true });
+    } else {
+      layoutAndPaint();
+    }
+  }
+
+  function setSceneSlot(slot, opts) {
+    opts = opts || {};
+    slot = String(slot || "C").toUpperCase();
+    if (SCENE_SLOTS.indexOf(slot) < 0) return;
+    forcedSlot = slot;
+    if (slot === "C") deviceRole = "laptop";
+    else if (deviceRole === "laptop" && slot !== "C") {
+      // choosing L/R on a desk browser still marks as satellite
+      deviceRole = isMobileUA() ? "phone" : "laptop";
+    }
+    try {
+      const u = new URL(location.href);
+      u.searchParams.set("slot", forcedSlot);
+      u.searchParams.set("role", deviceRole);
+      history.replaceState(null, "", u.pathname + u.search + u.hash);
+    } catch {
+      /* ignore */
+    }
+    syncDeviceRoleUI();
+    setCastLabel((deviceRole === "phone" ? "phone" : "laptop") + " · seat " + slot);
+    if (camOn && opts.reopen !== false) {
+      enableCam({ all: true, force: true });
+    } else {
+      layoutAndPaint();
+    }
   }
 
   initPeers();
   wire();
   wireExtra();
-  // Scene mode toggle (filmmaker L2·L1·C·R1·R2)
+  syncDeviceRoleUI();
+
+  // Device role: laptop vs phone
+  const roleLaptop = document.getElementById("gg-role-laptop");
+  const rolePhone = document.getElementById("gg-role-phone");
+  if (roleLaptop) roleLaptop.addEventListener("click", () => setDeviceRole("laptop", { resetSlot: true }));
+  if (rolePhone) rolePhone.addEventListener("click", () => setDeviceRole("phone", { resetSlot: true }));
+  const cardL = document.getElementById("gg-card-laptop");
+  const cardP = document.getElementById("gg-card-phone");
+  if (cardL) cardL.addEventListener("click", () => setDeviceRole("laptop", { resetSlot: true }));
+  if (cardP) cardP.addEventListener("click", () => setDeviceRole("phone", { resetSlot: true }));
+
+  // Scene seat segment
+  document.querySelectorAll(".gg-slot-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      setSceneSlot(btn.getAttribute("data-slot"), { reopen: camOn });
+    });
+  });
+
+  // Scene layout toggle (stage order)
   const sceneBtn = document.getElementById("gg-scene");
   if (sceneBtn) {
     sceneBtn.setAttribute("aria-pressed", sceneMode ? "true" : "false");
@@ -3213,10 +3362,10 @@
       sceneMode = !sceneMode;
       sceneBtn.setAttribute("aria-pressed", sceneMode ? "true" : "false");
       sceneBtn.classList.toggle("is-on", sceneMode);
-      setCastLabel(sceneMode ? "scene order on" : "scene order off");
+      setCastLabel(sceneMode ? "layout L2·L1·C·R1·R2" : "layout free");
       if (els.hubHint) {
         els.hubHint.textContent = sceneMode
-          ? "Scene mode: tiles L2·L1·[laptop C]·R1·R2. Phones use ?slot=L1 or ?slot=R1 + Cast."
+          ? "Stage ordered L2·L1·[laptop C]·R1·R2. Set device role + seat, then open cams on each machine."
           : "Free layout (self first).";
       }
       layoutAndPaint();

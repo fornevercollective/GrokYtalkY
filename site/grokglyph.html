@@ -30,17 +30,56 @@
     </a>
 
     <div class="gg-header-main" role="toolbar" aria-label="Main controls">
-      <button type="button" class="gg-hbtn" id="gg-cam" title="Open all cameras (laptop + phone front/back) as ordered scene · tap again to stop" aria-pressed="false">cam</button>
-      <button type="button" class="gg-hbtn is-on" id="gg-scene" title="Filmmaker scene order: L2 · L1 · laptop C · R1 · R2" aria-pressed="true">scene</button>
-      <button type="button" class="gg-hbtn" id="gg-hdri" title="HDRI hurdle hop: freeze cams → subject strip + equirect probe · export · cast sphere" aria-pressed="false">HDRI</button>
-      <button type="button" class="gg-hbtn primary" id="gg-cast" title="Simulcast every open cam lane to mesh / sphere" aria-pressed="false">cast</button>
-      <button type="button" class="gg-hbtn" id="gg-screen" title="Cast Glyph player to screen / external display (full LED resolution)" aria-pressed="false">screen</button>
-      <button type="button" class="gg-hbtn" id="gg-hub" title="Connect mesh hub" aria-pressed="false">hub</button>
-      <button type="button" class="gg-hbtn" id="gg-add" title="Add peer slot">+</button>
-      <button type="button" class="gg-hbtn" id="gg-mesh-toggle" title="Mesh join" aria-pressed="true">mesh</button>
-      <button type="button" class="gg-hbtn danger" id="gg-clear-room" title="Clear room (delete all peers)">clear</button>
-      <button type="button" class="gg-hbtn gg-hide-narrow" id="gg-nfc-add" title="NFC tap add">nfc</button>
+      <!-- 1 · This device: laptop vs phone role -->
+      <div class="gg-tool-group gg-tool-device" role="group" aria-label="This device">
+        <span class="gg-tool-label" id="gg-device-label">device</span>
+        <button type="button" class="gg-hbtn gg-role-laptop" id="gg-role-laptop"
+          title="This is the laptop / webcam (scene center C)" aria-pressed="false">laptop</button>
+        <button type="button" class="gg-hbtn gg-role-phone" id="gg-role-phone"
+          title="This is a phone cam (pick slot L1/R1 for face/scene)" aria-pressed="false">phone</button>
+      </div>
+      <span class="gg-tool-sep" aria-hidden="true"></span>
+      <!-- 2 · Scene seat for this device -->
+      <div class="gg-tool-group gg-tool-slots" role="group" aria-label="Scene seat">
+        <span class="gg-tool-label">seat</span>
+        <div class="gg-slot-seg" id="gg-slot-seg" role="radiogroup" aria-label="Scene slot">
+          <button type="button" class="gg-slot-btn" data-slot="L2" title="Far left · tele / extra phone" aria-pressed="false">L2</button>
+          <button type="button" class="gg-slot-btn" data-slot="L1" title="Left · phone front (face)" aria-pressed="false">L1</button>
+          <button type="button" class="gg-slot-btn is-on" data-slot="C" title="Center · laptop webcam" aria-pressed="true">C</button>
+          <button type="button" class="gg-slot-btn" data-slot="R1" title="Right · phone back (scene)" aria-pressed="false">R1</button>
+          <button type="button" class="gg-slot-btn" data-slot="R2" title="Far right · ultra-wide / extra" aria-pressed="false">R2</button>
+        </div>
+      </div>
+      <span class="gg-tool-sep" aria-hidden="true"></span>
+      <!-- 3 · Capture -->
+      <div class="gg-tool-group gg-tool-capture" role="group" aria-label="Capture">
+        <span class="gg-tool-label">capture</span>
+        <button type="button" class="gg-hbtn gg-cam-btn" id="gg-cam"
+          title="Open cameras on THIS device only (not remote phones)" aria-pressed="false">open cams</button>
+        <button type="button" class="gg-hbtn is-on" id="gg-scene"
+          title="Order all feeds L2·L1·C·R1·R2 on stage" aria-pressed="true">layout</button>
+        <button type="button" class="gg-hbtn" id="gg-hdri"
+          title="Freeze open cams → subject strip + equirect probe" aria-pressed="false">HDRI</button>
+      </div>
+      <span class="gg-tool-sep" aria-hidden="true"></span>
+      <!-- 4 · Ship -->
+      <div class="gg-tool-group gg-tool-ship" role="group" aria-label="Ship">
+        <span class="gg-tool-label">ship</span>
+        <button type="button" class="gg-hbtn primary" id="gg-cast"
+          title="Stream this device’s open cams to hub / sphere (phones must cast themselves)" aria-pressed="false">cast live</button>
+        <button type="button" class="gg-hbtn" id="gg-screen" title="External screen / TV glyph player" aria-pressed="false">TV</button>
+        <button type="button" class="gg-hbtn" id="gg-hub" title="Connect mesh hub WebSocket" aria-pressed="false">hub</button>
+      </div>
+      <span class="gg-tool-sep gg-hide-narrow" aria-hidden="true"></span>
+      <div class="gg-tool-group gg-tool-room gg-hide-narrow" role="group" aria-label="Room">
+        <button type="button" class="gg-hbtn" id="gg-add" title="Add empty peer tile">+</button>
+        <button type="button" class="gg-hbtn" id="gg-mesh-toggle" title="Mesh join filter" aria-pressed="true">mesh</button>
+        <button type="button" class="gg-hbtn danger" id="gg-clear-room" title="Clear room peers">clear</button>
+        <button type="button" class="gg-hbtn" id="gg-nfc-add" title="NFC tap add">nfc</button>
+      </div>
       <span class="gg-status" id="gg-status" aria-live="polite">
+        <span class="gg-role-chip" id="gg-role-chip" title="This device role">laptop · C</span>
+        <span class="gg-status-sep">·</span>
         <span id="gg-cast-label">idle</span>
         <span class="gg-status-sep">·</span>
         <span id="gg-count-label">0</span>
@@ -122,12 +161,23 @@
               <input type="text" id="gg-room-id" placeholder="global" autocomplete="off" spellcheck="false" />
             </label>
             <p class="gg-hint" id="gg-hub-hint">
-              <strong>Cam</strong> opens every local lens (laptop webcam + phone front/back when the OS allows) and
-              places them in <strong>scene order</strong> L2 · L1 · <em>C laptop</em> · R1 · R2 for face/scene scans.
-              Phones join the same hub with <code>?slot=L1</code> or <code>?slot=R1</code> (and optional back as R2) then <strong>Cast</strong>.
-              Simulcast ships every lane as hexlum + vburst (<code>cast:sphere</code>). Use HTTPS for permission.
-              <strong>BitChat</strong>: text dual-path offline via <code>/api/bitchat</code>.
+              <strong>Laptop</strong> = center seat <em>C</em> (webcam). <strong>Phone</strong> = pick seat
+              <em>L1</em> (face) or <em>R1</em> (scene), then <strong>open cams</strong> on that device only.
+              Remote phones do <strong>not</strong> open from the laptop button — each phone opens itself and hits
+              <strong>cast live</strong>. Layout = stage order L2·L1·C·R1·R2. HTTPS for camera permission.
             </p>
+            <div class="gg-device-cards" id="gg-device-cards" aria-label="Device role">
+              <button type="button" class="gg-device-card" id="gg-card-laptop" data-role="laptop">
+                <span class="gg-device-icon" aria-hidden="true">💻</span>
+                <strong>Laptop</strong>
+                <span>Webcam · seat C · director</span>
+              </button>
+              <button type="button" class="gg-device-card" id="gg-card-phone" data-role="phone">
+                <span class="gg-device-icon" aria-hidden="true">📱</span>
+                <strong>Phone</strong>
+                <span>Front/back · seat L1 or R1 · cast in</span>
+              </button>
+            </div>
             <div class="gg-btn-row">
               <button type="button" class="btn ghost danger" id="gg-clear-room-drawer">Delete / clear room</button>
               <label class="gg-file-label btn ghost">
